@@ -133,9 +133,11 @@ is hash-guarded and installed by ``apply_session`` after the loop half.
 The three series are created at 0 as soon as the server builds its metrics registry
 (``init_metrics_from_server_config`` is wrapped; the registry does not exist at import), and
 at the first run start or count if that hook found none, so ``increase()`` sees the first
-event. A missing registry fails open. One window remains: a stop after the memory write but
-before the extraction wrote ``memory_diff.json`` (or an unchanged-update-only extraction,
-which writes no diff) leaves no durable trace, so that retry can be measured.
+event. A missing registry fails open. One window remains: stock ``extract_long_term_memories``
+writes ``memory_diff.json`` unconditionally, zero operations included (compressor_v3.py:513),
+so only a stop before that line leaves no durable trace and that retry can be measured.
+The ``.failed.json`` check guards a direct Phase 2 re-run only: ``resume_queued_commit``
+returns on an existing ``.failed.json`` (session.py:1872-1886).
 
 Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
@@ -191,7 +193,7 @@ EXPECTED_ACQUIRE_LEASE_SHA256 = (
     "ca2c9480fd785fca2bf500789854e2369661137fd78c9be419d474b715196843"
 )
 # IMPR-1453: ``Session._run_memory_extraction``, ``_merge_and_save_commit_meta`` and
-# ``_write_done_file`` on v0.5.1.1 (session.py:2091, 2963, 2605).
+# ``_write_done_file`` on v0.5.1.1 (session.py:2091, 2965, 2605).
 EXPECTED_RUN_EXTRACTION_SHA256 = (
     "d64ddfa93c3d0d33c665f372c746f22f9bca9f670c7c4542d4e68f3e1527e9d2"
 )
@@ -749,8 +751,9 @@ def _archive_uri_of(args, kwargs):
     return uri
 
 
-async def _started_fresh(session, archive_uri, is_not_found) -> bool | None:
-    """True when nothing shows an earlier attempt at this archive's memory work.
+async def _started_fresh(session, archive_uri, is_not_found) -> tuple[bool | None, str]:
+    """``(fresh, found)``: fresh is True when nothing shows an earlier attempt, False when
+    something does (``found`` names it), None when the start state cannot be read.
 
     An earlier attempt shows as a completed step in ``.meta.json`` (persisted per finished
     step), or, because the stock code writes them before that checkpoint, a
@@ -769,18 +772,18 @@ async def _started_fresh(session, archive_uri, is_not_found) -> bool | None:
         raw = await session._viking_fs.read_file(f"{base}/.meta.json", ctx=session.ctx)
         steps = (json.loads(raw or "{}") or {}).get("completed_memory_steps") or {}
         if any(steps.values()):
-            return False
+            return False, "a completed memory step"
     except Exception as exc:
         if not missing(exc):
-            return None
+            return None, ""
     for name in ("memory_diff.json", ".failed.json"):
         try:
             if await session._viking_fs.exists(f"{base}/{name}", ctx=session.ctx):
-                return False
+                return False, name
         except Exception as exc:
             if not missing(exc):
-                return None
-    return True
+                return None, ""
+    return True, ""
 
 
 def ensure_series(registry=None) -> None:
@@ -851,20 +854,23 @@ def apply_metrics(module) -> bool:
 def wrap_run_extraction(orig, is_not_found=None):
     """Open the per-run state around one Phase 2 run (swallows its own failures).
 
-    The run is measured only if no memory step was complete when it started: a recovery
-    skips the finished steps and cannot report what they filed.
+    The run is measured only if nothing showed an earlier attempt when it started (a
+    completed memory step, a ``memory_diff.json`` or a ``.failed.json``): a recovery skips
+    the finished steps and cannot report what they filed.
     """
 
     @functools.wraps(orig)
     async def _run_memory_extraction(self, *args, **kwargs):
-        state = {"loops": 0, "memories": 0, "seen": False, "fresh": None}
+        state = {"loops": 0, "memories": 0, "seen": False, "fresh": None, "found": ""}
         token = _ARCHIVE.set(state)
         try:
             ensure_series()
             uri = _archive_uri_of(args, kwargs)
             if uri:
                 with contextlib.suppress(Exception):
-                    state["fresh"] = await _started_fresh(self, uri, is_not_found)
+                    state["fresh"], state["found"] = await _started_fresh(
+                        self, uri, is_not_found
+                    )
             return await orig(self, *args, **kwargs)
         finally:
             _ARCHIVE.reset(token)
@@ -886,7 +892,7 @@ def count_zero_result(archive_uri) -> None:
             return
         if archive["fresh"] is not True or not archive["seen"]:
             why = (
-                "recovered (a memory step was already complete)"
+                f"an earlier attempt left {archive['found']}"
                 if archive["fresh"] is False
                 else "start state unknown"
                 if archive["fresh"] is None
@@ -962,7 +968,7 @@ def wrap_write_done(orig):
 
 
 def _apply_zero_result_counter(module) -> bool:
-    """Wrap the two Session methods; all or none, each guarded on its source hash."""
+    """Wrap the three Session methods; all or none, each guarded on its source hash."""
     cls = getattr(module, "Session", None)
     targets = (
         (

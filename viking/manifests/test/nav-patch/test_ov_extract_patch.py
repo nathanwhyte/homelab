@@ -1870,15 +1870,19 @@ class FakeSession:
                     *[session_loop(Loop()) for _ in range(self.loops)],
                     *[merge_loop(MergeLoop()) for _ in range(self.merge_loops)],
                 )
+                if self.fail_at == "cancel_before_diff":
+                    raise asyncio.CancelledError()  # stopped before compressor_v3.py:513
                 if self.produce:
                     memories = {"events": self.produce}
-                    if (
-                        not self.unchanged
-                    ):  # an unchanged update is a context, not a diff op
-                        await self._viking_fs.write_file(
-                            f"{archive_uri}/memory_diff.json",
-                            json.dumps({"summary": {"total_adds": self.produce}}),
-                        )
+                if self.loops:
+                    # compressor_v3.py:513 writes the diff unconditionally, with zero
+                    # operations when nothing changed (an unchanged update is a context
+                    # but not a diff op).
+                    adds = 0 if self.unchanged else self.produce
+                    await self._viking_fs.write_file(
+                        f"{archive_uri}/memory_diff.json",
+                        json.dumps({"summary": {"total_adds": adds}}),
+                    )
                 if self.fail_at == "cancel_before_checkpoint":
                     raise asyncio.CancelledError()  # memory written, no step recorded
                 if self.loops:
@@ -2040,14 +2044,18 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
         self.assertTrue(self.marker(".done"))
         self.assert_unmeasured()
         self.assertEqual(
-            sum("not measured: recovered" in line for line in logs.output), 1
+            sum(
+                "not measured: an earlier attempt left a completed memory step" in line
+                for line in logs.output
+            ),
+            1,
         )
 
     def test_a_recovery_is_not_measured_whatever_the_earlier_run_filed(self):
         for attrs in (
             {"loops": 2},  # empty
             {"loops": 1, "produce": 1},  # filed, with a diff
-            {"loops": 1, "produce": 1, "unchanged": True},  # filed, no diff operation
+            {"loops": 1, "produce": 1, "unchanged": True},  # filed, zero-op diff
         ):
             with self.subTest(attrs=attrs):
                 self.fs, self.steps = FakeFS(), set()
@@ -2103,6 +2111,53 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
                 self.run_archive(loops=1, produce=0)
                 self.assertTrue(self.marker(".done"))
                 self.assert_unmeasured()
+
+    def test_the_not_measured_line_names_what_was_found(self):
+        def not_measured_lines(setup):
+            self.fs, self.steps = FakeFS(), set()
+            self.registry.calls.clear()
+            setup()
+            with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+                self.run_archive(loops=1, fail_at=None)
+            return [line for line in logs.output if "not measured" in line]
+
+        def step():
+            self.run_archive(loops=1, fail_at="cancel_mid")
+
+        def diff():
+            self.fs.files[f"{ARCHIVE_URI}/memory_diff.json"] = "{}"
+
+        def failed():
+            self.fs.files[f"{ARCHIVE_URI}/.failed.json"] = "{}"
+
+        for setup, found, others in (
+            (
+                step,
+                "left a completed memory step",
+                ("memory_diff.json", ".failed.json"),
+            ),
+            (diff, "left memory_diff.json", ("completed memory step", ".failed.json")),
+            (
+                failed,
+                "left .failed.json",
+                ("completed memory step", "memory_diff.json"),
+            ),
+        ):
+            with self.subTest(found=found):
+                lines = not_measured_lines(setup)
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn("an earlier attempt " + found, lines[0])
+                for other in others:
+                    self.assertNotIn(other, lines[0])
+
+    def test_a_stop_before_the_diff_is_written_leaves_no_trace_so_the_retry_is_measured(
+        self,
+    ):
+        # The one window that remains (compressor_v3.py:513 not reached).
+        self.run_archive(loops=1, produce=1, fail_at="cancel_before_diff")
+        self.assertFalse(self.marker("memory_diff.json"))
+        self.run_archive(produce=0, fail_at=None)
+        self.assertEqual(self.reasons(), ["empty"])
 
     def test_a_failing_existence_check_is_unknown_and_a_missing_file_is_fresh(self):
         exists = self.fs.exists
@@ -2455,13 +2510,17 @@ def _zero_counter_harness_main(scenario):
                     {"summary": {"total_adds": 1}}
                 )
                 return {"contexts": [types.SimpleNamespace(category="events")]}
+            if scenario == "stop_before_diff" and state["extractions"] == 1:
+                raise asyncio.CancelledError("stopped before compressor_v3.py:513")
+            # compressor_v3.py:513 writes the diff on every extraction, with zero
+            # operations when nothing changed (an unchanged update is not a diff op).
+            adds = 1 if scenario in MEMORY_SCENARIOS else 0
+            if scenario == "recovered_unchanged":
+                adds = 0
+            files[f"{archive_uri}/memory_diff.json"] = json.dumps(
+                {"summary": {"total_adds": adds}}
+            )
             if scenario in MEMORY_SCENARIOS:
-                if (
-                    scenario != "recovered_unchanged"
-                ):  # an unchanged update has no diff op
-                    files[f"{archive_uri}/memory_diff.json"] = json.dumps(
-                        {"summary": {"total_adds": 1}}
-                    )
                 return {"contexts": [types.SimpleNamespace(category="events")]}
             return {"contexts": []}
 
@@ -2622,6 +2681,11 @@ class ZeroResultRealSessionTests(unittest.TestCase):
         record = _run_zero_counter_harness("restart_empty")
         self.assertEqual(record["extractions"], 1)
         self.assert_counted(record, [], 0)
+
+    def test_a_retry_after_a_stop_before_the_diff_is_written_is_measured(self):
+        record = _run_zero_counter_harness("stop_before_diff")
+        self.assertEqual(record["extractions"], 2)
+        self.assert_counted(record, ["empty"], 1)
 
     def test_a_retry_after_a_stop_before_the_checkpoint_is_not_measured(self):
         # The memory (and its diff) landed, the checkpoint did not: no completed step.
