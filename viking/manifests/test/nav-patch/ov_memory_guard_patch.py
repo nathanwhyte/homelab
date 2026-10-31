@@ -76,7 +76,7 @@ the summary only, so a decision that appears only in the ChatLog is lost with it
 ``OV_EVENT_EXCERPT_CHECK`` logs an event whose summary names a ``#N`` its excerpt lacks,
 ``OV_PREF_DEDUPE`` logs a preference equal to another (log only, never a skip), and
 ``OV_PROFILE_PREFETCH_PEER_ONLY`` keeps the user-level singleton out of the extraction
-prefetch when a peer's is there. Each is ``0|1|shadow`` with unset and typos meaning
+prefetch when the rendered directories include a peer's (its file may not exist yet). Each is ``0|1|shadow`` with unset and typos meaning
 shadow, and writes one ``ov-profile-filter`` / ``ov-event-excerpt`` / ``ov-pref-dup`` /
 ``ov-profile-prefetch`` stderr line per match. A failure to write that line, or any check
 failure, never fails a write or a prefetch.
