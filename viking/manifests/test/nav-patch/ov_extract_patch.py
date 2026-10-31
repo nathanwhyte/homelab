@@ -135,7 +135,8 @@ The three series are created at 0 as soon as the server builds its metrics regis
 at the first run start or count if that hook found none, so ``increase()`` sees the first
 event. A missing registry fails open. One window remains: stock ``extract_long_term_memories``
 writes ``memory_diff.json`` unconditionally, zero operations included (compressor_v3.py:513),
-so only a stop before that line leaves no durable trace and that retry can be measured.
+so only a stop, or a retryable error repeated inside one measured run, before that line
+leaves no durable trace; a retry after a stop can be measured.
 The ``.failed.json`` check guards a direct Phase 2 re-run only: ``resume_queued_commit``
 returns on an existing ``.failed.json`` (session.py:1872-1886).
 

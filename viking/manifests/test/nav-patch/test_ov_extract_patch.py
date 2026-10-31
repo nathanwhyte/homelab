@@ -2511,7 +2511,7 @@ def _zero_counter_harness_main(scenario):
                 )
                 return {"contexts": [types.SimpleNamespace(category="events")]}
             if scenario == "stop_before_diff" and state["extractions"] == 1:
-                raise asyncio.CancelledError("stopped before compressor_v3.py:513")
+                await stop_run()  # stopped before compressor_v3.py:513
             # compressor_v3.py:513 writes the diff on every extraction, with zero
             # operations when nothing changed (an unchanged update is not a diff op).
             adds = 1 if scenario in MEMORY_SCENARIOS else 0
@@ -2559,7 +2559,7 @@ def _zero_counter_harness_main(scenario):
 
     async def save_progress(uri, updates):
         if scenario == "checkpoint_crash" and state["fail"]:
-            raise asyncio.CancelledError("stopped before the progress checkpoint")
+            await stop_run()  # stopped before the progress checkpoint
         if "completed_memory_steps" in updates:
             progress[uri] = {
                 k: set(v) for k, v in updates["completed_memory_steps"].items()
@@ -2574,9 +2574,19 @@ def _zero_counter_harness_main(scenario):
     session._merge_archive_meta = save_progress
     session._tool_outputs = types.SimpleNamespace(hydrate_for_extraction=hydrate)
 
+    async def stop_run():
+        """A process stop: cancel the outer Phase 2 task, not a step inside the gather.
+
+        Stock ``gather(return_exceptions=True)`` turns a step's own ``CancelledError`` into
+        a failed step and writes ``.failed.json``; a shutdown cancels the run itself, which
+        writes no marker unless the tracker reports a requested cancellation.
+        """
+        state["outer"].cancel()
+        await asyncio.sleep(3600)
+
     async def run():
-        try:
-            await session._run_memory_extraction(
+        state["outer"] = asyncio.ensure_future(
+            session._run_memory_extraction(
                 task_id="t1",
                 archive_uri=base,
                 messages=[
@@ -2586,6 +2596,9 @@ def _zero_counter_harness_main(scenario):
                 last_message_id="m0",
                 memory_policy={},
             )
+        )
+        try:
+            await state["outer"]
         except asyncio.CancelledError:
             pass
 
@@ -2599,7 +2612,9 @@ def _zero_counter_harness_main(scenario):
     if scenario not in ("success", "meta_timeout"):
         state["fail"] = False
         state["block_reads"] = True
-        files.pop(f"{base}/.failed.json", None)
+        if scenario not in ("stop_before_diff", "checkpoint_crash"):
+            # A direct re-run after a failed step; a stopped run left no marker to clear.
+            files.pop(f"{base}/.failed.json", None)
         asyncio.run(run())
     print(
         "HARNESS "
@@ -2684,12 +2699,14 @@ class ZeroResultRealSessionTests(unittest.TestCase):
 
     def test_a_retry_after_a_stop_before_the_diff_is_written_is_measured(self):
         record = _run_zero_counter_harness("stop_before_diff")
+        self.assertFalse(record["first_markers"]["failed"])  # a stop leaves no marker
         self.assertEqual(record["extractions"], 2)
         self.assert_counted(record, ["empty"], 1)
 
     def test_a_retry_after_a_stop_before_the_checkpoint_is_not_measured(self):
         # The memory (and its diff) landed, the checkpoint did not: no completed step.
         record = _run_zero_counter_harness("checkpoint_crash")
+        self.assertFalse(record["first_markers"]["failed"])  # a stop leaves no marker
         self.assertEqual(record["extractions"], 2)  # the step ran again
         self.assert_counted(record, [], 0)
         self.assertTrue(record["done"])

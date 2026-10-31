@@ -24,6 +24,13 @@ off switch; a patch failure never breaks the import):
                         (``retry_async`` + ``resolve_extraction_batch_limits``, plus
                         write tracking on ``StreamingMemoryUpdater``;
                         ``OV_EXTRACT_PATCH_CHUNK=0`` turns chunking off alone).
+                        IMPR-1453: zero-memory archive counters
+                        (``openviking_session_archive_zero_memories_total{reason}`` and
+                        ``openviking_session_archive_measured_total``) counted at ``.done``
+                        by wrapping ``Session._run_memory_extraction``,
+                        ``_merge_and_save_commit_meta`` and ``_write_done_file``; the series
+                        are created at 0 when the server builds its metrics registry
+                        (``init_metrics_from_server_config``).
   * ov_chatlog_patch  — BUG-1177: ChatLog speaker labels follow the turn's role
                         (assistant turns read ``assistant``)
                         (``MessageRange._speaker_for``).
