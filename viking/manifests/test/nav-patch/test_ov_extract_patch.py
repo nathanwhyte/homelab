@@ -1805,5 +1805,926 @@ class Phase2HarnessTests(unittest.TestCase):
         )
 
 
+MEASURED_METRIC = "openviking_session_archive_measured_total"
+
+
+class FakeRegistry:
+    def __init__(self):
+        self.calls = []
+        self.inits = []
+
+    def set_counter(self, name, value, *, labels=None, label_names=()):
+        self.inits.append((name, dict(labels or {}), tuple(label_names), value))
+
+    def inc_counter(self, name, *, amount=1.0, labels=None, label_names=()):
+        self.calls.append((name, dict(labels or {}), tuple(label_names), amount))
+
+
+class FakeFS:
+    """Dict-backed storage; ``exists``/``read_file`` shaped like VikingFS."""
+
+    def __init__(self):
+        self.files = {}
+
+    async def exists(self, uri, **kwargs):
+        return uri in self.files
+
+    async def read_file(self, uri, **kwargs):
+        if uri not in self.files:
+            raise FileNotFoundError(uri)
+        return self.files[uri]
+
+    async def write_file(self, uri, content, **kwargs):
+        self.files[uri] = content
+
+
+class FakeSession:
+    """Shape of ``Session`` Phase 2 in stock order, with persisted progress.
+
+    Per run: the long-term step (skipped when ``steps`` already hold it, as recovery
+    skips ``completed_memory_steps``), then ``_merge_and_save_commit_meta``, then
+    ``tracker.complete`` and ``_write_done_file`` last. ``Exception`` is swallowed into
+    ``.failed.json`` as stock does; ``CancelledError`` propagates (shutdown).
+    ``fail_at``: ``cancel_mid`` (after the step is recorded, before the meta save),
+    ``complete`` (tracker.complete raises), ``done`` (the .done write raises).
+    """
+
+    loops = 0  # session-extraction loops the long-term step runs
+    merge_loops = 0
+    produce = 0  # memories the step files (persisted into memory_diff.json)
+    fail_at = None
+    unchanged = False
+
+    def __init__(self, fs=None, steps=None):
+        self._viking_fs = fs or FakeFS()
+        self.ctx = None
+        self.steps = steps if steps is not None else set()
+
+    async def _run_memory_extraction(self, task_id, archive_uri):
+        try:
+            memories = {}
+            if not self.steps:
+                session_loop = make((Ops(), []))
+                merge_loop = make((Ops(), []))
+                await asyncio.gather(
+                    *[session_loop(Loop()) for _ in range(self.loops)],
+                    *[merge_loop(MergeLoop()) for _ in range(self.merge_loops)],
+                )
+                if self.fail_at == "cancel_before_diff":
+                    raise asyncio.CancelledError()  # stopped before compressor_v3.py:513
+                if self.produce:
+                    memories = {"events": self.produce}
+                if self.loops:
+                    # compressor_v3.py:513 writes the diff unconditionally, with zero
+                    # operations when nothing changed (an unchanged update is a context
+                    # but not a diff op).
+                    adds = 0 if self.unchanged else self.produce
+                    await self._viking_fs.write_file(
+                        f"{archive_uri}/memory_diff.json",
+                        json.dumps({"summary": {"total_adds": adds}}),
+                    )
+                if self.fail_at == "cancel_before_checkpoint":
+                    raise asyncio.CancelledError()  # memory written, no step recorded
+                if self.loops:
+                    self.steps.add("m0")
+                    await self._viking_fs.write_file(
+                        f"{archive_uri}/.meta.json",
+                        json.dumps({"completed_memory_steps": {"long_term": ["m0"]}}),
+                    )
+            if self.fail_at == "cancel_mid":
+                raise asyncio.CancelledError()
+            await self._merge_and_save_commit_meta(1, memories, None)
+            if self.fail_at == "complete":
+                raise RuntimeError("tracker.complete failed")
+            await self._write_done_file(
+                archive_uri,
+                "m0",
+                "m0",
+                completed_memory_steps=(
+                    {"long_term": sorted(self.steps)} if self.steps else {}
+                ),
+            )
+        except Exception:
+            await self._viking_fs.write_file(f"{archive_uri}/.failed.json", "{}")
+
+    async def _merge_and_save_commit_meta(
+        self, archive_index, memories_extracted, telemetry_snapshot, *, extra=False
+    ):
+        return None
+
+    async def _write_done_file(
+        self,
+        archive_uri,
+        first_message_id,
+        last_message_id,
+        *,
+        enable_working_memory=None,
+        completed_memory_steps=None,
+    ):
+        if self.fail_at == "done":
+            raise RuntimeError(".done write failed")
+        await self._viking_fs.write_file(f"{archive_uri}/.done", "{}")
+
+
+ARCHIVE_URI = "viking://session/default/s1/history/archive_001"
+
+
+class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
+    HASH_NAMES = (
+        ("EXPECTED_RUN_EXTRACTION_SHA256", "_run_memory_extraction"),
+        ("EXPECTED_MERGE_META_SHA256", "_merge_and_save_commit_meta"),
+        ("EXPECTED_WRITE_DONE_SHA256", "_write_done_file"),
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.registry = FakeRegistry()
+        api = types.ModuleType("openviking.metrics.global_api")
+        api.try_get_metrics_registry = lambda: self.registry
+        self._saved_modules = {
+            name: sys.modules.get(name)
+            for name in (
+                "openviking",
+                "openviking.metrics",
+                "openviking.metrics.global_api",
+            )
+        }
+        sys.modules["openviking"] = types.ModuleType("openviking")
+        sys.modules["openviking.metrics"] = types.ModuleType("openviking.metrics")
+        sys.modules["openviking.metrics.global_api"] = api
+        self.cls = type("S", (FakeSession,), {})
+        self.mod = types.SimpleNamespace(Session=self.cls)
+        # Pin each guard hash to the fake method it wraps (only those the module has).
+        self._hashes = {n: getattr(ep, n) for n, _ in self.HASH_NAMES if hasattr(ep, n)}
+        for const, method in self.HASH_NAMES:
+            if const in self._hashes:
+                setattr(ep, const, ep._source_hash(getattr(FakeSession, method)))
+        self.fs = FakeFS()
+        self.steps = set()
+
+    def tearDown(self):
+        for const, value in self._hashes.items():
+            setattr(ep, const, value)
+        for name, mod in self._saved_modules.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+        super().tearDown()
+
+    def run_archive(self, **attrs):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        for key, value in attrs.items():
+            setattr(self.cls, key, value)
+        with contextlib.suppress(asyncio.CancelledError):
+            asyncio.run(
+                self.cls(self.fs, self.steps)._run_memory_extraction(
+                    task_id="t1", archive_uri=ARCHIVE_URI
+                )
+            )
+
+    def reasons(self):
+        out = []
+        for name, labels, label_names, amount in self.registry.calls:
+            self.assertEqual(amount, 1.0)
+            if name == ep.ZERO_RESULT_METRIC:
+                self.assertEqual(label_names, ("reason",))
+                out.append(labels["reason"])
+            else:
+                self.assertEqual(name, MEASURED_METRIC)
+                self.assertEqual((labels, label_names), ({}, ()))
+        return out
+
+    def measured(self):
+        return sum(1 for c in self.registry.calls if c[0] == MEASURED_METRIC)
+
+    def marker(self, name):
+        return f"{ARCHIVE_URI}/{name}" in self.fs.files
+
+    def test_archive_with_several_loops_counts_once(self):
+        self.run_archive(loops=3, merge_loops=4)
+        self.assertEqual(self.reasons(), ["empty"])
+        self.assertEqual(self.measured(), 1)
+        self.assertTrue(self.marker(".done"))
+
+    def test_archive_with_memories_is_not_counted(self):
+        self.run_archive(loops=3, merge_loops=1, produce=2)
+        self.assertEqual(self.reasons(), [])
+        self.assertEqual(self.measured(), 1)  # measured, just not zero
+
+    def test_archive_where_no_loop_ran_is_labelled_skipped(self):
+        self.run_archive(loops=0, merge_loops=0)
+        self.assertEqual(self.reasons(), ["skipped"])
+
+    def test_merge_loops_alone_do_not_make_an_archive_empty(self):
+        self.run_archive(loops=0, merge_loops=5)
+        self.assertEqual(self.reasons(), ["skipped"])
+
+    def test_failure_in_tracker_complete_is_not_counted(self):
+        # Stock saves the commit meta before tracker.complete and .done.
+        self.run_archive(loops=2, fail_at="complete")
+        self.assertTrue(self.marker(".failed.json"))
+        self.assertFalse(self.marker(".done"))
+        self.assertEqual(self.reasons(), [])
+
+    def test_failure_writing_done_is_not_counted(self):
+        self.run_archive(loops=2, fail_at="done")
+        self.assertTrue(self.marker(".failed.json"))
+        self.assertFalse(self.marker(".done"))
+        self.assertEqual(self.reasons(), [])
+
+    def assert_unmeasured(self):
+        self.assertEqual(self.reasons(), [])
+        self.assertEqual(self.measured(), 0)
+
+    def test_a_completion_failure_then_recovery_moves_neither_counter(self):
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            self.run_archive(loops=2, fail_at="complete")
+            self.run_archive(fail_at=None)
+        self.assertTrue(self.marker(".done"))
+        self.assert_unmeasured()
+        self.assertEqual(
+            sum(
+                "not measured: an earlier attempt left a completed memory step" in line
+                for line in logs.output
+            ),
+            1,
+        )
+
+    def test_a_recovery_is_not_measured_whatever_the_earlier_run_filed(self):
+        for attrs in (
+            {"loops": 2},  # empty
+            {"loops": 1, "produce": 1},  # filed, with a diff
+            {"loops": 1, "produce": 1, "unchanged": True},  # filed, zero-op diff
+        ):
+            with self.subTest(attrs=attrs):
+                self.fs, self.steps = FakeFS(), set()
+                self.registry.calls.clear()
+                self.run_archive(fail_at="cancel_mid", **attrs)
+                self.run_archive(fail_at=None)
+                self.assertTrue(self.marker(".done"))
+                self.assert_unmeasured()
+
+    def test_a_recovery_never_reads_the_diff(self):
+        self.run_archive(loops=1, produce=1, fail_at="cancel_mid")
+        reads = []
+        read = self.fs.read_file
+
+        async def spy(uri, **kwargs):
+            reads.append(uri)
+            if uri.endswith("memory_diff.json"):
+                raise TimeoutError("diff read timed out")
+            return await read(uri, **kwargs)
+
+        self.fs.read_file = spy
+        self.run_archive(fail_at=None)
+        self.assertTrue(self.marker(".done"))
+        self.assertFalse([u for u in reads if u.endswith("memory_diff.json")])
+        self.assert_unmeasured()
+
+    def test_an_unreadable_start_state_is_not_measured(self):
+        async def broken(uri, **kwargs):
+            raise TimeoutError("meta read timed out")
+
+        self.fs.read_file = broken
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            self.run_archive(loops=1)
+        self.assertTrue(self.marker(".done"))
+        self.assert_unmeasured()
+        self.assertTrue(any("start state unknown" in line for line in logs.output))
+
+    def test_an_earlier_attempt_that_wrote_before_its_checkpoint_is_not_measured(self):
+        # Memory written (diff on disk), then the process stopped before the step was
+        # checkpointed: no completed step, so the retry looks fresh by steps alone.
+        self.run_archive(loops=1, produce=1, fail_at="cancel_before_checkpoint")
+        self.assertNotIn("m0", self.steps)
+        self.run_archive(produce=0, fail_at=None)  # the retry extracts nothing
+        self.assertTrue(self.marker(".done"))
+        self.assert_unmeasured()
+
+    def test_a_failed_marker_or_a_diff_alone_marks_an_earlier_attempt(self):
+        for name in (".failed.json", "memory_diff.json"):
+            with self.subTest(name=name):
+                self.fs, self.steps = FakeFS(), set()
+                self.registry.calls.clear()
+                self.fs.files[f"{ARCHIVE_URI}/{name}"] = "{}"
+                self.run_archive(loops=1, produce=0)
+                self.assertTrue(self.marker(".done"))
+                self.assert_unmeasured()
+
+    def test_the_not_measured_line_names_what_was_found(self):
+        def not_measured_lines(setup):
+            self.fs, self.steps = FakeFS(), set()
+            self.registry.calls.clear()
+            setup()
+            with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+                self.run_archive(loops=1, fail_at=None)
+            return [line for line in logs.output if "not measured" in line]
+
+        def step():
+            self.run_archive(loops=1, fail_at="cancel_mid")
+
+        def diff():
+            self.fs.files[f"{ARCHIVE_URI}/memory_diff.json"] = "{}"
+
+        def failed():
+            self.fs.files[f"{ARCHIVE_URI}/.failed.json"] = "{}"
+
+        for setup, found, others in (
+            (
+                step,
+                "left a completed memory step",
+                ("memory_diff.json", ".failed.json"),
+            ),
+            (diff, "left memory_diff.json", ("completed memory step", ".failed.json")),
+            (
+                failed,
+                "left .failed.json",
+                ("completed memory step", "memory_diff.json"),
+            ),
+        ):
+            with self.subTest(found=found):
+                lines = not_measured_lines(setup)
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn("an earlier attempt " + found, lines[0])
+                for other in others:
+                    self.assertNotIn(other, lines[0])
+
+    def test_a_stop_before_the_diff_is_written_leaves_no_trace_so_the_retry_is_measured(
+        self,
+    ):
+        # The one window that remains (compressor_v3.py:513 not reached).
+        self.run_archive(loops=1, produce=1, fail_at="cancel_before_diff")
+        self.assertFalse(self.marker("memory_diff.json"))
+        self.run_archive(produce=0, fail_at=None)
+        self.assertEqual(self.reasons(), ["empty"])
+
+    def test_a_failing_existence_check_is_unknown_and_a_missing_file_is_fresh(self):
+        exists = self.fs.exists
+
+        async def timed_out(uri, **kwargs):
+            if uri.endswith("memory_diff.json"):
+                raise TimeoutError("exists timed out")
+            return await exists(uri, **kwargs)
+
+        self.fs.exists = timed_out
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            self.run_archive(loops=1)
+        self.assertTrue(any("start state unknown" in line for line in logs.output))
+        self.assert_unmeasured()
+
+        async def missing(uri, **kwargs):
+            raise FileNotFoundError(uri)
+
+        self.fs, self.steps = FakeFS(), set()
+        self.fs.exists = missing
+        self.run_archive(loops=1)
+        self.assertEqual(self.reasons(), ["empty"])
+
+    def test_an_unobserved_extraction_result_is_not_measured(self):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        session = self.cls(self.fs)
+
+        async def go():
+            token = ep._ARCHIVE.set(
+                {"loops": 1, "memories": 0, "seen": False, "fresh": True}
+            )
+            try:
+                await session._write_done_file(ARCHIVE_URI, "m0", "m0")
+            finally:
+                ep._ARCHIVE.reset(token)
+
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            asyncio.run(go())
+        self.assert_unmeasured()
+        self.assertTrue(any("not observed" in line for line in logs.output))
+
+    def test_an_archive_that_already_has_done_is_not_counted_again(self):
+        self.fs.files[f"{ARCHIVE_URI}/.done"] = "{}"
+        self.run_archive(loops=1)
+        self.assertEqual(self.reasons(), [])
+
+    def test_two_archives_count_separately_and_state_does_not_leak(self):
+        self.run_archive(loops=2)
+        self.fs = FakeFS()
+        self.steps = set()
+        self.run_archive()
+        self.assertEqual(self.reasons(), ["empty", "empty"])
+        self.assertEqual(self.measured(), 2)
+        self.assertIsNone(ep._ARCHIVE.get())
+
+    def test_done_write_outside_a_phase2_run_is_not_counted(self):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        session = self.cls(self.fs)
+        asyncio.run(session._write_done_file(ARCHIVE_URI, "m0", "m0"))
+        self.assertEqual(self.reasons(), [])
+
+    def test_missing_registry_or_failing_counter_never_fails_the_save(self):
+        self.registry = None
+        self.run_archive(loops=1)  # registry None: nothing to count into
+        self.assertTrue(self.marker(".done"))
+        self.registry = FakeRegistry()
+        self.registry.inc_counter = lambda *a, **k: 1 / 0
+        self.fs = FakeFS()
+        self.steps = set()
+        self.run_archive()
+        self.assertTrue(self.marker(".done"))
+
+    def test_hash_mismatch_leaves_every_method_stock(self):
+        ep.EXPECTED_WRITE_DONE_SHA256 = "0" * 64
+        names = [m for _, m in self.HASH_NAMES]
+        original = [getattr(self.cls, n) for n in names]
+        self.assertFalse(ep._apply_zero_result_counter(self.mod))
+        self.assertEqual([getattr(self.cls, n) for n in names], original)
+
+    def test_apply_is_idempotent(self):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        wrapped = self.cls._write_done_file
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        self.assertIs(self.cls._write_done_file, wrapped)
+
+    def test_apply_session_installs_the_counter(self):
+        ep._state["loop_applied"] = True
+        sys.modules["openviking"].__version__ = ep.EXPECTED_VERSION
+        self.mod.is_retryable_api_error = lambda e: False
+        self.mod._MEMORY_EXTRACTION_MAX_RETRIES = 3
+        self.mod._MEMORY_EXTRACTION_RETRY_BASE_DELAY_SECONDS = 1.0
+        self.mod._MEMORY_EXTRACTION_RETRY_MAX_DELAY_SECONDS = 8.0
+        try:
+            self.assertTrue(ep.apply_session(self.mod))
+        finally:
+            ep._state["loop_applied"] = False
+        self.assertTrue(getattr(self.cls._write_done_file, "_ov_extract_patch", False))
+
+
+class SeriesInitTests(unittest.TestCase):
+    """The three series exist at 0 before any archive (stock creates them at first inc)."""
+
+    def setUp(self):
+        ep._state["series_registry"] = None
+        self._saved = {
+            name: sys.modules.get(name)
+            for name in (
+                "openviking",
+                "openviking.metrics",
+                "openviking.metrics.global_api",
+            )
+        }
+        self.registry = None
+        api = types.ModuleType("openviking.metrics.global_api")
+        api.try_get_metrics_registry = lambda: self.registry
+        sys.modules["openviking"] = types.ModuleType("openviking")
+        sys.modules["openviking.metrics"] = types.ModuleType("openviking.metrics")
+        sys.modules["openviking.metrics.global_api"] = api
+
+    def tearDown(self):
+        ep._state["series_registry"] = None
+        for name, mod in self._saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+
+    def expected(self):
+        return [
+            (ep.ZERO_RESULT_METRIC, {"reason": "empty"}, ("reason",), 0),
+            (ep.ZERO_RESULT_METRIC, {"reason": "skipped"}, ("reason",), 0),
+            (MEASURED_METRIC, {}, (), 0),
+        ]
+
+    def test_all_three_series_are_created_at_zero_once(self):
+        self.registry = FakeRegistry()
+        ep.ensure_series()
+        ep.ensure_series()
+        self.assertEqual(self.registry.inits, self.expected())
+
+    def test_a_missing_registry_is_a_no_op_that_retries_later(self):
+        ep.ensure_series()  # metrics not initialised yet: fails open
+        self.assertIsNone(ep._state["series_registry"])
+        self.registry = FakeRegistry()
+        ep.ensure_series()  # the next hook finds it
+        self.assertEqual(self.registry.inits, self.expected())
+
+    def test_a_registry_that_cannot_set_counters_fails_open(self):
+        self.registry = types.SimpleNamespace(inc_counter=lambda *a, **k: None)
+        ep.ensure_series()
+        self.assertIsNone(ep._state["series_registry"])
+
+    def test_a_new_registry_is_initialised_again(self):
+        self.registry = FakeRegistry()
+        ep.ensure_series()
+        self.registry = FakeRegistry()
+        ep.ensure_series()
+        self.assertEqual(self.registry.inits, self.expected())
+
+    def test_the_init_hook_creates_the_series_after_the_registry_is_built(self):
+        registry = FakeRegistry()
+        calls = []
+
+        def init_metrics_from_server_config(config, **kwargs):
+            calls.append(config)
+            self.registry = registry
+
+        wrapped = ep.wrap_init_metrics(init_metrics_from_server_config)
+        wrapped("cfg", app=None)
+        self.assertEqual(calls, ["cfg"])
+        self.assertEqual(registry.inits, self.expected())
+
+    def test_the_init_hook_leaves_a_disabled_registry_alone(self):
+        wrapped = ep.wrap_init_metrics(lambda config, **kwargs: "ok")
+        self.assertEqual(wrapped("cfg"), "ok")  # registry stays None
+        self.assertIsNone(ep._state["series_registry"])
+
+    def test_apply_metrics_is_guarded_on_version_and_source_hash(self):
+        fake_pkg = sys.modules["openviking"]
+        fake_pkg.__version__ = ep.EXPECTED_VERSION
+
+        def init_metrics_from_server_config(config, **kwargs):
+            return None
+
+        mod = types.SimpleNamespace(
+            init_metrics_from_server_config=init_metrics_from_server_config
+        )
+        saved = ep.EXPECTED_INIT_METRICS_SHA256
+        try:
+            self.assertFalse(ep.apply_metrics(mod))  # hash differs
+            self.assertIs(
+                mod.init_metrics_from_server_config, init_metrics_from_server_config
+            )
+            ep.EXPECTED_INIT_METRICS_SHA256 = ep._source_hash(
+                init_metrics_from_server_config
+            )
+            self.registry = FakeRegistry()  # a registry built before this import
+            self.assertTrue(ep.apply_metrics(mod))
+            self.assertTrue(
+                getattr(mod.init_metrics_from_server_config, "_ov_extract_patch", False)
+            )
+            self.assertTrue(ep.apply_metrics(mod))  # idempotent
+            self.assertEqual(self.registry.inits, self.expected())
+        finally:
+            ep.EXPECTED_INIT_METRICS_SHA256 = saved
+
+    def test_the_module_registers_the_metrics_target(self):
+        self.assertIs(ep.TARGETS["openviking.metrics.global_api"], ep.apply_metrics)
+
+    def test_a_run_start_creates_the_series_when_install_found_no_registry(self):
+        mod = types.SimpleNamespace(Session=type("S", (FakeSession,), {}))
+        hashes = {
+            n: getattr(ep, n)
+            for n in (
+                "EXPECTED_RUN_EXTRACTION_SHA256",
+                "EXPECTED_MERGE_META_SHA256",
+                "EXPECTED_WRITE_DONE_SHA256",
+            )
+        }
+        try:
+            ep.EXPECTED_RUN_EXTRACTION_SHA256 = ep._source_hash(
+                FakeSession._run_memory_extraction
+            )
+            ep.EXPECTED_MERGE_META_SHA256 = ep._source_hash(
+                FakeSession._merge_and_save_commit_meta
+            )
+            ep.EXPECTED_WRITE_DONE_SHA256 = ep._source_hash(
+                FakeSession._write_done_file
+            )
+            self.assertTrue(ep._apply_zero_result_counter(mod))
+            self.assertIsNone(
+                ep._state["series_registry"]
+            )  # registry not ready at install
+            self.registry = FakeRegistry()
+            asyncio.run(
+                mod.Session(FakeFS())._run_memory_extraction(
+                    task_id="t1", archive_uri=ARCHIVE_URI
+                )
+            )
+            names = [i[0] for i in self.registry.inits]
+            self.assertEqual(self.registry.inits, self.expected(), names)
+        finally:
+            for n, v in hashes.items():
+                setattr(ep, n, v)
+
+
+MEMORY_SCENARIOS = (
+    "recovered_memory",
+    "recovered_unchanged",
+    "recovered_diff_timeout",
+)
+
+
+def _zero_counter_harness_main(scenario):
+    """Drive the real ``Session._run_memory_extraction`` to ``.done`` / ``.failed.json``.
+
+    Real: Phase 2's step order (commit meta, ``tracker.complete``, ``.done``), the
+    recorded long-term step, the failure handler and the three patched Session methods.
+    Faked: storage (a dict), the task tracker, the compressor (one session-extraction loop
+    per call, run through ``wrap_run``) and the persisted step progress. A run that raises
+    ``CancelledError`` models a shutdown; the next ``run()`` is the recovery.
+    """
+    import openviking.metrics.global_api as api
+    import openviking.service.task_tracker as task_tracker
+    from openviking.message.message import Message
+    from openviking.message.part import TextPart
+    from openviking.session import session as sm
+    from openviking_cli.utils.config import open_viking_config as ovc
+
+    assert ep._apply_zero_result_counter(sm)
+    ovc.OpenVikingConfigSingleton._instance = ovc.OpenVikingConfig()
+
+    if scenario == "scrape":
+        # The real registry and Prometheus exporter, before any archive.
+        from openviking.metrics import global_api as ga
+        from openviking.server.config import ServerConfig
+
+        assert ep.apply_metrics(ga)
+        config = ServerConfig()
+        config.observability.metrics.enabled = True
+        ga.init_metrics_from_server_config(config)
+        print(
+            "HARNESS " + json.dumps({"scrape": ga._exporters[0].render()}), flush=True
+        )
+        return
+
+    reasons, measured = [], []
+
+    def inc_counter(name, **kw):
+        if name == MEASURED_METRIC:
+            measured.append(name)
+        else:
+            assert name == ep.ZERO_RESULT_METRIC, name
+            reasons.append(kw["labels"]["reason"])
+
+    api.try_get_metrics_registry = lambda: types.SimpleNamespace(
+        inc_counter=inc_counter
+    )
+    files, progress = {}, {}
+    state = {"fail": scenario != "success", "extractions": 0, "block_reads": False}
+    base = "viking://session/default/s1/history/archive_001"
+
+    class Agfs:
+        async def pathlock_acquire_exact(self, *args, **kwargs):
+            return object()
+
+        async def pathlock_release(self, *args, **kwargs):
+            pass
+
+    class FS:
+        _async_agfs = Agfs()
+
+        def _uri_to_path(self, uri, **kwargs):
+            return uri
+
+        async def read_file(self, uri, **kwargs):
+            if scenario == "meta_timeout" and uri.endswith("/.meta.json"):
+                raise TimeoutError("meta read timed out")
+            if (
+                scenario == "recovered_diff_timeout"
+                and state["block_reads"]
+                and uri.endswith("/memory_diff.json")
+            ):
+                raise TimeoutError("diff read timed out")
+            if uri not in files:
+                raise FileNotFoundError(uri)
+            return files[uri]
+
+        async def write_file(self, uri, content, **kwargs):
+            if uri.endswith("/.done") and state["fail"] and scenario == "done_failure":
+                raise RuntimeError("injected .done storage failure")
+            files[uri] = content
+
+        async def exists(self, uri, **kwargs):
+            return uri in files
+
+    async def empty_loop(self):
+        await asyncio.sleep(0)
+        return types.SimpleNamespace(upsert_operations=[], delete_file_contents=[]), []
+
+    run_loop = ep.wrap_run(empty_loop)
+
+    class Compressor:
+        async def extract_long_term_memories(self, messages, archive_uri, **kwargs):
+            state["extractions"] += 1
+            await run_loop(Loop())
+            if scenario == "checkpoint_crash" and state["extractions"] == 1:
+                # The first attempt files a memory; the retry finds nothing to add.
+                files[f"{archive_uri}/memory_diff.json"] = json.dumps(
+                    {"summary": {"total_adds": 1}}
+                )
+                return {"contexts": [types.SimpleNamespace(category="events")]}
+            if scenario == "stop_before_diff" and state["extractions"] == 1:
+                await stop_run()  # stopped before compressor_v3.py:513
+            # compressor_v3.py:513 writes the diff on every extraction, with zero
+            # operations when nothing changed (an unchanged update is not a diff op).
+            adds = 1 if scenario in MEMORY_SCENARIOS else 0
+            if scenario == "recovered_unchanged":
+                adds = 0
+            files[f"{archive_uri}/memory_diff.json"] = json.dumps(
+                {"summary": {"total_adds": adds}}
+            )
+            if scenario in MEMORY_SCENARIOS:
+                return {"contexts": [types.SimpleNamespace(category="events")]}
+            return {"contexts": []}
+
+    class Tracker:
+        async def start(self, *args, **kwargs):
+            pass
+
+        async def complete(self, *args, **kwargs):
+            if not state["fail"]:
+                return
+            if scenario in MEMORY_SCENARIOS or scenario == "restart_empty":
+                raise asyncio.CancelledError("injected shutdown cancellation")
+            if scenario == "complete_failure":
+                raise RuntimeError("injected task completion failure")
+
+        async def fail(self, *args, **kwargs):
+            pass
+
+        async def wait_for_task_work(self, *args, **kwargs):
+            pass
+
+        async def is_cancellation_requested(self, *args, **kwargs):
+            return False
+
+    task_tracker.get_task_tracker = lambda: Tracker()
+    session = sm.Session(viking_fs=FS(), session_compressor=Compressor())
+
+    async def prepare(uri, messages):
+        return (
+            messages,
+            "archive_001",
+            "archive_001",
+            [],
+            {k: set(v) for k, v in progress.get(uri, {}).items()},
+        )
+
+    async def save_progress(uri, updates):
+        if scenario == "checkpoint_crash" and state["fail"]:
+            await stop_run()  # stopped before the progress checkpoint
+        if "completed_memory_steps" in updates:
+            progress[uri] = {
+                k: set(v) for k, v in updates["completed_memory_steps"].items()
+            }
+            # What the real _merge_archive_meta persists, and the run's start state reads.
+            files[f"{uri}/.meta.json"] = json.dumps(updates)
+
+    async def hydrate(messages):
+        return messages
+
+    session._prepare_phase2_archive_messages = prepare
+    session._merge_archive_meta = save_progress
+    session._tool_outputs = types.SimpleNamespace(hydrate_for_extraction=hydrate)
+
+    async def stop_run():
+        """A process stop: cancel the outer Phase 2 task, not a step inside the gather.
+
+        Stock ``gather(return_exceptions=True)`` turns a step's own ``CancelledError`` into
+        a failed step and writes ``.failed.json``; a shutdown cancels the run itself, which
+        writes no marker unless the tracker reports a requested cancellation.
+        """
+        state["outer"].cancel()
+        await asyncio.sleep(3600)
+
+    async def run():
+        state["outer"] = asyncio.ensure_future(
+            session._run_memory_extraction(
+                task_id="t1",
+                archive_uri=base,
+                messages=[
+                    Message(id="m0", role="user", parts=[TextPart(text="hello")])
+                ],
+                first_message_id="m0",
+                last_message_id="m0",
+                memory_policy={},
+            )
+        )
+        try:
+            await state["outer"]
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(run())
+    first = list(reasons)
+    first_markers = {
+        "failed": f"{base}/.failed.json" in files,
+        "done": f"{base}/.done" in files,
+    }
+    first_measured = len(measured)
+    if scenario not in ("success", "meta_timeout"):
+        state["fail"] = False
+        state["block_reads"] = True
+        if scenario not in ("stop_before_diff", "checkpoint_crash"):
+            # A direct re-run after a failed step; a stopped run left no marker to clear.
+            files.pop(f"{base}/.failed.json", None)
+        asyncio.run(run())
+    print(
+        "HARNESS "
+        + json.dumps(
+            {
+                "first": first,
+                "first_measured": first_measured,
+                "measured": len(measured),
+                "first_markers": first_markers,
+                "final": reasons,
+                "done": f"{base}/.done" in files,
+                "extractions": state["extractions"],
+            }
+        ),
+        flush=True,
+    )
+
+
+def _run_zero_counter_harness(scenario):
+    here = os.path.dirname(os.path.abspath(__file__))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    code = PIN_WHEEL_VERSION + (
+        "sys.path.insert(0, %r); import test_ov_extract_patch as t; "
+        "t._zero_counter_harness_main(%r)" % (here, scenario)
+    )
+    with tempfile.TemporaryDirectory() as cwd:
+        proc = subprocess.run(
+            [sys.executable, "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=cwd,
+            timeout=300,
+        )
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("HARNESS ")]
+    if proc.returncode != 0 or not lines:
+        raise AssertionError(
+            f"harness {scenario} exited {proc.returncode}:\n{proc.stderr[-3000:]}"
+        )
+    return json.loads(lines[-1][len("HARNESS ") :])
+
+
+@requires_real
+class ZeroResultRealSessionTests(unittest.TestCase):
+    """The real Session methods in stock order, not FakeSession's simplified failure model."""
+
+    def assert_counted(self, record, reasons, measured):
+        self.assertEqual(
+            (record["final"], record["measured"]), (reasons, measured), record
+        )
+
+    def test_a_successful_empty_archive_counts_once(self):
+        record = _run_zero_counter_harness("success")
+        self.assert_counted(record, ["empty"], 1)
+        self.assertTrue(record["done"])
+
+    def test_a_completion_failure_then_recovery_moves_neither_counter(self):
+        for scenario in ("complete_failure", "done_failure"):
+            with self.subTest(scenario=scenario):
+                record = _run_zero_counter_harness(scenario)
+                self.assertEqual((record["first"], record["first_measured"]), ([], 0))
+                self.assert_counted(record, [], 0)
+                self.assertTrue(record["done"])
+
+    def test_a_recovery_that_kept_a_memory_is_not_measured(self):
+        for scenario in ("recovered_memory", "recovered_unchanged"):
+            with self.subTest(scenario=scenario):
+                record = _run_zero_counter_harness(scenario)
+                self.assertEqual(record["extractions"], 1)  # the step was not repeated
+                self.assert_counted(record, [], 0)
+                self.assertTrue(record["done"])
+
+    def test_a_recovery_whose_diff_read_would_time_out_is_not_measured(self):
+        record = _run_zero_counter_harness("recovered_diff_timeout")
+        self.assert_counted(record, [], 0)
+        self.assertTrue(record["done"])
+
+    def test_a_recovered_empty_archive_is_not_measured(self):
+        record = _run_zero_counter_harness("restart_empty")
+        self.assertEqual(record["extractions"], 1)
+        self.assert_counted(record, [], 0)
+
+    def test_a_retry_after_a_stop_before_the_diff_is_written_is_measured(self):
+        record = _run_zero_counter_harness("stop_before_diff")
+        self.assertFalse(record["first_markers"]["failed"])  # a stop leaves no marker
+        self.assertEqual(record["extractions"], 2)
+        self.assert_counted(record, ["empty"], 1)
+
+    def test_a_retry_after_a_stop_before_the_checkpoint_is_not_measured(self):
+        # The memory (and its diff) landed, the checkpoint did not: no completed step.
+        record = _run_zero_counter_harness("checkpoint_crash")
+        self.assertFalse(record["first_markers"]["failed"])  # a stop leaves no marker
+        self.assertEqual(record["extractions"], 2)  # the step ran again
+        self.assert_counted(record, [], 0)
+        self.assertTrue(record["done"])
+
+    def test_the_scrape_shows_all_three_series_at_zero_before_any_archive(self):
+        text = _run_zero_counter_harness("scrape")["scrape"]
+        for line in (
+            'openviking_session_archive_zero_memories_total{reason="empty"} 0',
+            'openviking_session_archive_zero_memories_total{reason="skipped"} 0',
+            "openviking_session_archive_measured_total 0",
+        ):
+            self.assertIn(line, text.splitlines())
+
+    def test_an_unreadable_start_state_is_not_measured(self):
+        record = _run_zero_counter_harness("meta_timeout")
+        self.assert_counted(record, [], 0)
+        self.assertTrue(record["done"])
+
+
 if __name__ == "__main__":
     unittest.main()
