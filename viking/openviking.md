@@ -225,7 +225,7 @@ Personal-band entries (IDs ≥ 1000) live in the same unified vault (`COMPENDIUM
 | Check L1 overviews             | `ov overview viking://resources/homelab/gpu/`          | Verify overviews exist                                                                                  |
 | Full tree audit                | `ov tree viking://resources/ -L 3`                     | Monthly or after major restructuring                                                                    |
 
-> ⚠️ **`ov cp` and `ov mv` delete data on v0.4.20 and earlier. v0.5.1.1 does not show the defect.**
+> ⚠️ **`ov cp` and `ov mv` delete data on v0.4.20. v0.5.1.1 does not show the defect.**
 >
 > Measured on the v0.4.20 rehearsal candidate against a restored production
 > corpus (2026-09-15): `ov mv` onto an existing target returns `500 INTERNAL`,
