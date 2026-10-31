@@ -175,6 +175,9 @@ LOCK_PATH = re.compile(r'lock_paths=\["([^"]+)"')
 WAIT_MS = re.compile(r"wait_ms=(\d+)")
 # A wait shorter than this is ordinary contention: counted for BEAT, not its own event.
 WAIT_EVENT_MS = 5000
+# A lock this old has refreshed about 12 times (every 10 s), so a log that logs
+# lock lines shows some of them.
+WAITS_BLIND_MIN_LOCK_AGE = 120
 # kubectl --timestamps: RFC3339 with nanoseconds and the zone the kubelet reports,
 # which on this cluster is a local offset such as -05:00, not Z.
 TIMESTAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$")
@@ -911,18 +914,23 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                             wake=actionable,
                         )
                     # Poll 1 reads almost no log, so it cannot show the lines are
-                    # missing; a labelled lock has been refreshing for 15 min.
+                    # missing. The oldest-live gauge covers locks too young to
+                    # be labelled, which is most of them.
+                    live_for = (
+                        max([got.oldest_age or 0, *(k.age for k in got.locks)])
+                        if got
+                        else 0
+                    )
                     if (
                         n > 1
-                        and got
-                        and got.locks
+                        and live_for >= WAITS_BLIND_MIN_LOCK_AGE
                         and not cursor.saw_lock_log
                         and not waits_blind
                     ):
                         waits_blind = True
                         sink.emit(
-                            f"WATCH ERROR waits: {len(got.locks)} labelled lock(s) "
-                            "held and no ragfs::lock::manager line in the log; "
+                            f"WATCH ERROR waits: a lock live for {live_for:.0f}s "
+                            "and no ragfs::lock::manager line in the log; "
                             "v0.5.1.1 logs them at debug (BUG-1282), so lock waits "
                             "cannot be seen and waits=0 does not mean no waits"
                         )

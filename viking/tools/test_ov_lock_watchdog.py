@@ -100,7 +100,9 @@ class TestBug1220Policy(unittest.TestCase):
         d = decide(exporter=exporter([lock(4 * HOUR)], work=11))
         self.assertEqual(d.action, "defer", d.reason)
         self.assertIn("11 queue item(s) pending or in progress", d.reason)
-        self.assertIn("forced restart in 7200s", d.reason)
+        # Codex R4: this is key age, so no time to the cap can be promised.
+        self.assertIn("busy: key age 14400s", d.reason)
+        self.assertIn("forced restart at 21600s of owner time", d.reason)
 
     def test_busy_queue_is_forced_at_the_cap(self):
         d = decide(exporter=exporter([lock(6.1 * HOUR)], work=11))
@@ -135,7 +137,7 @@ class TestIdentity(unittest.TestCase):
         d = decide()
         self.assertEqual(d.action, "restart", d.reason)
         self.assertTrue(d.locks[0].qualified)
-        self.assertIn("one owner", d.locks[0].reason)
+        self.assertIn("tenure not proven", d.locks[0].reason)
 
     def test_unreadable_owner_blocks(self):
         for owner in ("unknown", ""):
@@ -336,7 +338,7 @@ class TestRun(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertNotIn("lease_ref", out)
         self.assertNotIn("lease_ref", cluster.patches[0][1])
-        self.assertIn("identity=same-owner", out)
+        self.assertIn("identity=owner-readable", out)
 
     def test_the_two_lock_reads_straddle_the_wait(self):
         cluster = FakeCluster()
@@ -346,7 +348,7 @@ class TestRun(unittest.TestCase):
             [
                 "fetch metrics",
                 "fetch locks",
-                "sleep 30.0",
+                "sleep 90.0",
                 "fetch metrics",
                 "fetch locks",
             ],
@@ -475,6 +477,42 @@ class TestRun(unittest.TestCase):
         )
         self.assertEqual((code, len(cluster.patches)), (0, 1), out)
         self.assertIn(f"key={KEY} owner=tok-1", cluster.patches[0][1])
+
+    def pick(self, older, younger):
+        """Pick between a 8 h key (KEY2) and a 6.5 h key (KEY)."""
+        row = json.loads(locks_text())["locks"][0]
+        doc = json.loads(locks_text())
+        doc["locks"] = [{**row, "key": KEY2, **older}, {**row, "key": KEY, **younger}]
+        reports = [
+            wd.LockReport(lock(8 * HOUR, key=KEY2), True, ""),
+            wd.LockReport(lock(6.5 * HOUR, key=KEY), True, ""),
+        ]
+        return wd.pick_candidate(reports, json.dumps(doc), CFG.hold)[0].lock.key
+
+    def test_a_cached_owner_does_not_displace_a_provable_lock(self):
+        # Claude R4: that lock aborts on the proof, so the younger one must run.
+        picked = self.pick(
+            {"owner_read_ok": False, "owner_held_seconds": 8 * HOUR},
+            {"owner_held_seconds": 6.5 * HOUR},
+        )
+        self.assertEqual(picked, KEY)
+
+    def test_the_pick_ranks_by_the_force_caps_measure(self):
+        # Claude R4: 8 h of key age with 3.1 h of owner is the weaker case.
+        picked = self.pick(
+            {"owner_held_seconds": 3.1 * HOUR}, {"owner_held_seconds": 6.5 * HOUR}
+        )
+        self.assertEqual(picked, KEY)
+
+    def test_a_defer_says_its_figures_are_key_age(self):
+        # Claude R4: a defer ends at the first read, with no owner proof made.
+        cluster = FakeCluster()
+        code, out = self.go(cluster, metrics_text(age=5 * HOUR, work=5), dry_run=True)
+        self.assertEqual(code, 0, out)
+        self.assertIn("decision=defer", out)
+        self.assertIn("key_age=18000s identity=owner-readable", out)
+        self.assertIn("busy: key age 18000s", out)
+        self.assertNotIn("forced restart in", out)
 
     def test_exporter_without_the_route_aborts(self):
         self.assert_aborts([OSError("HTTP 404")], "OSError: HTTP 404")
@@ -691,7 +729,7 @@ class TestRun(unittest.TestCase):
         code, out = self.go(cluster, text)
         self.assertEqual(code, 0, out)
         self.assertEqual(len(cluster.patches), 1)
-        self.assertEqual(out.count("identity=same-owner"), 2)
+        self.assertEqual(out.count("identity=owner-readable"), 2)
 
 
 class TestConfigMapInSync(unittest.TestCase):
@@ -827,7 +865,7 @@ class TestParsers(unittest.TestCase):
         cfg = wd.Config.from_env({})
         self.assertEqual(
             (cfg.hold, cfg.force, cfg.cooldown, cfg.recheck),
-            (10800.0, 21600.0, 3600.0, 30.0),
+            (10800.0, 21600.0, 3600.0, 90.0),
         )
 
     def test_config_reads_the_recheck(self):

@@ -67,11 +67,13 @@ def wait_line(ms, path=LOCK):
     )
 
 
-def metrics_text(poll_ok=1, live_age=None):
+def metrics_text(poll_ok=1, live_age=None, oldest_age=None):
     lines = [
         f"openviking_s3_ovlock_poll_ok {poll_ok}",
         "# TYPE openviking_s3_ovlock_live_age_seconds gauge",
     ]
+    if oldest_age is not None:
+        lines.append(f"openviking_s3_ovlock_oldest_live_age_seconds {oldest_age}")
     if live_age is not None:
         lines.append(
             "openviking_s3_ovlock_live_age_seconds"
@@ -226,10 +228,24 @@ class WaitsBlind(unittest.TestCase):
         fake = FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
         out, _ = run_watch(fake, polls=4)
         self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
-        self.assertIn("1 labelled lock(s)", has(out, "WATCH ERROR waits:")[0])
+        self.assertIn("a lock live for 1000s", has(out, "WATCH ERROR waits:")[0])
         (end,) = has(out, "WATCH end:")
         self.assertIn("waits unknown", end)
         self.assertNotIn("waits 0", end)
+
+    def test_an_unlabelled_lock_without_lock_lines_reports_blind(self):
+        # Claude R4: locks under the 900 s label threshold are the usual case.
+        fake = FakeKubectl([POD_A], metrics=metrics_text(oldest_age=600))
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def test_a_lock_too_young_to_have_refreshed_stays_quiet(self):
+        fake = FakeKubectl(
+            [POD_A], metrics=metrics_text(oldest_age=cw.WAITS_BLIND_MIN_LOCK_AGE - 1)
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
 
     def test_the_first_poll_alone_does_not_report_blind(self):
         fake = FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))

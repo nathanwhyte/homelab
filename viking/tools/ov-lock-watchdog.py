@@ -12,9 +12,10 @@ been held by the SAME owner for longer than WATCHDOG_HOLD_SECONDS (3 h).
 Identity, all of it required (any doubt = no restart, with the reason logged):
 
 - ov-exporter's openviking_s3_ovlock_live_age_seconds{key,uri,owner,lock_type}
-  (BUG-1220, homelab#205) says the lock has been continuously present for at
-  least the hold threshold with a stable holder (the series restarts its age
-  when owner or lock type changes) and is live-refreshing: a lease whose
+  (BUG-1220, homelab#205) says the key has been continuously present for at
+  least the hold threshold, which alone proves no holder (see below; the series
+  restarts its age only on an owner or lock type change it read), and is
+  live-refreshing: a lease whose
   refreshes stopped leaves the series after the exporter's live window, which
   is the janitor's dead-lease case.
 - The lock's owner is readable.
@@ -57,14 +58,17 @@ rollout) turns it into a no-op conflict instead of a second restart.
 
 Env (all optional): WATCHDOG_HOLD_SECONDS=10800, WATCHDOG_FORCE_SECONDS=21600,
 WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_WORK=0,
-WATCHDOG_RECHECK_SECONDS=30, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
+WATCHDOG_RECHECK_SECONDS=90 (exporter polls ran 35-60 s apart on 2026-10-31,
+since POLL_INTERVAL is only the sleep after each poll's work),
+WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
 WATCHDOG_EXPORTER_URL (GET /locks is read from the same host),
 WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
 Decisions (the run's `decision=` line, IMPR-1416):
 
-- restart, defer: a lock held >= hold by one readable owner; the queue rule
-  chose.
+- restart, defer: a key present >= hold with a readable owner; the queue rule
+  chose. At this first read nothing has shown how long that owner held it, so
+  its figures are key age. A restart still needs the two-read proof below.
 - held: a lock held >= hold was seen, but no restart: the cooldown, an
   unsettled rollout or unreadable restartedAt stopped it, or no long lock had a
   readable owner.
@@ -121,8 +125,9 @@ class Config:
     force: float = 21600.0
     cooldown: float = 3600.0
     quiet_max_work: int = 0
-    # Twice the exporter's 15 s poll, so the re-read lands on a later poll.
-    recheck: float = 30.0
+    # Past the exporter's usual 35-60 s poll cycle, so the re-read lands on a
+    # later poll; a slower cycle aborts this run and the next one tries again.
+    recheck: float = 90.0
     exporter_max_stale: float = 120.0
     exporter_url: str = "http://openviking.viking.svc.cluster.local:9210/metrics"
     namespace: str = "viking"
@@ -270,8 +275,9 @@ def parse_lock_sample(text: str, key: str) -> LockSample:
 
 
 def pick_candidate(reports, text: str, hold: float):
-    """(report, its /locks sample) to try to prove: the longest whose owner has
-    been known for the hold, else the longest listed. ParseError if none is."""
+    """(report, its /locks sample) to try to prove: of the locks with a fresh
+    owner read known for the hold, the longest by the force cap's measure, else
+    the longest listed. ParseError if none is."""
     samples = []
     failure = None
     for report in reports:
@@ -279,9 +285,13 @@ def pick_candidate(reports, text: str, hold: float):
             samples.append((report, parse_lock_sample(text, report.lock.key)))
         except ParseError as e:
             failure = e
-    for report, sample in samples:
-        if sample.owner_held >= hold:
-            return report, sample
+    provable = [
+        (report, sample)
+        for report, sample in samples
+        if sample.owner_read_ok and sample.owner_held >= hold
+    ]
+    if provable:
+        return max(provable, key=lambda p: min(p[0].lock.age, p[1].owner_held))
     if samples:
         return samples[0]
     raise failure or ParseError("no candidate lock")
@@ -565,7 +575,7 @@ def decide(
     reports = tuple(
         LockReport(lock, False, "owner unknown (lock token unreadable)")
         if lock.owner in ("", "unknown")
-        else LockReport(lock, True, "one owner for the whole hold, per the exporter")
+        else LockReport(lock, True, "owner readable; tenure not proven yet")
         for lock in longs
     )
     qualified = [r for r in reports if r.qualified]
@@ -578,15 +588,20 @@ def decide(
         )
     longest = max(r.lock.age for r in qualified)
     work = exporter.queue_work if exporter else None
-    return queue_policy(cfg, longest, work, reports)
+    return queue_policy(cfg, longest, work, reports, measure="key age")
 
 
 def queue_policy(
-    cfg: Config, longest: float, work: int | None, reports: tuple[LockReport, ...]
+    cfg: Config,
+    longest: float,
+    work: int | None,
+    reports: tuple[LockReport, ...],
+    measure: str = "held",
 ) -> Decision:
-    """Restart, or defer, for a one-owner lock held `longest` seconds (>= hold)
-    with `work` queue items (None = unreadable). Applied again to fresh metrics
-    just before a restart, so a queue that turned busy defers it."""
+    """Restart, or defer, for a lock at `longest` seconds (>= hold) with `work`
+    queue items (None = unreadable). `measure` names what `longest` is: key age
+    at the first read, the proved hold at the second. Applied again to fresh
+    metrics just before a restart, so a queue that turned busy defers it."""
     queue = (
         "queue unreadable (counted as busy)"
         if work is None
@@ -595,19 +610,19 @@ def queue_policy(
     if longest >= cfg.force:
         return Decision(
             "restart",
-            f"forced: held {int(longest)}s >= {int(cfg.force)}s cap; {queue}",
+            f"forced: {measure} {int(longest)}s >= {int(cfg.force)}s cap; {queue}",
             reports,
         )
     if work is not None and work <= cfg.quiet_max_work:
         return Decision(
             "restart",
-            f"quiet moment: held {int(longest)}s >= {int(cfg.hold)}s; {queue}",
+            f"quiet moment: {measure} {int(longest)}s >= {int(cfg.hold)}s; {queue}",
             reports,
         )
     return Decision(
         "defer",
-        f"busy: held {int(longest)}s >= {int(cfg.hold)}s but {queue}; forced "
-        f"restart in {int(cfg.force - longest)}s at {int(cfg.force)}s",
+        f"busy: {measure} {int(longest)}s >= {int(cfg.hold)}s but {queue}; forced "
+        f"restart at {int(cfg.force)}s of owner time",
         reports,
     )
 
@@ -620,7 +635,7 @@ def _describe(report: LockReport) -> str:
         f"{TAG} lock key={report.lock.key} uri={report.lock.uri} "
         f"owner={report.lock.owner} lock_type={report.lock.lock_type} "
         f"key_age={int(report.lock.age)}s "
-        f"identity={'same-owner' if report.qualified else 'REJECTED'} "
+        f"identity={'owner-readable' if report.qualified else 'REJECTED'} "
         f"reason={report.reason!r}"
     )
 

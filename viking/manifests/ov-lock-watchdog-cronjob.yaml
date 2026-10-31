@@ -15,9 +15,9 @@
 # restart that lands between its read and its write turns it into a 409 no-op.
 #
 # Identity: ov-exporter's openviking_s3_ovlock_live_age_seconds (homelab#205,
-# port 9210 on the openviking Service) says how long the lock has been present
-# under one owner and lock type. Before the restart, two reads of the exporter's
-# GET /locks (WATCHDOG_RECHECK_SECONDS, 30 s apart) must show a later poll, the
+# port 9210 on the openviking Service) says how long the key has been present,
+# which can span holders it never read. Before the restart, two reads of the exporter's
+# GET /locks (WATCHDOG_RECHECK_SECONDS, 90 s apart) must show a later poll, the
 # same owner read on each poll, a refreshed lock, and an owner known to the
 # exporter for the whole hold. v0.5.1.1 logs no lease
 # lines (BUG-1282), so a handoff under one owner reads as one hold. Anything
@@ -107,7 +107,7 @@ spec:
                 - name: WATCHDOG_EXPORTER_URL
                   value: http://openviking.viking.svc.cluster.local:9210/metrics
                 # Thresholds written out so they can be tuned without a code
-                # change. Hold: the same lease continuously, from the exporter.
+                # change. Hold: one owner's time known to the exporter.
                 - name: WATCHDOG_HOLD_SECONDS
                   value: "10800"
                 # Hard cap: restart even though the queue is busy.

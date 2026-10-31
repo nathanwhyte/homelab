@@ -19,7 +19,7 @@ Env:
     OPENVIKING_KEY     OV root API key (required for `ov status`)
     AGFS_PATH          Path to AGFS data root for lock count
                        (default: /app/data/viking)
-    POLL_INTERVAL      Seconds between polls (default: 15)
+    POLL_INTERVAL      Seconds slept after each poll's work (default: 15)
     PORT               HTTP port for /metrics (default: 9210)
 
 S3 lock polling (IMPR-1095) — enabled when OVLOCK_S3_BUCKET is set. Under

@@ -18,8 +18,9 @@ spec:
       protocol: TCP
     # The ov-exporter sidecar, so each Mac's ov-telemetry-push.py can POST
     # hook delivery totals to /client-telemetry (root API key required). This
-    # also puts the exporter's unauthenticated GET /metrics on the LAN, which
-    # holds nothing beyond what Grafana already shows.
+    # also puts the exporter's unauthenticated GET /metrics and GET /locks on
+    # the LAN. /metrics holds nothing beyond what Grafana already shows; /locks
+    # adds the key and URI of every live lock, young ones included.
     - name: client-telemetry
       port: 9210
       targetPort: 9210
