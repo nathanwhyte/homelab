@@ -483,6 +483,24 @@ data:
         raise ParseError("lock gone from GET /locks")
 
 
+    def pick_candidate(reports, text: str, hold: float):
+        """(report, its /locks sample) to try to prove: the longest whose owner has
+        been known for the hold, else the longest listed. ParseError if none is."""
+        samples = []
+        failure = None
+        for report in reports:
+            try:
+                samples.append((report, parse_lock_sample(text, report.lock.key)))
+            except ParseError as e:
+                failure = e
+        for report, sample in samples:
+            if sample.owner_held >= hold:
+                return report, sample
+        if samples:
+            return samples[0]
+        raise failure or ParseError("no candidate lock")
+
+
     def proof_failure(
         lock: LiveLock, first: LockSample, second: LockSample, hold: float
     ) -> str:
@@ -815,7 +833,7 @@ data:
         return (
             f"{TAG} lock key={report.lock.key} uri={report.lock.uri} "
             f"owner={report.lock.owner} lock_type={report.lock.lock_type} "
-            f"hold={int(report.lock.age)}s "
+            f"key_age={int(report.lock.age)}s "
             f"identity={'same-owner' if report.qualified else 'REJECTED'} "
             f"reason={report.reason!r}"
         )
@@ -882,17 +900,13 @@ data:
                 say(f"{TAG} BLIND: cannot read the cluster as this ServiceAccount")
             return 2 if blind else 0
 
-        first = decision.qualified[0]
-        note = (
-            f"{now.strftime('%Y-%m-%dT%H:%M:%SZ')} key={first.lock.key} "
-            f"owner={first.lock.owner} hold={int(first.lock.age)}s "
-            f"reason={decision.reason}"
-        )
         # Re-read everything the decision rests on, on a later exporter poll: a
         # restart is the one step that cannot be undone. A failed re-read is an
         # abort (retry in 15 min), not a failed restart.
         try:
-            sample = parse_lock_sample(fetch(cfg.locks_url), first.lock.key)
+            first, sample = pick_candidate(
+                decision.qualified, fetch(cfg.locks_url), cfg.hold
+            )
             sleep(cfg.recheck)
             fresh = cluster.get_deployment()
             exporter_again = parse_exporter(
@@ -926,6 +940,11 @@ data:
         except Exception as e:  # noqa: BLE001 - nothing was changed; try next slot
             say(f"{TAG} ABORTED before restart: {type(e).__name__}: {e}")
             return 2 if getattr(e, "blind", False) else 0
+        note = (
+            f"{now.strftime('%Y-%m-%dT%H:%M:%SZ')} key={first.lock.key} "
+            f"owner={first.lock.owner} hold={int(last.owner_held)}s "
+            f"key_age={int(same.age)}s reason={policy.reason}"
+        )
         if dry_run:
             say(f"{TAG} DRY-RUN would restart deploy/{cfg.deployment}: {note}")
             return 0

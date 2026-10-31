@@ -428,6 +428,54 @@ class TestRun(unittest.TestCase):
         self.assertEqual((code, cluster.patches), (0, []))
         self.assertIn("ABORTED before restart: busy:", out)
 
+    def test_the_note_reports_the_proven_hold_and_the_final_verdict(self):
+        # Codex R3: the shadow log is what a person checks before enabling.
+        texts = iter(
+            [metrics_text(age=7 * HOUR, work=0), metrics_text(age=7 * HOUR, work=0)]
+        )
+        cluster = FakeCluster()
+        code, out = self.go(cluster, lambda url: next(texts), dry_run=True)
+        self.assertEqual((code, cluster.patches), (0, []))
+        line = next(x for x in out.splitlines() if "DRY-RUN would restart" in x)
+        self.assertIn("hold=14400s key_age=25200s", line)
+        self.assertIn("reason=quiet moment: held 14400s", line)
+        self.assertNotIn("forced", line)
+
+    def test_a_younger_lock_with_a_proven_owner_is_chosen_over_an_older_one(self):
+        # Codex R3: the oldest key's owner may be new, and must not block the
+        # restart a provable lock has earned.
+        def second_key(body):
+            doc = json.loads(body)
+            doc["locks"].insert(
+                0,
+                {
+                    **doc["locks"][0],
+                    "key": KEY2,
+                    "owner": "tok-2",
+                    "owner_held_seconds": 60.0,
+                },
+            )
+            return json.dumps(doc)
+
+        text = (
+            metrics_text(age=7 * HOUR, work=0)
+            .replace(f'key="{KEY}"', f'key="{KEY2}"')
+            .replace('owner="tok-1"', 'owner="tok-2"')
+            + f'openviking_s3_ovlock_live_age_seconds{{key="{KEY}",uri="viking://u/x",'
+            f'owner="tok-1",lock_type="E"}} {4 * HOUR}\n'
+        )
+        cluster = FakeCluster()
+        code, out = self.go(
+            cluster,
+            text,
+            locks=[
+                second_key(locks_text()),
+                second_key(locks_text(generation=2, mtime=1030.0)),
+            ],
+        )
+        self.assertEqual((code, len(cluster.patches)), (0, 1), out)
+        self.assertIn(f"key={KEY} owner=tok-1", cluster.patches[0][1])
+
     def test_exporter_without_the_route_aborts(self):
         self.assert_aborts([OSError("HTTP 404")], "OSError: HTTP 404")
 
