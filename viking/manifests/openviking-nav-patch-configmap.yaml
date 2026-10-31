@@ -530,6 +530,21 @@ data:
     defence only: its ``patch_errors`` hold JSON-native values on v0.5.1.1. Upstream's default
     branch still had the bare call on 2026-10-30.
 
+    IMPR-1453 adds a counter, ``openviking_session_archive_zero_memories_total{reason}``, of
+    archives that finish with zero memories. Stock ``openviking_memory_extracted_total`` only
+    increments above zero, and the 0-operations WARNING above also fires for merge loops (327
+    lines against 89 zero-result archives in one day), so neither can count archives. The count
+    sits in ``Session._merge_and_save_commit_meta`` (session.py:2509), which Phase 2 reaches once
+    per archive after every step succeeded, with the final ``memories_extracted`` dict; a failed
+    archive never reaches it, and loops, batches and retries cannot repeat it. A wrapper around
+    ``Session._run_memory_extraction`` opens per-archive state and ``wrap_run`` counts the
+    session-extraction loops in it: ``reason="empty"`` is an archive where a session-extraction
+    loop ran and nothing was filed, ``reason="skipped"`` one where none ran (extraction disabled,
+    the preference gate left no type to extract, or no message was left to extract). Count both
+    under the label so a baseline can use either; the 7-day rate of real zero results is the
+    ``empty`` series. No alert yet: a baseline comes first. Each wrapper is hash-guarded and
+    installed by ``apply_session`` after the loop half.
+
     Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
     ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
     retry and chunking wrappers, the two repair-prompt wrappers, and the streaming half's three
@@ -583,6 +598,14 @@ data:
     EXPECTED_ACQUIRE_LEASE_SHA256 = (
         "ca2c9480fd785fca2bf500789854e2369661137fd78c9be419d474b715196843"
     )
+    # IMPR-1453: ``Session._run_memory_extraction`` and ``Session._merge_and_save_commit_meta``
+    # on v0.5.1.1 (session.py:2091, 2963).
+    EXPECTED_RUN_EXTRACTION_SHA256 = (
+        "d64ddfa93c3d0d33c665f372c746f22f9bca9f670c7c4542d4e68f3e1527e9d2"
+    )
+    EXPECTED_MERGE_META_SHA256 = (
+        "9e560862c4b9c1a9255bfc027e789c70c8817d23ad64f6b3873d5da93742f50d"
+    )
     DEFAULT_RETRIES = 5
     DEFAULT_BASE_DELAY_SECONDS = 15.0
     DEFAULT_MAX_DELAY_SECONDS = 120.0
@@ -606,6 +629,22 @@ data:
     # written. Tasks spawned inside the attempt copy the context and share the dict.
     _STEP: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
         "ov_extract_step", default=None
+    )
+
+    # Per-archive state for the zero-result counter (IMPR-1453), set around each
+    # ``Session._run_memory_extraction``: ``loops`` counts session-extraction loops that
+    # returned. Loops run in gathered tasks that copy the context and share the dict.
+    _ARCHIVE: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+        "ov_extract_archive", default=None
+    )
+
+    ZERO_RESULT_METRIC = "openviking_session_archive_zero_memories_total"
+    ZERO_RESULT_LABELS = ("reason",)
+    ZERO_REASON_EMPTY = (
+        "empty"  # a session-extraction loop ran and the archive got no memory
+    )
+    ZERO_REASON_SKIPPED = (
+        "skipped"  # no loop ran: gate, disabled config, or nothing to extract
     )
 
     logger = logging.getLogger("ov_extract_patch")
@@ -774,6 +813,9 @@ data:
                     _tag(exc, STAGE_ATTR, STAGE_SESSION_EXTRACT)
                 raise
             if provider == SESSION_PROVIDER:
+                archive = _ARCHIVE.get()
+                if archive is not None:
+                    archive["loops"] += 1
                 # Arms the streaming half: the next lease the attempt takes is its first write.
                 state = _STEP.get()
                 if state is not None and not state["wrote"]:
@@ -1098,6 +1140,91 @@ data:
         return _submit_grouped_merge_request
 
 
+    # --- zero-result archive counter (IMPR-1453) ----------------------------------------------
+
+
+    def wrap_run_extraction(orig):
+        """Open the per-archive state around one Phase 2 run (swallows its own failures)."""
+
+        @functools.wraps(orig)
+        async def _run_memory_extraction(self, *args, **kwargs):
+            token = _ARCHIVE.set({"loops": 0})
+            try:
+                return await orig(self, *args, **kwargs)
+            finally:
+                _ARCHIVE.reset(token)
+
+        _run_memory_extraction._ov_extract_patch = True  # type: ignore[attr-defined]
+        return _run_memory_extraction
+
+
+    def count_zero_result(memories_extracted) -> None:
+        """Add one to the zero-result counter when an archive's total is zero; never raises."""
+        # Metrics must never fail an archive.
+        with contextlib.suppress(Exception):
+            archive = _ARCHIVE.get()
+            if archive is None or sum((memories_extracted or {}).values()) > 0:
+                return
+            from openviking.metrics.global_api import try_get_metrics_registry
+
+            registry = try_get_metrics_registry()
+            if registry is None:
+                return
+            reason = ZERO_REASON_EMPTY if archive["loops"] > 0 else ZERO_REASON_SKIPPED
+            registry.inc_counter(
+                ZERO_RESULT_METRIC,
+                labels={"reason": reason},
+                label_names=ZERO_RESULT_LABELS,
+            )
+
+
+    def wrap_merge_meta(orig):
+        """Count once per archive that reaches its commit-meta save with zero memories.
+
+        ``_merge_and_save_commit_meta`` runs once, after every extraction loop and merge step
+        of the archive succeeded and its ``memories_extracted`` total is final; a failed
+        archive never reaches it, and a Phase 2 retry or a recovery re-runs only steps.
+        """
+
+        @functools.wraps(orig)
+        async def _merge_and_save_commit_meta(
+            self, archive_index, memories_extracted, *args, **kwargs
+        ):
+            result = await orig(self, archive_index, memories_extracted, *args, **kwargs)
+            count_zero_result(memories_extracted)
+            return result
+
+        _merge_and_save_commit_meta._ov_extract_patch = True  # type: ignore[attr-defined]
+        return _merge_and_save_commit_meta
+
+
+    def _apply_zero_result_counter(module) -> bool:
+        """Wrap the two Session methods; all or none, each guarded on its source hash."""
+        cls = getattr(module, "Session", None)
+        targets = (
+            ("_run_memory_extraction", EXPECTED_RUN_EXTRACTION_SHA256, wrap_run_extraction),
+            ("_merge_and_save_commit_meta", EXPECTED_MERGE_META_SHA256, wrap_merge_meta),
+        )
+        current = [getattr(cls, name, None) for name, _, _ in targets]
+        if current and all(getattr(fn, "_ov_extract_patch", False) for fn in current):
+            return True
+        digests = [_source_hash(fn) if fn else None for fn in current]
+        if digests != [t[1] for t in targets]:
+            logger.warning(
+                "ov-extract-patch: NOT applied to the zero-result archive counter "
+                "(source_sha256=%s); %s stays at zero",
+                digests,
+                ZERO_RESULT_METRIC,
+            )
+            return False
+        for (name, _, wrap), fn in zip(targets, current, strict=True):
+            setattr(cls, name, wrap(fn))
+        logger.warning(
+            "ov-extract-patch: applied zero-result archive counter (pid %d)", os.getpid()
+        )
+        return True
+
+
     # --- installers -------------------------------------------------------------------------
 
 
@@ -1250,6 +1377,7 @@ data:
         # BUG-1196 halves: each guarded on its own source hash; one failing leaves the rest.
         _apply_retry_wrapper(module)
         _apply_chunking(module)
+        _apply_zero_result_counter(module)
         return True
 
 

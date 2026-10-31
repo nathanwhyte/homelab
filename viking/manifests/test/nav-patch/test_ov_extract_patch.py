@@ -1805,5 +1805,165 @@ class Phase2HarnessTests(unittest.TestCase):
         )
 
 
+class FakeRegistry:
+    def __init__(self):
+        self.calls = []
+
+    def inc_counter(self, name, *, amount=1.0, labels=None, label_names=()):
+        self.calls.append((name, dict(labels), tuple(label_names), amount))
+
+
+class FakeSession:
+    """Shape of ``Session``: Phase 2 swallows its failures, meta save runs once at the end."""
+
+    loops = 0  # session-extraction loops to run
+    merge_loops = 0
+    memories = {}
+    fail = False
+
+    async def _run_memory_extraction(self, archive_uri):
+        try:
+            session_loop = make((Ops(), []))
+            merge_loop = make((Ops(), []))
+            await asyncio.gather(
+                *[session_loop(Loop()) for _ in range(self.loops)],
+                *[merge_loop(MergeLoop()) for _ in range(self.merge_loops)],
+            )
+            if self.fail:
+                raise RuntimeError("step failed")
+            await self._merge_and_save_commit_meta(1, dict(self.memories), None)
+        except Exception:
+            pass
+
+    async def _merge_and_save_commit_meta(
+        self, archive_index, memories_extracted, telemetry_snapshot, *, extra=False
+    ):
+        return None
+
+
+class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.registry = FakeRegistry()
+        api = types.ModuleType("openviking.metrics.global_api")
+        api.try_get_metrics_registry = lambda: self.registry
+        self._saved_modules = {
+            name: sys.modules.get(name)
+            for name in (
+                "openviking",
+                "openviking.metrics",
+                "openviking.metrics.global_api",
+            )
+        }
+        sys.modules["openviking"] = types.ModuleType("openviking")
+        sys.modules["openviking.metrics"] = types.ModuleType("openviking.metrics")
+        sys.modules["openviking.metrics.global_api"] = api
+        self.cls = type("S", (FakeSession,), {})
+        self.mod = types.SimpleNamespace(Session=self.cls)
+        self._hashes = (
+            ep.EXPECTED_RUN_EXTRACTION_SHA256,
+            ep.EXPECTED_MERGE_META_SHA256,
+        )
+        ep.EXPECTED_RUN_EXTRACTION_SHA256 = ep._source_hash(
+            FakeSession._run_memory_extraction
+        )
+        ep.EXPECTED_MERGE_META_SHA256 = ep._source_hash(
+            FakeSession._merge_and_save_commit_meta
+        )
+
+    def tearDown(self):
+        ep.EXPECTED_RUN_EXTRACTION_SHA256, ep.EXPECTED_MERGE_META_SHA256 = self._hashes
+        for name, mod in self._saved_modules.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+        super().tearDown()
+
+    def run_archive(self, **attrs):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        for key, value in attrs.items():
+            setattr(self.cls, key, value)
+        asyncio.run(self.cls()._run_memory_extraction("viking://archive_1"))
+
+    def reasons(self):
+        for name, labels, label_names, amount in self.registry.calls:
+            self.assertEqual(name, ep.ZERO_RESULT_METRIC)
+            self.assertEqual(label_names, ("reason",))
+            self.assertEqual(amount, 1.0)
+        return [labels["reason"] for _, labels, _, _ in self.registry.calls]
+
+    def test_archive_with_several_loops_counts_once(self):
+        self.run_archive(loops=3, merge_loops=4, memories={})
+        self.assertEqual(self.reasons(), ["empty"])
+
+    def test_archive_with_memories_is_not_counted(self):
+        self.run_archive(loops=3, merge_loops=1, memories={"events": 2, "cases": 0})
+        self.assertEqual(self.reasons(), [])
+
+    def test_archive_where_no_loop_ran_is_labelled_skipped(self):
+        self.run_archive(loops=0, merge_loops=0, memories={})
+        self.assertEqual(self.reasons(), ["skipped"])
+
+    def test_merge_loops_alone_do_not_make_an_archive_empty(self):
+        self.run_archive(loops=0, merge_loops=5, memories={})
+        self.assertEqual(self.reasons(), ["skipped"])
+
+    def test_failed_archive_never_reaches_the_count(self):
+        self.run_archive(loops=2, memories={}, fail=True)
+        self.assertEqual(self.reasons(), [])
+
+    def test_two_archives_count_separately_and_state_does_not_leak(self):
+        self.run_archive(loops=2, memories={})
+        asyncio.run(self.cls()._run_memory_extraction("viking://archive_2"))
+        self.assertEqual(self.reasons(), ["empty", "empty"])
+        self.assertIsNone(ep._ARCHIVE.get())
+
+    def test_meta_save_outside_a_phase2_run_is_not_counted(self):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        asyncio.run(self.cls()._merge_and_save_commit_meta(1, {}, None))
+        self.assertEqual(self.reasons(), [])
+
+    def test_missing_registry_or_failing_counter_never_fails_the_save(self):
+        self.registry = None
+        self.run_archive(loops=1, memories={})  # registry None: nothing to count into
+        self.registry = FakeRegistry()
+        self.registry.inc_counter = lambda *a, **k: 1 / 0
+        asyncio.run(self.cls()._run_memory_extraction("viking://archive_3"))
+
+    def test_hash_mismatch_leaves_both_methods_stock(self):
+        ep.EXPECTED_MERGE_META_SHA256 = "0" * 64
+        original = (
+            self.cls._run_memory_extraction,
+            self.cls._merge_and_save_commit_meta,
+        )
+        self.assertFalse(ep._apply_zero_result_counter(self.mod))
+        self.assertEqual(
+            (self.cls._run_memory_extraction, self.cls._merge_and_save_commit_meta),
+            original,
+        )
+
+    def test_apply_is_idempotent(self):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        wrapped = self.cls._merge_and_save_commit_meta
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        self.assertIs(self.cls._merge_and_save_commit_meta, wrapped)
+
+    def test_apply_session_installs_the_counter(self):
+        ep._state["loop_applied"] = True
+        sys.modules["openviking"].__version__ = ep.EXPECTED_VERSION
+        self.mod.is_retryable_api_error = lambda e: False
+        self.mod._MEMORY_EXTRACTION_MAX_RETRIES = 3
+        self.mod._MEMORY_EXTRACTION_RETRY_BASE_DELAY_SECONDS = 1.0
+        self.mod._MEMORY_EXTRACTION_RETRY_MAX_DELAY_SECONDS = 8.0
+        try:
+            self.assertTrue(ep.apply_session(self.mod))
+        finally:
+            ep._state["loop_applied"] = False
+        self.assertTrue(
+            getattr(self.cls._merge_and_save_commit_meta, "_ov_extract_patch", False)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
