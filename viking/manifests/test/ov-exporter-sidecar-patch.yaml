@@ -11,9 +11,10 @@
 #   kubectl -n viking exec deploy/openviking-test -c ov-exporter -- \
 #     python3 -c "import urllib.request as u; print(u.urlopen('http://localhost:9210/locks').read().decode())"
 #
-# Remove it by re-applying the Deployment, which has no sidecar:
-#   kubectl diff -f viking/manifests/test/openviking-test-deployment.yaml
-#   kubectl apply -f viking/manifests/test/openviking-test-deployment.yaml
+# Remove it with the matching patch; `kubectl apply` of the Deployment leaves a
+# container that a patch added:
+#   kubectl -n viking patch deployment openviking-test --type=strategic \
+#     --patch-file viking/manifests/test/ov-exporter-sidecar-remove-patch.yaml
 spec:
   template:
     spec:

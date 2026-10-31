@@ -260,19 +260,47 @@ def metrics_text(age=4 * HOUR, work=11, up=1, poll_ok=1) -> str:
     )
 
 
+def locks_text(
+    generation=1, mtime=1000.0, owner="tok-1", lock_type="E", read_ok=True, ok=True
+) -> str:
+    return json.dumps(
+        {
+            "ok": ok,
+            "generation": generation,
+            "polled_at": 2000.0,
+            "live_window_seconds": 120.0,
+            "locks": [
+                {
+                    "key": KEY,
+                    "uri": "viking://u/x",
+                    "first_seen": 1.0,
+                    "last_modified": mtime,
+                    "refresh_age_seconds": 5.0,
+                    "owner": owner,
+                    "lock_type": lock_type,
+                    "owner_read_ok": read_ok,
+                }
+            ],
+        }
+    )
+
+
 class TestRun(unittest.TestCase):
-    def go(self, cluster, text, dry_run=False, cfg=CFG, new_polls=True):
-        """Each fetch is a later exporter poll unless new_polls=False."""
+    def go(self, cluster, text, dry_run=False, cfg=CFG, locks=None):
+        """`locks` are the GET /locks replies in order; an exception is raised.
+        The default shows a later poll and a refreshed lock."""
         out: list[str] = []
         self.events: list[str] = []
+        replies = iter(locks or [locks_text(), locks_text(generation=2, mtime=1030.0)])
 
         def fetch(url):
-            self.events.append("fetch")
-            body = text if isinstance(text, str) else text(url)
-            if new_polls:
-                polled = NOW.timestamp() - 3 + self.events.count("fetch")
-                body = body.replace(POLL_LINE, f"openviking_last_poll_unix {polled}\n")
-            return body
+            self.events.append(f"fetch {url.rsplit('/', 1)[-1]}")
+            if url != cfg.locks_url:
+                return text if isinstance(text, str) else text(url)
+            reply = next(replies)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
 
         code = wd.run(
             cfg,
@@ -303,18 +331,72 @@ class TestRun(unittest.TestCase):
         self.assertNotIn("lease_ref", cluster.patches[0][1])
         self.assertIn("identity=same-owner", out)
 
-    def test_the_second_read_waits_for_a_later_poll(self):
+    def test_the_two_lock_reads_straddle_the_wait(self):
         cluster = FakeCluster()
         self.go(cluster, metrics_text(work=0))
-        self.assertEqual(self.events, ["fetch", "sleep 30.0", "fetch"])
+        self.assertEqual(
+            self.events,
+            [
+                "fetch metrics",
+                "fetch locks",
+                "sleep 30.0",
+                "fetch metrics",
+                "fetch locks",
+            ],
+        )
+
+    def assert_aborts(self, locks, reason):
+        cluster = FakeCluster()
+        code, out = self.go(cluster, metrics_text(work=0), locks=locks)
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn(f"ABORTED before restart: {reason}", out)
 
     def test_two_reads_of_one_poll_abort(self):
         # The exporter compares holders from the poll after labelling, so a
-        # re-read of the same poll proves nothing (BUG-1282).
-        cluster = FakeCluster()
-        code, out = self.go(cluster, metrics_text(work=0), new_polls=False)
-        self.assertEqual((code, cluster.patches), (0, []))
-        self.assertIn("ABORTED before restart: the exporter has not polled", out)
+        # re-read of the same poll proves nothing (BUG-1282). Codex R1: the mark
+        # comes with the lock data, never from a separately published series.
+        self.assert_aborts(
+            [locks_text(), locks_text(mtime=1030.0)],
+            "the exporter has not polled again",
+        )
+
+    def test_a_cached_owner_on_either_poll_aborts(self):
+        # Codex R1: a failed GET keeps the old label, so the holder is unproven.
+        later = {"generation": 2, "mtime": 1030.0}
+        for locks in (
+            [locks_text(read_ok=False), locks_text(**later)],
+            [locks_text(), locks_text(read_ok=False, **later)],
+        ):
+            with self.subTest():
+                self.assert_aborts(locks, "an owner read failed")
+
+    def test_a_lock_that_stopped_refreshing_aborts(self):
+        # Codex R1: a frozen lock stays in the series for the live window.
+        self.assert_aborts(
+            [locks_text(), locks_text(generation=2)],
+            "the lock was not refreshed",
+        )
+
+    def test_owner_or_type_change_in_the_lock_reads_aborts(self):
+        later = {"generation": 2, "mtime": 1030.0}
+        for changed in ({"owner": "tok-9"}, {"lock_type": "T"}):
+            with self.subTest(changed):
+                self.assert_aborts(
+                    [locks_text(), locks_text(**later, **changed)],
+                    "lock gone or changed",
+                )
+                self.assert_aborts(
+                    [locks_text(**changed), locks_text(**later)],
+                    "lock gone or changed",
+                )
+
+    def test_exporter_without_the_route_aborts(self):
+        self.assert_aborts([OSError("HTTP 404")], "OSError: HTTP 404")
+
+    def test_failing_lock_poll_aborts(self):
+        self.assert_aborts(
+            [locks_text(ok=False)], "ParseError: the exporter's lock poll is failing"
+        )
 
     def test_lock_type_change_before_the_patch_aborts(self):
         swapped = metrics_text(work=0).replace('lock_type="E"', 'lock_type="T"')
@@ -329,7 +411,7 @@ class TestRun(unittest.TestCase):
         code, out = self.go(cluster, metrics_text(work=0), dry_run=True)
         self.assertEqual(code, 0)
         self.assertEqual(cluster.patches, [])
-        self.assertEqual(self.events, ["fetch"])
+        self.assertEqual(self.events, ["fetch metrics"])
         self.assertIn("DRY-RUN would restart", out)
         self.assertIn("mode=dry-run", out)
 
@@ -518,6 +600,34 @@ class TestConfigMapInSync(unittest.TestCase):
             [x.rstrip() for x in source],
             "run viking/scripts/regen-lock-watchdog-configmap.sh",
         )
+
+
+class TestLockSample(unittest.TestCase):
+    def test_reads_the_named_lock(self):
+        sample = wd.parse_lock_sample(locks_text(generation=7, mtime=5.5), KEY)
+        self.assertEqual(sample, wd.LockSample(7, "tok-1", "E", True, 5.5))
+
+    def test_a_lock_not_listed_is_an_error(self):
+        with self.assertRaisesRegex(wd.ParseError, "lock gone"):
+            wd.parse_lock_sample(locks_text(), "other-key")
+
+    def test_an_unlabelled_lock_names_no_owner(self):
+        doc = json.loads(locks_text())
+        for field in ("owner", "lock_type", "owner_read_ok"):
+            del doc["locks"][0][field]
+        sample = wd.parse_lock_sample(json.dumps(doc), KEY)
+        self.assertEqual((sample.owner, sample.owner_read_ok), ("", False))
+
+    def test_a_body_that_is_not_the_expected_document_is_an_error(self):
+        no_mtime = json.loads(locks_text())
+        del no_mtime["locks"][0]["last_modified"]
+        for text in ("not json", "[]", "null", '{"ok": true}', json.dumps(no_mtime)):
+            with self.subTest(text), self.assertRaises(wd.ParseError):
+                wd.parse_lock_sample(text, KEY)
+
+    def test_the_locks_url_follows_the_exporter_url(self):
+        cfg = wd.Config.from_env({"WATCHDOG_EXPORTER_URL": "http://x:9210/metrics"})
+        self.assertEqual(cfg.locks_url, "http://x:9210/locks")
 
 
 class TestParsers(unittest.TestCase):

@@ -32,9 +32,10 @@ Events (each line starts with the UTC time, HH:MMZ):
            for health
   WATCH ERROR <probe>: <reason>   a probe failed; the run continues
   WATCH ERROR waits: ...          a labelled lock is held for a full poll and no
-           ragfs::lock::manager line has appeared in the log, so the wait figures
-           mean nothing; v0.5.1.1 logs those lines at debug (BUG-1282). Sent once,
-           and WATCH end then reads `waits unknown`.
+           ragfs::lock::manager line has appeared in this pod's log, so the wait
+           figures mean nothing; v0.5.1.1 logs those lines at debug (BUG-1282).
+           Sent once per pod. WATCH end then reads `waits unknown`, unless a lock
+           line turns up later in that same pod's log.
   WATCH start / WATCH end         bracket the run; WATCH end is an actionable line
 
 Target-uptime mode (BUG-1220 split-window rule: a planned restart splits the soak
@@ -426,6 +427,7 @@ class LogCursor:
     def reset_pod(self):
         self.seen = set()
         self.dag_open = False
+        self.saw_lock_log = False
 
     def fresh(self, text):
         """The lines of `text` not read before; advances the cursor."""
@@ -798,7 +800,8 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
     cursor = LogCursor()
     peak, tot_waits, max_wait, tot_outcomes, n = 0.0, 0, 0, {}, 0
     tot_dag_miss = 0
-    waits_blind = False
+    waits_blind = False  # this pod
+    earlier_pod_blind = False
     window = f"target uptime {fmt_dur(target_uptime)}" if tracker else f"{hours:g} h"
     done = False
     status = ""
@@ -813,7 +816,7 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
             )
         waits = (
             "waits unknown"
-            if waits_blind and not cursor.saw_lock_log
+            if earlier_pod_blind or (waits_blind and not cursor.saw_lock_log)
             else f"waits {tot_waits} (max {max_wait / 1000:.1f}s)"
         )
         return (
@@ -843,6 +846,8 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                         + restart_trigger(sink)
                     )
                 seen_pod = pod
+                earlier_pod_blind |= waits_blind and not cursor.saw_lock_log
+                waits_blind = False
                 cursor.reset_pod()
             if pod:
                 got = metrics(sink, pod)

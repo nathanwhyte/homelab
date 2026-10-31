@@ -18,10 +18,12 @@ Identity, all of it required (any doubt = no restart, with the reason logged):
   refreshes stopped leaves the series after the exporter's live window, which
   is the janitor's dead-lease case.
 - The lock's owner is readable.
-- A later exporter poll, read WATCHDOG_RECHECK_SECONDS after the first, shows
-  the same key, owner and lock type. The exporter reads a lock's owner only
-  once it is labelled and compares it from the next poll on, so a lock labelled
-  by this run's first read has not been compared yet.
+- Two reads of the exporter's GET /locks, WATCHDOG_RECHECK_SECONDS apart, show
+  a later poll, the same key, owner and lock type, an owner read on each of
+  those polls, not a cached one, and a newer mtime on the second. The exporter
+  compares a lock's owner only from the poll after it is labelled, so a lock
+  labelled by this run's first read has not been compared yet, and a frozen
+  lock stays in the series for the exporter's live window.
 - The exporter is healthy and fresh, the Deployment is settled and was not
   restarted within WATCHDOG_COOLDOWN_SECONDS.
 
@@ -52,7 +54,8 @@ rollout) turns it into a no-op conflict instead of a second restart.
 Env (all optional): WATCHDOG_HOLD_SECONDS=10800, WATCHDOG_FORCE_SECONDS=21600,
 WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_WORK=0,
 WATCHDOG_RECHECK_SECONDS=30, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
-WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
+WATCHDOG_EXPORTER_URL (GET /locks is read from the same host),
+WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
 Decisions (the run's `decision=` line, IMPR-1416):
 
@@ -119,6 +122,11 @@ class Config:
     exporter_url: str = "http://openviking.viking.svc.cluster.local:9210/metrics"
     namespace: str = "viking"
     deployment: str = "openviking"
+
+    @property
+    def locks_url(self) -> str:
+        """GET /locks on the exporter that serves exporter_url."""
+        return self.exporter_url.rsplit("/", 1)[0] + "/locks"
 
     @classmethod
     def from_env(cls, env=os.environ) -> Config:
@@ -214,6 +222,54 @@ def parse_exporter(
         ),
         queue_work=queue_work,
     )
+
+
+@dataclass(frozen=True)
+class LockSample:
+    """One lock in one GET /locks snapshot: all of it from a single poll."""
+
+    generation: int
+    owner: str
+    lock_type: str
+    owner_read_ok: bool
+    last_modified: float
+
+
+def parse_lock_sample(text: str, key: str) -> LockSample:
+    """`key`'s sample from a GET /locks body. ParseError if there is none."""
+    try:
+        doc = json.loads(text)
+        if doc["ok"] is not True:
+            raise ParseError("the exporter's lock poll is failing")
+        for lock in doc["locks"]:
+            if lock["key"] == key:
+                return LockSample(
+                    generation=int(doc["generation"]),
+                    owner=str(lock.get("owner", "")),
+                    lock_type=str(lock.get("lock_type", "")),
+                    owner_read_ok=lock.get("owner_read_ok") is True,
+                    last_modified=float(lock["last_modified"]),
+                )
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ParseError(f"unreadable GET /locks reply: {e!r}") from e
+    raise ParseError("lock gone from GET /locks")
+
+
+def proof_failure(lock: LiveLock, first: LockSample, second: LockSample) -> str:
+    """Why two /locks samples do not show `lock` held and refreshing, else ""."""
+    if second.generation <= first.generation:
+        return "the exporter has not polled again since the first read"
+    if not (first.owner_read_ok and second.owner_read_ok):
+        return "an owner read failed, so the owner is a cached value"
+    holder = (lock.owner, lock.lock_type)
+    if holder != (first.owner, first.lock_type) or holder != (
+        second.owner,
+        second.lock_type,
+    ):
+        return "lock gone or changed"
+    if second.last_modified <= first.last_modified:
+        return "the lock was not refreshed between the two reads"
+    return ""
 
 
 # --- Kubernetes -------------------------------------------------------------
@@ -530,24 +586,16 @@ def _describe(report: LockReport) -> str:
     )
 
 
-def recheck_lock(
-    first: Exporter, first_lock: LiveLock, again: Exporter, still_long: list[LiveLock]
-) -> tuple[LiveLock | None, str]:
-    """The re-read lock, or why a restart must not rest on the two reads.
-
-    Needs a later exporter poll: the exporter compares a lock's holder only
-    from the poll after it was labelled, so two reads of one poll prove nothing.
-    """
-    if again.last_poll <= first.last_poll:
-        return None, "the exporter has not polled again since the first read"
-    for lock in still_long:
-        if (lock.key, lock.owner, lock.lock_type) == (
-            first_lock.key,
-            first_lock.owner,
-            first_lock.lock_type,
+def same_holder(lock: LiveLock, locks: list[LiveLock]) -> LiveLock | None:
+    """`lock` as re-read in `locks`: same key, owner and lock type."""
+    for other in locks:
+        if (other.key, other.owner, other.lock_type) == (
+            lock.key,
+            lock.owner,
+            lock.lock_type,
         ):
-            return lock, ""
-    return None, "lock gone or changed"
+            return other
+    return None
 
 
 def fetch_exporter_text(url: str, timeout: float = 10.0) -> str:
@@ -558,7 +606,7 @@ def fetch_exporter_text(url: str, timeout: float = 10.0) -> str:
 def run(
     cfg: Config,
     cluster,
-    fetch_metrics,
+    fetch,
     *,
     dry_run: bool,
     now_fn=utcnow,
@@ -581,7 +629,7 @@ def run(
     exporter = None
     try:
         exporter = parse_exporter(
-            fetch_metrics(cfg.exporter_url),
+            fetch(cfg.exporter_url),
             source=cfg.exporter_url,
             observed_at=now.timestamp(),
         )
@@ -611,11 +659,12 @@ def run(
     # Re-read everything the decision rests on, on a later exporter poll: a
     # restart is the one step that cannot be undone. A failed re-read is an
     # abort (retry in 15 min), not a failed restart.
-    sleep(cfg.recheck)
     try:
+        sample = parse_lock_sample(fetch(cfg.locks_url), first.lock.key)
+        sleep(cfg.recheck)
         fresh = cluster.get_deployment()
         exporter_again = parse_exporter(
-            fetch_metrics(cfg.exporter_url),
+            fetch(cfg.exporter_url),
             source=cfg.exporter_url,
             observed_at=now_fn().timestamp(),
         )
@@ -623,8 +672,16 @@ def run(
         if not still_long:
             say(f"{TAG} ABORTED before restart: {again.reason}")
             return 0
-        same, why = recheck_lock(exporter, first.lock, exporter_again, still_long)
+        same = same_holder(first.lock, still_long)
         if same is None:
+            say(f"{TAG} ABORTED before restart: lock gone or changed")
+            return 0
+        why = proof_failure(
+            first.lock,
+            sample,
+            parse_lock_sample(fetch(cfg.locks_url), first.lock.key),
+        )
+        if why:
             say(f"{TAG} ABORTED before restart: {why}")
             return 0
         # The quiet-queue / force decision too, on the fresh queue count.

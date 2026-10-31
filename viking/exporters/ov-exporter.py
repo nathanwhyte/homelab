@@ -65,8 +65,11 @@ minimum age still counts from the first sighting (at most min_age extra).
 
 GET /locks returns every live lock as JSON (BUG-1282), because v0.5.1.1 logs no
 lease lines and `ov status` reports counts only. It serves the last poll's
-result, so it makes no S3 call and carries no owner: reading an owner is one
-GET per lock.
+result as one snapshot, so it makes no S3 call. `generation` counts successful
+polls, and `last_modified` is the lock's mtime, so two reads can show a later
+poll and a refresh between them. Only labelled locks carry `owner`, `lock_type`
+and `owner_read_ok`, which is false when this poll's GET failed and the owner is
+the cached one; reading every owner would be one GET per live lock.
 
 Client delivery telemetry: what the Claude Code / Codex memory hooks put into
 a session's context is decided on the Mac (token budget, truncation), so the
@@ -429,10 +432,14 @@ _s3_first_seen: dict[str, float] = {}
 # detect a holder change on a key that never left the bucket.
 _s3_token_cache: dict[str, dict] = {}
 
-# The last successful poll's live locks, served by GET /locks (BUG-1282).
-_s3_live_locks: list[dict] = []
-_s3_live_polled_at = 0.0
-_s3_live_window = 0.0
+# The last successful poll, served by GET /locks (BUG-1282). Replaced whole
+# under _lock, so one read never mixes two polls.
+_s3_snapshot: dict = {
+    "generation": 0,
+    "polled_at": 0.0,
+    "live_window_seconds": 0.0,
+    "locks": [],
+}
 
 UNKNOWN = "unknown"
 
@@ -476,8 +483,9 @@ def holder_changed(previous: dict | None, current: dict | None) -> bool:
     )
 
 
-def _read_token(client, bucket: str, key: str) -> dict | None:
-    """Parsed token for key, falling back to the last good read; None if never."""
+def _read_token(client, bucket: str, key: str) -> tuple[dict | None, bool]:
+    """(token, fresh) for key: this poll's read, else the last good one (fresh
+    False), else None."""
     try:
         token = s3lite.parse_lock_token(client.get_object(bucket, key))
     except Exception as e:  # noqa: BLE001 - label falls back, poll carries on
@@ -485,8 +493,8 @@ def _read_token(client, bucket: str, key: str) -> dict | None:
         token = None
     if token is not None:
         _s3_token_cache[key] = token
-        return token
-    return _s3_token_cache.get(key)
+        return token, True
+    return _s3_token_cache.get(key), False
 
 
 def poll_s3_locks(
@@ -521,15 +529,16 @@ def poll_s3_locks(
 
     now = time.time()
     total = dead = live = 0
-    live_keys: dict[str, float] = {}  # key -> seconds since its last refresh
+    live_keys: dict[str, float] = {}  # key -> mtime (unix)
     for obj in objects:
         if not s3lite.is_lock_key(obj["Key"]):
             continue
         total += 1
-        age = now - obj["LastModified"].timestamp()
+        mtime = obj["LastModified"].timestamp()
+        age = now - mtime
         if age <= live_window:
             live += 1
-            live_keys[obj["Key"]] = age
+            live_keys[obj["Key"]] = mtime
             _s3_first_seen.setdefault(obj["Key"], now)
         elif age > dead_threshold:
             dead += 1
@@ -541,9 +550,10 @@ def poll_s3_locks(
             del _s3_token_cache[key]
 
     labelled = []
+    holders: dict[str, dict] = {}
     for key, age in select_label_candidates(_s3_first_seen, now, top_n, min_age):
         previous = _s3_token_cache.get(key)
-        token = _read_token(client, bucket, key)
+        token, fresh = _read_token(client, bucket, key)
         if holder_changed(previous, token):
             # Same key, new holder: restart presence so the series (and the
             # alert instance) never carries the old holder's age. The slot
@@ -556,23 +566,34 @@ def poll_s3_locks(
             )
             _s3_first_seen[key] = now
             continue
-        labelled.append((lock_labels(key, token), round(age, 1)))
+        labels = lock_labels(key, token)
+        labelled.append((labels, round(age, 1)))
+        holders[key] = {
+            "owner": labels["owner"],
+            "lock_type": labels["lock_type"],
+            "owner_read_ok": fresh,
+        }
     oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
     live_locks = [
         {
             "key": key,
             "uri": s3lite.lock_target(key) or UNKNOWN,
             "first_seen": round(_s3_first_seen[key], 3),
-            "refresh_age_seconds": round(max(age, 0.0), 1),
+            "last_modified": mtime,
+            "refresh_age_seconds": round(max(now - mtime, 0.0), 1),
+            **holders.get(key, {}),
         }
-        for key, age in sorted(live_keys.items())
+        for key, mtime in sorted(live_keys.items())
     ]
 
-    global _s3_live_locks, _s3_live_polled_at, _s3_live_window
+    global _s3_snapshot
     with _lock:
-        _s3_live_locks = live_locks
-        _s3_live_polled_at = now
-        _s3_live_window = live_window
+        _s3_snapshot = {
+            "generation": _s3_snapshot["generation"] + 1,
+            "polled_at": now,
+            "live_window_seconds": live_window,
+            "locks": live_locks,
+        }
         _metrics["openviking_s3_ovlock_live_age_seconds"] = labelled
         _metrics["openviking_s3_ovlock_total"] = total
         _metrics["openviking_s3_ovlock_dead"] = dead
@@ -588,12 +609,7 @@ def locks_payload() -> dict:
     """The GET /locks body. `ok` false means the last lock poll failed or was
     skipped, so `locks` is the last good poll's list, as old as `polled_at`."""
     with _lock:
-        return {
-            "ok": bool(_metrics["openviking_s3_ovlock_poll_ok"]),
-            "polled_at": _s3_live_polled_at,
-            "live_window_seconds": _s3_live_window,
-            "locks": _s3_live_locks,
-        }
+        return {"ok": bool(_metrics["openviking_s3_ovlock_poll_ok"]), **_s3_snapshot}
 
 
 def poll_lock_count(agfs_path: str) -> bool:

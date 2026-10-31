@@ -257,6 +257,36 @@ class WaitsBlind(unittest.TestCase):
         self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
         self.assertIn("waits 1", has(out, "WATCH end:")[0])
 
+    def test_a_new_pod_must_show_its_own_lock_lines(self):
+        # Codex R1: a rollback from a logging image to a counts-only one.
+        fake = FakeKubectl(
+            [POD_A, POD_B, POD_B, POD_B],
+            metrics=metrics_text(live_age=1000),
+            logs=[wait_line(1200), ""],
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def test_a_blind_pod_keeps_the_run_unknown_after_a_logging_pod(self):
+        # Codex R1: a pod that lost the lines is a gap the next pod cannot fill.
+        fake = FakeKubectl(
+            [POD_A, POD_A, POD_A, POD_B],
+            metrics=metrics_text(live_age=1000),
+            logs=["", "", "", wait_line(1200)],
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def test_each_blind_pod_reports(self):
+        fake = FakeKubectl(
+            [POD_A, POD_A, POD_B, POD_B], metrics=metrics_text(live_age=1000)
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 2)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
 
 class LogParsing(unittest.TestCase):
     def events(self, logs):
