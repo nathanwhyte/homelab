@@ -58,8 +58,9 @@ rollout) turns it into a no-op conflict instead of a second restart.
 
 Env (all optional): WATCHDOG_HOLD_SECONDS=10800, WATCHDOG_FORCE_SECONDS=21600,
 WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_WORK=0,
-WATCHDOG_RECHECK_SECONDS=90 (exporter polls ran 35-60 s apart on 2026-10-31,
-since POLL_INTERVAL is only the sleep after each poll's work),
+WATCHDOG_RECHECK_SECONDS=90 (exporter polls ran about 44 s apart on 2026-10-31,
+60 s at the 95th percentile, since POLL_INTERVAL is only the sleep after each
+poll's work),
 WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
 WATCHDOG_EXPORTER_URL (GET /locks is read from the same host),
 WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
@@ -69,7 +70,7 @@ Decisions (the run's `decision=` line, IMPR-1416):
 - restart, defer: a key present >= hold with a readable owner; the queue rule
   chose. At this first read nothing has shown how long that owner held it, so
   its figures are key age. A restart still needs the two-read proof below.
-- held: a lock held >= hold was seen, but no restart: the cooldown, an
+- held: a lock with key age >= hold was seen, but no restart: the cooldown, an
   unsettled rollout or unreadable restartedAt stopped it, or no long lock had a
   readable owner.
 - none: usable lock series were read and no lock was held >= hold.
@@ -125,8 +126,9 @@ class Config:
     force: float = 21600.0
     cooldown: float = 3600.0
     quiet_max_work: int = 0
-    # Past the exporter's usual 35-60 s poll cycle, so the re-read lands on a
-    # later poll; a slower cycle aborts this run and the next one tries again.
+    # Past the exporter's usual poll cycle (44 s on average, 60 s at the 95th
+    # percentile), so the re-read lands on a later poll; a slower cycle aborts
+    # this run and the next one tries again.
     recheck: float = 90.0
     exporter_max_stale: float = 120.0
     exporter_url: str = "http://openviking.viking.svc.cluster.local:9210/metrics"
@@ -511,7 +513,7 @@ def _blind(reason: str) -> tuple[Decision, list[LiveLock]]:
 
 
 def _held(reason: str) -> tuple[Decision, list[LiveLock]]:
-    """A stop after a lock held >= hold was seen: not a clean "none" either."""
+    """A stop after a key age >= hold was seen: not a clean "none" either."""
     return Decision("held", reason), []
 
 
@@ -582,8 +584,8 @@ def decide(
     if not qualified:
         return Decision(
             "held",
-            f"{len(reports)} lock(s) held >= {int(cfg.hold)}s, none with a readable "
-            "owner",
+            f"{len(reports)} lock(s) with key age >= {int(cfg.hold)}s, none with a "
+            "readable owner",
             reports,
         )
     longest = max(r.lock.age for r in qualified)

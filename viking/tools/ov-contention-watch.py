@@ -31,11 +31,13 @@ Events (each line starts with the UTC time, HH:MMZ):
   BEAT     periodic summary (every BEAT_EVERY polls), so silence is not mistaken
            for health
   WATCH ERROR <probe>: <reason>   a probe failed; the run continues
-  WATCH ERROR waits: ...          a labelled lock is held for a full poll and no
+  WATCH ERROR waits: ...          after the first poll a lock is live for
+           WAITS_BLIND_MIN_LOCK_AGE (120 s) or more, labelled or not, and no
            ragfs::lock::manager line has appeared in this pod's log, so the wait
            figures mean nothing; v0.5.1.1 logs those lines at debug (BUG-1282).
-           Sent once per pod. WATCH end then reads `waits unknown`, unless a lock
-           line turns up later in that same pod's log.
+           Sent once per pod. BEAT and WATCH end then read unknown, unless a lock
+           line turns up later in that same pod's log. A run whose locks all stay
+           younger than that sends no report and still ends `waits 0`.
   WATCH start / WATCH end         bracket the run; WATCH end is an actionable line
 
 Target-uptime mode (BUG-1220 split-window rule: a planned restart splits the soak
@@ -809,6 +811,9 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
     done = False
     status = ""
 
+    def waits_unknown():
+        return earlier_pod_blind or (waits_blind and not cursor.saw_lock_log)
+
     def end_line(status):
         uptime = ""
         if tracker:
@@ -819,7 +824,7 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
             )
         waits = (
             "waits unknown"
-            if earlier_pod_blind or (waits_blind and not cursor.saw_lock_log)
+            if waits_unknown()
             else f"waits {tot_waits} (max {max_wait / 1000:.1f}s)"
         )
         return (
@@ -935,9 +940,14 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                             "cannot be seen and waits=0 does not mean no waits"
                         )
                 if n % BEAT_EVERY == 1 and got:
+                    beat_waits = (
+                        "waits_total=unknown max_wait=unknown"
+                        if waits_unknown()
+                        else f"waits_total={tot_waits} max_wait={max_wait / 1000:.1f}s"
+                    )
                     sink.emit(
                         f"BEAT live={len(got.locks)} oldest={got.oldest_age or 0:.0f}s "
-                        f"peak={peak:.0f}s waits_total={tot_waits} max_wait={max_wait / 1000:.1f}s "
+                        f"peak={peak:.0f}s {beat_waits} "
                         f"dag_miss={tot_dag_miss} outcomes_total={tot_outcomes or '{}'} "
                         f"queue sem={got.pending.get('semantic', 0):.0f} nodes={got.pending.get('semantic_nodes', 0):.0f} "
                         f"commit={got.pending.get('sessioncommit', 0):.0f} total={got.pending.get('total', 0):.0f}",

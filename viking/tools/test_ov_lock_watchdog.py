@@ -145,6 +145,8 @@ class TestIdentity(unittest.TestCase):
             self.assertEqual(d.action, "held", owner)
             self.assertIn("owner unknown", d.locks[0].reason)
             self.assertIn("none with a readable owner", d.reason)
+            # Claude R5: with no owner, the figure can only be the key's age.
+            self.assertIn("key age >= 10800s", d.reason)
 
     def test_unread_lock_type_does_not_block_a_readable_owner(self):
         e = exporter(
@@ -443,6 +445,81 @@ class TestRun(unittest.TestCase):
         self.assertIn("reason=quiet moment: held 14400s", line)
         self.assertNotIn("forced", line)
 
+    def test_the_note_reads_the_second_read_on_both_figures(self):
+        # Claude R5: the first read's figures looked the same in every other test.
+        texts = iter(
+            [
+                metrics_text(age=7 * HOUR, work=0),
+                metrics_text(age=7 * HOUR + 900, work=0),
+            ]
+        )
+        cluster = FakeCluster()
+        code, out = self.go(
+            cluster,
+            lambda url: next(texts),
+            dry_run=True,
+            locks=[
+                locks_text(),
+                locks_text(generation=2, mtime=1030.0, owner_held=4 * HOUR + 900),
+            ],
+        )
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("hold=15300s key_age=26100s", out)
+
+    def test_an_owner_that_changed_during_the_wait_aborts_on_the_second_read(self):
+        # A -> B -> A between polls: only the second read's tenure shows it.
+        self.assert_aborts(
+            [
+                locks_text(owner_held=4 * HOUR),
+                locks_text(generation=2, mtime=1030.0, owner_held=60.0),
+            ],
+            "the exporter has known this owner for 60s, under the 10800s hold",
+        )
+
+    def test_the_force_cap_takes_the_lesser_of_series_age_and_owner_time(self):
+        # A series younger than the owner's tenure must not force a busy queue.
+        texts = iter([metrics_text(age=4 * HOUR, work=0), metrics_text(age=4 * HOUR)])
+        cluster = FakeCluster()
+        code, out = self.go(
+            cluster,
+            lambda url: next(texts),
+            locks=[
+                locks_text(owner_held=7 * HOUR),
+                locks_text(generation=2, mtime=1030.0, owner_held=7 * HOUR),
+            ],
+        )
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: busy:", out)
+
+    def test_a_lock_rejected_for_its_owner_is_never_the_candidate(self):
+        # Claude R5: a token with no owner parses as fresh, so the older lock
+        # would pass the proof on "unknown" == "unknown" if it were tried.
+        def with_rejected_lock(body):
+            doc = json.loads(body)
+            row = doc["locks"][0]
+            doc["locks"] = [
+                {**row, "key": KEY, "owner": "unknown", "owner_held_seconds": 5 * HOUR},
+                {**row, "key": KEY2},
+            ]
+            return json.dumps(doc)
+
+        text = (
+            metrics_text(age=4 * HOUR, work=0).replace(f'key="{KEY}"', f'key="{KEY2}"')
+            + f'openviking_s3_ovlock_live_age_seconds{{key="{KEY}",uri="viking://u/x",'
+            f'owner="unknown",lock_type="E"}} {5 * HOUR}\n'
+        )
+        cluster = FakeCluster()
+        code, out = self.go(
+            cluster,
+            text,
+            locks=[
+                with_rejected_lock(locks_text()),
+                with_rejected_lock(locks_text(generation=2, mtime=1030.0)),
+            ],
+        )
+        self.assertEqual((code, len(cluster.patches)), (0, 1), out)
+        self.assertIn(f"key={KEY2} owner=tok-1", cluster.patches[0][1])
+
     def test_a_younger_lock_with_a_proven_owner_is_chosen_over_an_older_one(self):
         # Codex R3: the oldest key's owner may be new, and must not block the
         # restart a provable lock has earned.
@@ -488,6 +565,10 @@ class TestRun(unittest.TestCase):
             wd.LockReport(lock(6.5 * HOUR, key=KEY), True, ""),
         ]
         return wd.pick_candidate(reports, json.dumps(doc), CFG.hold)[0].lock.key
+
+    def test_with_nothing_provable_the_longest_listed_lock_is_tried(self):
+        unknown_tenure = {"owner_held_seconds": 60.0}
+        self.assertEqual(self.pick(unknown_tenure, unknown_tenure), KEY2)
 
     def test_a_cached_owner_does_not_displace_a_provable_lock(self):
         # Claude R4: that lock aborts on the proof, so the younger one must run.
@@ -641,6 +722,51 @@ class TestRun(unittest.TestCase):
         code, out = self.go(cluster, metrics_text(work=0))
         self.assertEqual(code, 1)
         self.assertIn("FAILED", out)
+
+    def test_a_refused_patch_is_blind_and_exits_2(self):
+        # Claude R5: the alarm that reaches a person, on a path no soak runs.
+        cluster = FakeCluster()
+        cluster.restart_error = wd.K8sError("HTTP 403 on PATCH", blind=True)
+        code, out = self.go(cluster, metrics_text(work=0))
+        self.assertEqual(code, 2)
+        self.assertIn("FAILED", out)
+
+    def test_a_refused_second_deployment_read_is_blind_and_exits_2(self):
+        class Refused(FakeCluster):
+            reads = 0
+
+            def get_deployment(self):
+                Refused.reads += 1
+                if Refused.reads == 1:
+                    return deploy()
+                raise wd.K8sError("HTTP 403 on GET deployments", blind=True)
+
+        cluster = Refused()
+        code, out = self.go(cluster, metrics_text(work=0))
+        self.assertEqual((code, cluster.patches), (2, []))
+        self.assertIn("ABORTED before restart", out)
+
+    def test_the_patch_carries_the_second_reads_resource_version(self):
+        class Bumped(FakeCluster):
+            reads = 0
+
+            def get_deployment(self):
+                Bumped.reads += 1
+                state = deploy()
+                if Bumped.reads == 1:
+                    return state
+                return wd.DeployState(
+                    resource_version="43",
+                    settled=state.settled,
+                    unsettled_why=state.unsettled_why,
+                    restarted_at=state.restarted_at,
+                    restarted_at_error=state.restarted_at_error,
+                )
+
+        cluster = Bumped()
+        code, out = self.go(cluster, metrics_text(work=0))
+        self.assertEqual((code, len(cluster.patches)), (0, 1), out)
+        self.assertEqual(cluster.patches[0][0], "43")
 
     def test_state_change_between_read_and_patch_aborts(self):
         class Moving(FakeCluster):

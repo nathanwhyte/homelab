@@ -80,7 +80,9 @@ spec:
       parallelism: 1
       # No retry: a failure is an alarm, and the next slot is 15 min away.
       backoffLimit: 0
-      # An exporter scrape, a few API calls and one log read of a few MB.
+      # Two /metrics and two /locks reads, the API calls and the 90 s recheck
+      # wait: about 220 s if every socket timeout runs out. Raising
+      # WATCHDOG_RECHECK_SECONDS spends this budget.
       activeDeadlineSeconds: 300
       ttlSecondsAfterFinished: 172800
       template:

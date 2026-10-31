@@ -303,6 +303,30 @@ class WaitsBlind(unittest.TestCase):
         self.assertEqual(len(has(out, "WATCH ERROR waits:")), 2)
         self.assertIn("waits unknown", has(out, "WATCH end:")[0])
 
+    def beats(self, fake, polls=3):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(cw, "BEAT_EVERY", 2),
+        ):
+            _, logged = run_watch(fake, polls=polls, log=os.path.join(tmp, "e.log"))
+        return has(logged, "BEAT")
+
+    def test_a_beat_after_the_report_gives_no_wait_figure(self):
+        # Claude R5: the log showed the zeros the error line had just disowned.
+        first, later = self.beats(
+            FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
+        )
+        self.assertIn("waits_total=0 max_wait=0.0s", first)
+        self.assertIn("waits_total=unknown max_wait=unknown", later)
+
+    def test_a_beat_keeps_its_figures_when_lock_lines_show(self):
+        _, later = self.beats(
+            FakeKubectl(
+                [POD_A], metrics=metrics_text(live_age=1000), logs=[wait_line(1200), ""]
+            )
+        )
+        self.assertIn("waits_total=1 max_wait=1.2s", later)
+
 
 class LogParsing(unittest.TestCase):
     def events(self, logs):
