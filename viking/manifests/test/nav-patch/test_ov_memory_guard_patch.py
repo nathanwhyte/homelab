@@ -1816,7 +1816,8 @@ class WFS:
     async def write_file(self, uri, content, ctx=None, lease_ref=None):
         self.files[uri] = content
 
-    async def ls(self, uri, ctx=None):
+    async def ls(self, uri, node_limit=1000, offset=0, sort_by=None, ctx=None):
+        """Like ``VikingFS.ls``: one call returns at most ``node_limit`` entries."""
         self.ls_calls.append(uri)
         if self.ls_error:
             raise self.ls_error
@@ -1830,7 +1831,7 @@ class WFS:
                 continue
             seen.add(head)
             out.append({"name": head, "isDir": bool(slash), "uri": prefix + head})
-        return out
+        return out[offset : offset + node_limit]
 
 
 def writer_module():
@@ -1903,7 +1904,8 @@ class WriteCheckCase(unittest.TestCase):
         )
 
 
-PROFILE_URI = f"{ACCOUNT}/profile.md"
+PROFILE_URI = "viking://user/noot/peers/pop/memories/profile.md"
+USER_PROFILE_URI = f"{ACCOUNT}/profile.md"
 CLEAN = "# Noot\n- Lives in Chicago (as of 2026-10-21)\n"
 ACTIVITY = (
     "- Merged dotfiles#509 and compendium#1944 (as of 2026-10-21)\n"
@@ -2004,9 +2006,24 @@ class ProfileFilterTests(WriteCheckCase):
         self.assertEqual(records, [])
         self.assertEqual(fs.files[uri], "- Merged dotfiles#509\n")
 
+    def test_the_user_level_profile_is_never_filtered_or_logged(self):
+        # profile-inject falls back to this file for a peer with no profile of its own
+        for mode in ("1", "shadow"):
+            os.environ["OV_PROFILE_FILTER"] = mode
+            fs = WFS({USER_PROFILE_URI: CLEAN + "- Merged #12 (as of 2026-10-01)\n"})
+            records, _ = self.apply(
+                fs, upsert("profile", USER_PROFILE_URI, Append(ACTIVITY))
+            )
+            self.assertEqual(records, [], mode)
+            self.assertEqual(
+                fs.files[USER_PROFILE_URI],
+                CLEAN + "- Merged #12 (as of 2026-10-01)\n" + ACTIVITY,
+                mode,
+            )
+
     def test_a_peer_profile_is_filtered_too(self):
         os.environ["OV_PROFILE_FILTER"] = "1"
-        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        uri = "viking://user/noot/peers/workbook/memories/profile.md"
         fs = WFS()
         self.apply(fs, upsert("profile", uri, CLEAN + ACTIVITY))
         self.assertEqual(fs.files[uri], CLEAN)
@@ -2145,28 +2162,25 @@ class PreferenceDedupeTests(WriteCheckCase):
             **kw,
         )
 
-    def test_shadow_logs_a_duplicate_under_another_user_and_topic_and_writes(self):
-        fs = WFS({URI_A: SAME_BODY, f"{PREFS}/noot/other.md": "different\n"})
-        records, _ = self.put(fs, URI_B, SAME_BODY)
-        self.assertEqual(
-            records,
-            [
-                {
-                    "action": "would_skip",
-                    "uri": URI_B,
-                    "duplicate_of": URI_A,
-                    "chars": len(SAME_BODY.strip()),
-                }
-            ],
-        )
-        self.assertEqual(fs.files[URI_B], SAME_BODY)
-
-    def test_mode_1_skips_the_write(self):
-        os.environ["OV_PREF_DEDUPE"] = "1"
-        fs = WFS({URI_A: SAME_BODY})
-        records, _ = self.put(fs, URI_B, SAME_BODY)
-        self.assertEqual([r["action"] for r in records], ["skipped"])
-        self.assertNotIn(URI_B, fs.files)
+    def test_a_duplicate_under_another_user_and_topic_is_logged_and_written(self):
+        for mode in ("shadow", "1"):
+            mg._PREF_INDEX.clear()
+            os.environ["OV_PREF_DEDUPE"] = mode
+            fs = WFS({URI_A: SAME_BODY, f"{PREFS}/noot/other.md": "different\n"})
+            records, _ = self.put(fs, URI_B, SAME_BODY)
+            self.assertEqual(
+                records,
+                [
+                    {
+                        "action": "duplicate",
+                        "uri": URI_B,
+                        "duplicate_of": URI_A,
+                        "chars": len(SAME_BODY.strip()),
+                    }
+                ],
+                mode,
+            )
+            self.assertEqual(fs.files[URI_B], SAME_BODY, mode)  # never skipped
 
     def test_a_different_body_and_a_rewrite_of_the_same_file_are_not_duplicates(self):
         os.environ["OV_PREF_DEDUPE"] = "1"
@@ -2177,6 +2191,37 @@ class PreferenceDedupeTests(WriteCheckCase):
         self.assertEqual(records, [])
         self.assertEqual(self.put(fs, f"{PREFS}/pop/empty.md", "  \n")[0], [])
 
+    def test_an_update_to_an_existing_file_is_written_even_when_it_matches_another(
+        self,
+    ):
+        # Codex round 1, P2: a skip here would leave the outdated preference in place
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        old, new = "Prefers tea daily.\n", "Prefers coffee daily.\n"
+        fs = WFS({URI_A: new, URI_B: old})
+        records, _ = self.put(fs, URI_B, new)
+        self.assertEqual([r["action"] for r in records], ["duplicate"])
+        self.assertEqual(fs.files[URI_B], new)
+
+    def test_every_target_of_a_multi_uri_operation_is_written(self):
+        # Codex round 1, P2: one duplicate must not end the other targets' updates
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        c = f"{PREFS}/pop/third.md"
+        fs = WFS(
+            {
+                URI_A: "Prefers coffee daily.\n",
+                URI_B: "Prefers tea daily.\n",
+                c: "Prefers tea daily.\n",
+            }
+        )
+        operation = upsert(
+            "preferences", URI_B, "Prefers coffee daily.\n", user="x", topic="y"
+        )
+        operation.uris = [URI_B, c]
+        records, _ = self.apply(fs, operation, prefix="ov-pref-dup")
+        self.assertEqual(fs.files[URI_B], "Prefers coffee daily.\n")
+        self.assertEqual(fs.files[c], "Prefers coffee daily.\n")
+        self.assertEqual({r["uri"] for r in records}, {URI_B, c})
+
     def test_the_index_is_listed_once_then_extended_by_our_own_writes(self):
         os.environ["OV_PREF_DEDUPE"] = "1"
         fs = WFS({URI_A: SAME_BODY})
@@ -2185,7 +2230,7 @@ class PreferenceDedupeTests(WriteCheckCase):
         self.assertGreater(listed, 0)
         # a fact written a moment ago is already known to the index
         records, _ = self.put(fs, f"{PREFS}/pop/fresh_again.md", "Fresh fact.\n")
-        self.assertEqual([r["action"] for r in records], ["skipped"])
+        self.assertEqual([r["action"] for r in records], ["duplicate"])
         self.assertEqual(len(fs.ls_calls), listed)
 
     def test_the_index_expires(self):
@@ -2197,14 +2242,21 @@ class PreferenceDedupeTests(WriteCheckCase):
         self.put(fs, f"{PREFS}/pop/z.md", "z\n")
         self.assertGreater(len(fs.ls_calls), listed)
 
-    def test_a_stale_match_is_not_skipped(self):
-        os.environ["OV_PREF_DEDUPE"] = "1"
-        fs = WFS({URI_A: SAME_BODY})
-        self.put(fs, f"{PREFS}/pop/warm.md", "warm\n")  # builds the index with URI_A
-        fs.files[URI_A] = "rewritten since\n"  # another worker changed it
-        records, _ = self.put(fs, URI_B, SAME_BODY)
-        self.assertEqual([r["action"] for r in records], ["stale_index"])
-        self.assertEqual(fs.files[URI_B], SAME_BODY)  # the re-read let the write run
+    def test_the_index_pages_past_1000_files_in_a_folder(self):
+        # Codex round 1, P2: VikingFS.ls returns at most 1000 entries per call
+        files = {f"{PREFS}/noot/t{i:04d}.md": f"fact {i}\n" for i in range(1001)}
+        fs = WFS(files)
+        records, _ = self.put(fs, URI_B, "fact 1000\n")
+        self.assertEqual(len(mg._PREF_INDEX[PREFS][1]), 1001 + 1)  # plus the write
+        self.assertEqual(
+            [r["duplicate_of"] for r in records], [f"{PREFS}/noot/t1000.md"]
+        )
+
+    def test_the_index_pages_past_1000_user_folders(self):
+        files = {f"{PREFS}/u{i:04d}/t.md": f"fact {i}\n" for i in range(1001)}
+        fs = WFS(files)
+        records, _ = self.put(fs, URI_B, "fact 1000\n")
+        self.assertEqual([r["duplicate_of"] for r in records], [f"{PREFS}/u1000/t.md"])
 
     def test_a_listing_failure_never_blocks_the_write(self):
         os.environ["OV_PREF_DEDUPE"] = "1"
@@ -2218,6 +2270,52 @@ class PreferenceDedupeTests(WriteCheckCase):
         fs = WFS({URI_A: SAME_BODY})
         self.assertEqual(self.put(fs, URI_B, SAME_BODY)[0], [])
         self.assertEqual(fs.ls_calls, [])
+
+
+class BrokenStderr:
+    def write(self, text):
+        raise OSError("stderr unavailable")
+
+    def flush(self):
+        raise OSError("stderr unavailable")
+
+
+class RecordFailureTests(WriteCheckCase):
+    """A logging failure never fails a write, in any mode (Codex round 1, P2)."""
+
+    def apply_broken(self, fs, operation, extract_context=None):
+        updater = self.module.Updater(fs)
+        with (
+            mock.patch.object(sys, "stderr", BrokenStderr()),
+            self.assertLogs("ov_memory_guard_patch", "WARNING"),
+        ):
+            asyncio.run(
+                updater._apply_upsert(operation, None, extract_context=extract_context)
+            )
+
+    def test_each_write_check_survives_a_failing_stderr(self):
+        ec = FakeExtractContext({"0-3": "#2283"})
+        for mode in ("shadow", "1"):
+            for var in (
+                "OV_PROFILE_FILTER",
+                "OV_EVENT_EXCERPT_CHECK",
+                "OV_PREF_DEDUPE",
+            ):
+                os.environ[var] = mode
+            mg._PREF_INDEX.clear()
+            fs = WFS({URI_A: SAME_BODY})
+            self.apply_broken(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
+            self.assertEqual("dotfiles#509" in fs.files[PROFILE_URI], mode == "shadow")
+            self.apply_broken(
+                fs,
+                upsert("events", EVENT_URI, "body", summary="PR #1", ranges="0-3"),
+                extract_context=ec,
+            )
+            self.assertEqual(fs.files[EVENT_URI], "body")
+            self.apply_broken(
+                fs, upsert("preferences", URI_B, SAME_BODY, user="x", topic="y")
+            )
+            self.assertEqual(fs.files[URI_B], SAME_BODY)
 
 
 class PrefetchHandler:
@@ -2313,6 +2411,26 @@ class PrefetchPeerOnlyTests(unittest.TestCase):
     def test_the_scope_ends_with_the_prefetch(self):
         self.run_prefetch()
         self.assertFalse(mg._PREFETCH.get())
+
+    def test_a_failing_stderr_never_fails_the_prefetch(self):
+        for mode, expected in (("shadow", [USER_DIR, PEER_DIR]), ("1", [PEER_DIR])):
+            os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = mode
+            with (
+                mock.patch.object(sys, "stderr", BrokenStderr()),
+                self.assertLogs("ov_memory_guard_patch", "WARNING"),
+            ):
+                handler = self.handler()
+                provider = PrefetchProvider(
+                    handler, types.SimpleNamespace(memory_type="profile")
+                )
+                provider.prefetch = self.prefetch.__get__(provider)
+                self.assertEqual(asyncio.run(provider.prefetch()), expected, mode)
+
+    def test_a_check_that_raises_falls_back_to_the_stock_directories(self):
+        os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "1"
+        with mock.patch.object(mg, "_peer_only", side_effect=RuntimeError("x")):
+            with self.assertLogs("ov_memory_guard_patch", "WARNING"):
+                self.assertEqual(self.run_prefetch()[1], [USER_DIR, PEER_DIR])
 
     def test_a_typo_is_shadow(self):
         os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "yes"
