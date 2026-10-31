@@ -1,6 +1,6 @@
 # OpenViking Organization Guide
 
-This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.4.20) as a persistent knowledge base for AI agents.
+This project uses [OpenViking](https://github.com/volcengine/OpenViking) (v0.5.1.1) as a persistent knowledge base for AI agents.
 
 ## Core principle: Progressive addition, not bulk indexing
 
@@ -220,12 +220,12 @@ Personal-band entries (IDs ≥ 1000) live in the same unified vault (`COMPENDIUM
 | Force regenerate all abstracts | `ov reindex viking://resources/homelab/ -r`            | After reorganizing directories                                                                          |
 | Wait for completion            | `ov reindex <uri> --wait`                              | After bulk changes, before searching                                                                    |
 | Remove stale content           | `ov rm viking://resources/volcengine/`                 | When content is no longer relevant                                                                      |
-| Move/rename                    | `ov mv viking://old/path viking://new/path`            | ⚠️ **DESTRUCTIVE on v0.4.20 — see the warning below.** Restructuring without losing abstracts (v0.4.10) |
+| Move/rename                    | `ov mv viking://old/path viking://new/path`            | Restructuring without losing abstracts. Was destructive on v0.4.20; see the note below                  |
 | Check L0 abstracts             | `ov abstract viking://resources/homelab/gpu/`          | Verify abstracts are populated (not `[.abstract.md is not ready]`)                                      |
 | Check L1 overviews             | `ov overview viking://resources/homelab/gpu/`          | Verify overviews exist                                                                                  |
 | Full tree audit                | `ov tree viking://resources/ -L 3`                     | Monthly or after major restructuring                                                                    |
 
-> ⚠️ **`ov cp` and `ov mv` delete data on v0.4.20. Do not use them after the upgrade.**
+> ⚠️ **`ov cp` and `ov mv` delete data on v0.4.20. v0.5.1.1 does not show the defect.**
 >
 > Measured on the v0.4.20 rehearsal candidate against a restored production
 > corpus (2026-09-15): `ov mv` onto an existing target returns `500 INTERNAL`,
@@ -247,8 +247,11 @@ Personal-band entries (IDs ≥ 1000) live in the same unified vault (`COMPENDIUM
 > - Nothing in this estate calls `cp`/`mv` from code; this table row is the only
 >   place it is recommended, which is why the warning lives here.
 >
-> Production has run v0.4.20 since the 2026-09-15 cutover, so this warning is
-> in effect now (compendium BUG-1141).
+> Production ran v0.4.20 from 2026-09-15 to 2026-10-24 and has run v0.5.1.1
+> since. The v0.5.1.1 rehearsal on a restored copy of production overwrote the
+> target cleanly, and a half-indexed `mv` returned `CONFLICT` and destroyed
+> nothing (compendium BUG-1141). Keep this warning for any rollback below
+> v0.5.1.1.
 
 | List directory | `ov ls viking://resources/homelab/` | Quick check of contents |
 | Read file content | `ov read viking://resources/homelab/gpu/assessment.md` | View L2 full content |
