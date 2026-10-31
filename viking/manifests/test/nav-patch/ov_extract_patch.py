@@ -74,8 +74,11 @@ plus a streaming half that tracks writes for the lock-wait retry):
     re-raises the original once it gives up. The step fails and Phase 2 writes
     ``.failed.json`` (stage ``memory_extraction``); v0.4.20 did not retry these either.
     Failures before any write keep stock retries plus the budgets above.
-  * Every retry, recovery and final failure of a Phase 2 step writes one unwrapped
-    ``ov-extract-outcome {json}`` line on stderr naming the step, attempt and
+  * Every retry, recovery and final failure inside the wrapped ``retry_async`` writes one
+    unwrapped ``ov-extract-outcome {json}`` line. On v0.5.1.1 only the ``long_term`` step
+    runs through it (session.py:2271,2287), so ``archive_summary`` and an exception outside
+    the step gather reach Phase 2's failure handler with no such line. It goes to stderr,
+    naming the step, attempt and
     ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
     wait reads differently from a model timeout in ``kubectl logs`` (the line has not been
     seen in Loki, BUG-1279). A retry line is written when the

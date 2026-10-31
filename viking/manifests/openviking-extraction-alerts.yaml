@@ -58,13 +58,16 @@ spec:
               {{ $value | humanize }} session commit(s) on {{ $labels.pod }} ended Phase 2
               with an error in the last 15m, so extraction did not finish for those
               archives (each has .failed.json; steps it lists as completed keep their
-              memories). Find the session and error in Loki:
-              {namespace="viking", container="openviking"} |= "Memory extraction failed"
-              and |= "Phase 2 step". The ov-extract-outcome line with failure_class
-              (timeout, lock_wait, degraded or other; lock_wait means an events-tree
-              reindex or a wedged .ovlock held the tree) is in kubectl logs on that pod,
-              and Loki can miss it (BUG-1279). kubectl logs reads only the newest log
-              file (rotated at 10 MiB), so an empty result does not prove no line was
+              memories). Find the session and error in Loki with two separate queries:
+              {namespace="viking", container="openviking"} |= "Memory extraction failed",
+              and the same selector with |= "Phase 2 step". A long_term step that failed
+              through its retry writes an ov-extract-outcome line with failure_class
+              (timeout, lock_wait, degraded or other); other failures write none.
+              lock_wait means the step could not get a path lock, and the line does not
+              say what held it; the known case is an events-tree reindex. Read the line
+              in kubectl logs on that pod, since Loki can miss it (BUG-1279). kubectl logs
+              reads only the newest log file (rotated at 10 MiB), so an empty result does
+              not prove no line was
               written: list the older files, which may be gzipped, with kubectl get --raw
               /api/v1/nodes/<node>/proxy/logs/pods/viking_{{ $labels.pod }}_<pod-uid>/openviking/
               and fetch each by name. Re-extracting a failed archive is a replay into a fresh session
