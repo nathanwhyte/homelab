@@ -1742,6 +1742,675 @@ class ShadowWrapperTests(unittest.TestCase):
         self.assertEqual(seen, [msgs])
 
 
+# --- Write-time checks and the prefetch (IMPR-1401, BUG-1283, BUG-1284) ------------------
+
+ENVS = (
+    "OV_PROFILE_FILTER",
+    "OV_EVENT_EXCERPT_CHECK",
+    "OV_PREF_DEDUPE",
+    "OV_PROFILE_PREFETCH_PEER_ONLY",
+)
+ACCOUNT = "viking://user/noot/memories"
+
+
+def stderr_records(prefix, fn):
+    """``(records, result)``: the ``<prefix> {json}`` lines ``fn()`` wrote to stderr."""
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        result = fn()
+    marker = prefix + " "
+    return [
+        json.loads(line[len(marker) :])
+        for line in buf.getvalue().splitlines()
+        if line.startswith(marker)
+    ], result
+
+
+class Append:
+    """Stands in for a StrPatch: the merged text is the old text plus ``text``."""
+
+    def __init__(self, text):
+        self.text = text
+
+
+class WFile:
+    def __init__(self, uri, content="", extra_fields=None):
+        self.uri = uri
+        self.content = content
+        self.extra_fields = extra_fields or {}
+
+    def plain_content(self):
+        return self.content
+
+
+class WUtils:
+    @staticmethod
+    def read(raw, uri=None):
+        return WFile(uri, raw)
+
+    @staticmethod
+    def write(
+        memory_file,
+        content_template=None,
+        extract_context=None,
+        render_links=True,
+        *,
+        account_content_template_type=None,
+    ):
+        return memory_file.content
+
+
+class WFS:
+    """In-memory filesystem with the three calls the checks use."""
+
+    def __init__(self, files=None, ls_error=None):
+        self.files = dict(files or {})
+        self.ls_calls = []
+        self.ls_error = ls_error
+
+    async def read_file(self, uri, ctx=None):
+        if uri not in self.files:
+            raise FileNotFoundError(uri)
+        return self.files[uri]
+
+    async def write_file(self, uri, content, ctx=None, lease_ref=None):
+        self.files[uri] = content
+
+    async def ls(self, uri, ctx=None):
+        self.ls_calls.append(uri)
+        if self.ls_error:
+            raise self.ls_error
+        prefix = uri.rstrip("/") + "/"
+        seen, out = set(), []
+        for path in sorted(self.files):
+            if not path.startswith(prefix):
+                continue
+            head, slash, _ = path[len(prefix) :].partition("/")
+            if head in seen:
+                continue
+            seen.add(head)
+            out.append({"name": head, "isDir": bool(slash), "uri": prefix + head})
+        return out
+
+
+def writer_module():
+    """A module and updater shaped like memory_updater's: merge, then write, then save."""
+    module = types.SimpleNamespace(MemoryFileUtils=type("Utils", (WUtils,), {}))
+
+    class Updater:
+        def __init__(self, fs):
+            self.fs = fs
+
+        def _get_viking_fs(self):
+            return self.fs
+
+        async def _apply_upsert(
+            self, resolved_op, ctx, extract_context=None, lease_ref=None, uri_remap=None
+        ):
+            for uri in resolved_op.uris:
+                fields = dict(resolved_op.memory_fields)
+                patch = fields.pop("content")
+                try:
+                    old = await self.fs.read_file(uri)
+                except FileNotFoundError:
+                    old = ""
+                merged = old + patch.text if isinstance(patch, Append) else patch
+                mf = WFile(uri, merged, fields)
+                out = module.MemoryFileUtils.write(mf, extract_context=extract_context)
+                await self.fs.write_file(uri, out)
+
+    module.Updater = Updater
+    return module
+
+
+def upsert(memory_type, uri, content, **fields):
+    return types.SimpleNamespace(
+        memory_type=memory_type,
+        uris=[uri],
+        memory_fields={"content": content, **fields},
+    )
+
+
+class WriteCheckCase(unittest.TestCase):
+    """Installs the write checks on a fake module; the expected source hash is the fake's."""
+
+    def setUp(self):
+        for var in ENVS:
+            os.environ.pop(var, None)
+        mg._PREF_INDEX.clear()
+        mg._MODE_WARNED.clear()
+        self.module = writer_module()
+        patch = mock.patch.object(
+            mg,
+            "EXPECTED_WRITE_SHA256",
+            mg._source_hash(self.module.MemoryFileUtils.write),
+        )
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.assertTrue(mg.install_write_checks(self.module, self.module.Updater))
+
+    def tearDown(self):
+        for var in ENVS:
+            os.environ.pop(var, None)
+
+    def apply(self, fs, operation, extract_context=None, prefix="ov-profile-filter"):
+        updater = self.module.Updater(fs)
+        return stderr_records(
+            prefix,
+            lambda: asyncio.run(
+                updater._apply_upsert(operation, None, extract_context=extract_context)
+            ),
+        )
+
+
+PROFILE_URI = f"{ACCOUNT}/profile.md"
+CLEAN = "# Noot\n- Lives in Chicago (as of 2026-10-21)\n"
+ACTIVITY = (
+    "- Merged dotfiles#509 and compendium#1944 (as of 2026-10-21)\n"
+    "- Tracks IMPR-1401 for the profile rewrite (as of 2026-10-21)\n"
+    "- P2: the dotfiles filter misses a case (as of 2026-10-21)\n"
+    "- Finished Phase 2 of the cutover (as of 2026-10-21)\n"
+)
+
+
+class ProfileFilterTests(WriteCheckCase):
+    def test_reasons_each_pattern(self):
+        for line, reason in (
+            ("- Merged dotfiles#509 (as of 2026-10-21)", "pr_or_issue"),
+            ("- Closed issue #12 (as of 2026-10-21)", "pr_or_issue"),
+            ("- Works on BUG-1283 (as of 2026-10-21)", "item_id"),
+            ("- Tracks TASK-7 (as of 2026-10-21)", "item_id"),
+            ("- P1: a finding (as of 2026-10-21)", "finding_label"),
+            ("* **P0**: a finding (as of 2026-10-21)", "finding_label"),
+            ("- In Phase 3 of the cutover (as of 2026-10-21)", "phase"),
+        ):
+            self.assertEqual(mg.profile_bullet_reason(line), reason, line)
+
+    def test_standing_facts_and_non_bullets_are_kept(self):
+        for line in (
+            "- Lives in Chicago (as of 2026-10-21)",
+            "- Requires explicit OK before any live-cluster apply (as of 2026-10-21)",
+            "- Prefers P2 over P3 triage order (as of 2026-10-21)",  # label not at start
+            "# Noot, owner of #1 priorities",  # heading, not a bullet
+            "Merged dotfiles#509 in prose",
+        ):
+            self.assertIsNone(mg.profile_bullet_reason(line), line)
+
+    def test_continuation_lines_go_with_their_bullet(self):
+        kept, removed = mg.filter_profile_content(
+            "# N\n- Merged #5\n  and more detail\n- Lives in X\n"
+        )
+        self.assertEqual(kept, "# N\n- Lives in X\n")
+        self.assertEqual([r for r, _ in removed], ["pr_or_issue", "continuation"])
+
+    def test_shadow_is_the_default_and_writes_every_bullet(self):
+        fs = WFS({PROFILE_URI: CLEAN})
+        records, _ = self.apply(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
+        self.assertEqual(fs.files[PROFILE_URI], CLEAN + ACTIVITY)
+        self.assertEqual({r["action"] for r in records}, {"would_drop"})
+        self.assertEqual(
+            [r["reason"] for r in records],
+            ["pr_or_issue", "item_id", "finding_label", "phase"],
+        )
+        self.assertTrue(all(r["uri"] == PROFILE_URI for r in records))
+
+    def test_mode_1_filters_the_merged_text_of_a_patch(self):
+        # The patch carries only the new bullets; the file after the merge is what is cut.
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        fs = WFS({PROFILE_URI: CLEAN + "- Merged dotfiles#1 (as of 2026-10-01)\n"})
+        records, _ = self.apply(
+            fs,
+            upsert(
+                "profile",
+                PROFILE_URI,
+                Append("- Likes tea (as of 2026-10-21)\n" + ACTIVITY),
+            ),
+        )
+        self.assertEqual(
+            fs.files[PROFILE_URI], CLEAN + "- Likes tea (as of 2026-10-21)\n"
+        )
+        self.assertEqual({r["action"] for r in records}, {"dropped"})
+        # the old bullet already in the file is cut as well: the check sees the merged text
+        self.assertIn("Merged dotfiles#1", " ".join(r["bullet"] for r in records))
+
+    def test_mode_0_is_off(self):
+        os.environ["OV_PROFILE_FILTER"] = "0"
+        fs = WFS({PROFILE_URI: CLEAN})
+        records, _ = self.apply(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
+        self.assertEqual(records, [])
+        self.assertEqual(fs.files[PROFILE_URI], CLEAN + ACTIVITY)
+
+    def test_a_typo_is_shadow_with_one_warning(self):
+        os.environ["OV_PROFILE_FILTER"] = "on"
+        fs = WFS({PROFILE_URI: CLEAN})
+        with self.assertLogs("ov_memory_guard_patch", "WARNING") as logs:
+            records, _ = self.apply(
+                fs, upsert("profile", PROFILE_URI, Append(ACTIVITY))
+            )
+            self.apply(
+                fs, upsert("profile", PROFILE_URI, Append("- x (as of 2026-10-21)\n"))
+            )
+        self.assertEqual(
+            fs.files[PROFILE_URI], CLEAN + ACTIVITY + "- x (as of 2026-10-21)\n"
+        )
+        self.assertEqual({r["action"] for r in records}, {"would_drop"})
+        self.assertEqual(sum("OV_PROFILE_FILTER" in line for line in logs.output), 1)
+
+    def test_only_the_profile_type_is_filtered(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = f"{ACCOUNT}/entities/repo.md"
+        fs = WFS()
+        records, _ = self.apply(fs, upsert("entities", uri, "- Merged dotfiles#509\n"))
+        self.assertEqual(records, [])
+        self.assertEqual(fs.files[uri], "- Merged dotfiles#509\n")
+
+    def test_a_peer_profile_is_filtered_too(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        fs = WFS()
+        self.apply(fs, upsert("profile", uri, CLEAN + ACTIVITY))
+        self.assertEqual(fs.files[uri], CLEAN)
+
+    def test_a_failing_check_never_blocks_the_write(self):
+        fs = WFS()
+        with mock.patch.object(
+            mg, "filter_profile_content", side_effect=RuntimeError("x")
+        ):
+            with self.assertLogs("ov_memory_guard_patch", "WARNING"):
+                self.apply(fs, upsert("profile", PROFILE_URI, CLEAN))
+        self.assertEqual(fs.files[PROFILE_URI], CLEAN)
+
+
+class FakeExtractContext:
+    def __init__(self, excerpts, resource=""):
+        self.excerpts = excerpts
+        self.resource = resource
+        self.calls = []
+
+    def get_event_content(self, ranges, summary, ratio=0.2):
+        self.calls.append((ranges, summary, ratio))
+        return self.excerpts.get(ranges, summary)
+
+    def get_resource_event_content(self, ranges, summary):
+        return self.resource
+
+
+EVENT_URI = f"{ACCOUNT}/events/2026/10/30/compendium_pr_merged.md"
+
+
+class EventExcerptTests(WriteCheckCase):
+    def check(self, summary, excerpt, **kw):
+        ec = FakeExtractContext({"0-3": excerpt}, **kw)
+        records, _ = self.apply(
+            WFS(),
+            upsert(
+                "events",
+                EVENT_URI,
+                "body",
+                summary=summary,
+                ranges="0-3",
+                event_name="x",
+            ),
+            extract_context=ec,
+            prefix="ov-event-excerpt",
+        )
+        return records, ec
+
+    def test_the_three_mismatches_from_bug_1283_are_logged(self):
+        for summary, excerpt, missing, seen in (
+            (
+                "Compendium PR #2216 was merged",
+                "**noot**: merge #2283 now",
+                ["#2216"],
+                ["#2283"],
+            ),
+            (
+                "Compendium PR #2227 was merged",
+                "**noot**: merge #2283",
+                ["#2227"],
+                ["#2283"],
+            ),
+            (
+                "Dotfiles PR #593 was merged",
+                "**noot**: #2283 and #602",
+                ["#593"],
+                ["#2283", "#602"],
+            ),
+        ):
+            records, _ = self.check(summary, excerpt)
+            self.assertEqual(len(records), 1, summary)
+            self.assertEqual(records[0]["missing"], missing)
+            self.assertEqual(records[0]["excerpt_refs"], seen)
+            self.assertEqual(records[0]["uri"], EVENT_URI)
+            self.assertEqual(records[0]["action"], "mismatch")
+
+    def test_the_excerpt_is_the_rendered_one(self):
+        _, ec = self.check("PR #1 merged", "text #2")
+        self.assertEqual(ec.calls, [("0-3", "PR #1 merged", 0)])
+
+    def test_a_matching_or_numberless_summary_is_not_logged(self):
+        self.assertEqual(self.check("PR #2283 merged", "merge #2283 now")[0], [])
+        self.assertEqual(self.check("Merged the PR", "merge #2283 now")[0], [])
+        # #22 is not #2283: whole numbers only
+        self.assertEqual(len(self.check("PR #22 merged", "merge #2283")[0]), 1)
+
+    def test_no_excerpt_to_compare_is_not_a_mismatch(self):
+        summary = "PR #2216 merged"
+        self.assertEqual(self.check(summary, summary)[0], [])
+        self.assertEqual(
+            self.check(
+                summary,
+                "",
+            )[0],
+            [],
+        )
+        self.assertEqual(
+            self.check(summary, "x #1", resource="[link](viking://r)")[0], []
+        )
+
+    def test_the_write_is_never_changed_and_mode_0_is_off(self):
+        os.environ["OV_EVENT_EXCERPT_CHECK"] = "1"  # log only: no enforcing mode
+        fs = WFS()
+        ec = FakeExtractContext({"0-3": "#2283"})
+        records, _ = self.apply(
+            fs,
+            upsert("events", EVENT_URI, "body", summary="PR #1", ranges="0-3"),
+            extract_context=ec,
+            prefix="ov-event-excerpt",
+        )
+        self.assertEqual(len(records), 1)
+        self.assertEqual(fs.files[EVENT_URI], "body")
+        os.environ["OV_EVENT_EXCERPT_CHECK"] = "0"
+        records, _ = self.apply(
+            WFS(),
+            upsert("events", EVENT_URI, "body", summary="PR #1", ranges="0-3"),
+            extract_context=ec,
+            prefix="ov-event-excerpt",
+        )
+        self.assertEqual(records, [])
+
+
+PREFS = f"{ACCOUNT}/preferences"
+SAME_BODY = "Never delete a repo or worktree without an explicit OK from the user.\n"
+URI_A = f"{PREFS}/noot/repo_deletion_safety.md"
+URI_B = f"{PREFS}/pop/repo_rules_opt_out.md"
+
+
+class PreferenceDedupeTests(WriteCheckCase):
+    def put(self, fs, uri, body, **kw):
+        return self.apply(
+            fs,
+            upsert("preferences", uri, body, user="x", topic="y"),
+            prefix="ov-pref-dup",
+            **kw,
+        )
+
+    def test_shadow_logs_a_duplicate_under_another_user_and_topic_and_writes(self):
+        fs = WFS({URI_A: SAME_BODY, f"{PREFS}/noot/other.md": "different\n"})
+        records, _ = self.put(fs, URI_B, SAME_BODY)
+        self.assertEqual(
+            records,
+            [
+                {
+                    "action": "would_skip",
+                    "uri": URI_B,
+                    "duplicate_of": URI_A,
+                    "chars": len(SAME_BODY.strip()),
+                }
+            ],
+        )
+        self.assertEqual(fs.files[URI_B], SAME_BODY)
+
+    def test_mode_1_skips_the_write(self):
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        fs = WFS({URI_A: SAME_BODY})
+        records, _ = self.put(fs, URI_B, SAME_BODY)
+        self.assertEqual([r["action"] for r in records], ["skipped"])
+        self.assertNotIn(URI_B, fs.files)
+
+    def test_a_different_body_and_a_rewrite_of_the_same_file_are_not_duplicates(self):
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        fs = WFS({URI_A: SAME_BODY})
+        self.assertEqual(self.put(fs, URI_B, "Something else.\n")[0], [])
+        self.assertEqual(fs.files[URI_B], "Something else.\n")
+        records, _ = self.put(fs, URI_A, Append(""))  # same body, same file
+        self.assertEqual(records, [])
+        self.assertEqual(self.put(fs, f"{PREFS}/pop/empty.md", "  \n")[0], [])
+
+    def test_the_index_is_listed_once_then_extended_by_our_own_writes(self):
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        fs = WFS({URI_A: SAME_BODY})
+        self.put(fs, f"{PREFS}/pop/fresh.md", "Fresh fact.\n")
+        listed = len(fs.ls_calls)
+        self.assertGreater(listed, 0)
+        # a fact written a moment ago is already known to the index
+        records, _ = self.put(fs, f"{PREFS}/pop/fresh_again.md", "Fresh fact.\n")
+        self.assertEqual([r["action"] for r in records], ["skipped"])
+        self.assertEqual(len(fs.ls_calls), listed)
+
+    def test_the_index_expires(self):
+        fs = WFS({URI_A: SAME_BODY})
+        self.put(fs, URI_B, "x\n")
+        listed = len(fs.ls_calls)
+        root, (built, index) = next(iter(mg._PREF_INDEX.items()))
+        mg._PREF_INDEX[root] = (built - mg.PREF_INDEX_TTL_S - 1, index)
+        self.put(fs, f"{PREFS}/pop/z.md", "z\n")
+        self.assertGreater(len(fs.ls_calls), listed)
+
+    def test_a_stale_match_is_not_skipped(self):
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        fs = WFS({URI_A: SAME_BODY})
+        self.put(fs, f"{PREFS}/pop/warm.md", "warm\n")  # builds the index with URI_A
+        fs.files[URI_A] = "rewritten since\n"  # another worker changed it
+        records, _ = self.put(fs, URI_B, SAME_BODY)
+        self.assertEqual([r["action"] for r in records], ["stale_index"])
+        self.assertEqual(fs.files[URI_B], SAME_BODY)  # the re-read let the write run
+
+    def test_a_listing_failure_never_blocks_the_write(self):
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        fs = WFS(ls_error=TimeoutError("ls"))
+        with self.assertLogs("ov_memory_guard_patch", "WARNING"):
+            self.put(fs, URI_B, SAME_BODY)
+        self.assertEqual(fs.files[URI_B], SAME_BODY)
+
+    def test_mode_0_lists_nothing(self):
+        os.environ["OV_PREF_DEDUPE"] = "0"
+        fs = WFS({URI_A: SAME_BODY})
+        self.assertEqual(self.put(fs, URI_B, SAME_BODY)[0], [])
+        self.assertEqual(fs.ls_calls, [])
+
+
+class PrefetchHandler:
+    allow_self = True
+
+    def __init__(self, dirs):
+        self.dirs = dirs
+
+    def render_schema_directories(self, memory_type_schema):
+        return list(self.dirs)
+
+
+class PrefetchProvider:
+    def __init__(self, handler, schema):
+        self.handler, self.schema = handler, schema
+
+    async def prefetch(self):
+        return self.handler.render_schema_directories(self.schema)
+
+
+USER_DIR = "viking://user/noot/memories"
+PEER_DIR = "viking://user/noot/peers/pop/memories"
+
+
+class PrefetchPeerOnlyTests(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("OV_PROFILE_PREFETCH_PEER_ONLY", None)
+        mg._MODE_WARNED.clear()
+        self.addCleanup(os.environ.pop, "OV_PROFILE_PREFETCH_PEER_ONLY", None)
+        self.render = mg.wrap_render_schema_directories(
+            PrefetchHandler.render_schema_directories
+        )
+        self.prefetch = mg.wrap_prefetch(PrefetchProvider.prefetch)
+
+    def handler(self, dirs=(USER_DIR, PEER_DIR), allow_self=True):
+        handler = PrefetchHandler(dirs)
+        handler.allow_self = allow_self
+        handler.render_schema_directories = self.render.__get__(handler)
+        return handler
+
+    def run_prefetch(self, memory_type="profile", **kw):
+        provider = PrefetchProvider(
+            self.handler(**kw), types.SimpleNamespace(memory_type=memory_type)
+        )
+        provider.prefetch = self.prefetch.__get__(provider)
+        return stderr_records(
+            "ov-profile-prefetch", lambda: asyncio.run(provider.prefetch())
+        )
+
+    def test_shadow_keeps_both_and_logs_what_it_would_drop(self):
+        records, dirs = self.run_prefetch()
+        self.assertEqual(dirs, [USER_DIR, PEER_DIR])
+        self.assertEqual(
+            records,
+            [
+                {
+                    "action": "would_drop",
+                    "memory_type": "profile",
+                    "dropped": USER_DIR,
+                    "kept": [PEER_DIR],
+                }
+            ],
+        )
+
+    def test_mode_1_drops_the_user_level_directory_for_each_singleton_type(self):
+        os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "1"
+        for memory_type in ("profile", "identity", "soul"):
+            records, dirs = self.run_prefetch(memory_type)
+            self.assertEqual(dirs, [PEER_DIR], memory_type)
+            self.assertEqual(records[0]["action"], "dropped")
+
+    def test_other_cases_are_left_alone(self):
+        os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "1"
+        # not a singleton type
+        self.assertEqual(self.run_prefetch("preferences")[1], [USER_DIR, PEER_DIR])
+        # no peer directory in the set: the user-level file is the only one
+        records, dirs = self.run_prefetch(dirs=(USER_DIR,))
+        self.assertEqual((records, dirs), ([], [USER_DIR]))
+        # a handler without the user level has nothing to drop
+        self.assertEqual(self.run_prefetch(allow_self=False)[1], [USER_DIR, PEER_DIR])
+        os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "0"
+        self.assertEqual(self.run_prefetch()[1], [USER_DIR, PEER_DIR])
+
+    def test_only_the_prefetch_is_affected(self):
+        os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "1"
+        handler = self.handler()
+        schema = types.SimpleNamespace(memory_type="profile")
+        records, dirs = stderr_records(
+            "ov-profile-prefetch", lambda: handler.render_schema_directories(schema)
+        )
+        self.assertEqual((records, dirs), ([], [USER_DIR, PEER_DIR]))
+
+    def test_the_scope_ends_with_the_prefetch(self):
+        self.run_prefetch()
+        self.assertFalse(mg._PREFETCH.get())
+
+    def test_a_typo_is_shadow(self):
+        os.environ["OV_PROFILE_PREFETCH_PEER_ONLY"] = "yes"
+        with self.assertLogs("ov_memory_guard_patch", "WARNING"):
+            records, dirs = self.run_prefetch()
+        self.assertEqual(dirs, [USER_DIR, PEER_DIR])
+        self.assertEqual(records[0]["action"], "would_drop")
+
+
+class PrefetchApplyTests(unittest.TestCase):
+    def setUp(self):
+        self.saved = sys.modules.get("openviking")
+        ov = types.ModuleType("openviking")
+        ov.__version__ = mg.EXPECTED_VERSION
+        sys.modules["openviking"] = ov
+
+    def tearDown(self):
+        if self.saved is None:
+            sys.modules.pop("openviking", None)
+        else:
+            sys.modules["openviking"] = self.saved
+
+    def test_each_apply_wraps_when_the_source_matches_and_refuses_on_drift(self):
+        class Provider(PrefetchProvider):
+            pass
+
+        class Handler(PrefetchHandler):
+            pass
+
+        provider_module = types.SimpleNamespace(SessionExtractContextProvider=Provider)
+        handler_module = types.SimpleNamespace(MemoryIsolationHandler=Handler)
+        self.assertFalse(mg.apply_prefetch(provider_module))
+        self.assertFalse(mg.apply_isolation(handler_module))
+        self.assertFalse(getattr(Provider.prefetch, "_ov_memory_guard", False))
+        with (
+            mock.patch.object(
+                mg,
+                "EXPECTED_PREFETCH_SHA256",
+                mg._source_hash(PrefetchProvider.prefetch),
+            ),
+            mock.patch.object(
+                mg,
+                "EXPECTED_RENDER_DIRS_SHA256",
+                mg._source_hash(PrefetchHandler.render_schema_directories),
+            ),
+        ):
+            self.assertTrue(mg.apply_prefetch(provider_module))
+            self.assertTrue(mg.apply_isolation(handler_module))
+            self.assertTrue(mg.apply_prefetch(provider_module))  # idempotent
+        self.assertTrue(Provider.prefetch._ov_memory_guard)
+        self.assertTrue(Handler.render_schema_directories._ov_memory_guard)
+
+    def test_a_wrong_version_is_refused_and_the_kill_switch_works(self):
+        sys.modules["openviking"].__version__ = "v0.4.99"
+        self.assertFalse(
+            mg.apply_prefetch(
+                types.SimpleNamespace(SessionExtractContextProvider=PrefetchProvider)
+            )
+        )
+        sys.modules["openviking"].__version__ = mg.EXPECTED_VERSION
+        os.environ["OV_MEMORY_GUARD"] = "0"
+        try:
+            self.assertFalse(
+                mg.apply_isolation(
+                    types.SimpleNamespace(MemoryIsolationHandler=PrefetchHandler)
+                )
+            )
+        finally:
+            os.environ.pop("OV_MEMORY_GUARD", None)
+
+    def test_write_checks_refuse_drifted_write_source(self):
+        module = writer_module()
+        self.assertFalse(mg.install_write_checks(module, module.Updater))
+        self.assertFalse(
+            getattr(module.MemoryFileUtils.write, "_ov_memory_guard", False)
+        )
+
+
+class WriteCheckLoaderTests(unittest.TestCase):
+    def test_the_prefetch_modules_load_the_guard(self):
+        self.assertEqual(
+            sitecustomize._entries(
+                sitecustomize.TARGETS[
+                    "openviking.session.memory.session_extract_context_provider"
+                ]
+            ),
+            [("ov_memory_guard_patch", "apply_prefetch")],
+        )
+        self.assertEqual(
+            sitecustomize._entries(
+                sitecustomize.TARGETS[
+                    "openviking.session.memory.memory_isolation_handler"
+                ]
+            ),
+            [("ov_memory_guard_patch", "apply_isolation")],
+        )
+
+
 # Skip only when the package is absent; a broken install fails (IMPR-1413).
 if importlib.util.find_spec("openviking") is None:  # not in the openviking image
     installed = None
@@ -1759,10 +2428,56 @@ class Installed(unittest.TestCase):
             mg._source_hash(installed.MemoryUpdater.apply_operations.__wrapped__),
             mg.EXPECTED_APPLY_SHA256,
         )
+        upsert = installed.MemoryUpdater._apply_upsert
         self.assertEqual(
-            mg._source_hash(installed.MemoryUpdater._apply_upsert),
+            mg._source_hash(getattr(upsert, "__wrapped__", upsert)),
             mg.EXPECTED_UPSERT_SHA256,
         )
+
+    def test_write_checks_and_prefetch_applied_on_import(self):
+        from openviking.session.memory import (
+            memory_isolation_handler as handler,
+            session_extract_context_provider as provider,
+        )
+
+        self.assertTrue(installed.MemoryUpdater._apply_upsert._ov_memory_guard)
+        write = installed.MemoryFileUtils.write
+        self.assertTrue(write._ov_memory_guard)
+        self.assertEqual(mg._source_hash(write.__wrapped__), mg.EXPECTED_WRITE_SHA256)
+        prefetch = provider.SessionExtractContextProvider.prefetch
+        self.assertEqual(
+            mg._source_hash(prefetch.__wrapped__), mg.EXPECTED_PREFETCH_SHA256
+        )
+        render = handler.MemoryIsolationHandler.render_schema_directories
+        self.assertEqual(
+            mg._source_hash(render.__wrapped__), mg.EXPECTED_RENDER_DIRS_SHA256
+        )
+
+    def test_the_real_write_drops_activity_bullets_only_in_scope(self):
+        uri = PROFILE_URI
+
+        def write():
+            mf = installed.MemoryFile.from_parsed(
+                uri=uri,
+                parsed={
+                    "memory_type": "profile",
+                    "content": CLEAN + ACTIVITY,
+                },
+            )
+            return installed.MemoryFileUtils.write(mf)
+
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        self.addCleanup(os.environ.pop, "OV_PROFILE_FILTER", None)
+        self.assertIn("dotfiles#509", write())  # outside an _apply_upsert: untouched
+        token = mg._WRITE_SCOPE.set(mg._WriteScope("profile", frozenset({uri})))
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                out = write()
+        finally:
+            mg._WRITE_SCOPE.reset(token)
+        self.assertIn("Lives in Chicago", out)
+        for gone in ("dotfiles#509", "IMPR-1401", "P2:", "Phase 2"):
+            self.assertNotIn(gone, out)
 
     def test_event_fields_read_back_through_the_real_memory_file_utils(self):
         uri = f"{BASE}/kinde_login_attempts.md"
