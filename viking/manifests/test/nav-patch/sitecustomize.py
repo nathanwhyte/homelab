@@ -36,7 +36,15 @@ off switch; a patch failure never breaks the import):
                         ``OV_ECHO_GUARD=0``); its noise filter drops ``events``
                         that only restate git lifecycle with no reasoning
                         (``OV_EVENT_NOISE_FILTER``: ``1`` drops, ``0`` off,
-                        anything else logs only).
+                        anything else logs only). Its write-time checks, all shadow until a
+                        human sets ``1`` (IMPR-1401, BUG-1283, BUG-1284): profile bullets
+                        naming a PR, item ID or phase (``OV_PROFILE_FILTER``), an event whose
+                        summary names a ``#N`` its excerpt lacks (``OV_EVENT_EXCERPT_CHECK``,
+                        log only), a preference equal to another (``OV_PREF_DEDUPE``), and the
+                        user-level profile read beside the peer's in the extraction prefetch
+                        (``OV_PROFILE_PREFETCH_PEER_ONLY``); one ``ov-profile-filter``,
+                        ``ov-event-excerpt``, ``ov-pref-dup`` or ``ov-profile-prefetch`` stderr
+                        line per match.
   * ov_event_abstract_patch — IMPR-1200: an ``events`` memory's vector record
                         stores its ``# Summary`` as the abstract instead of the
                         whole body; the embedding text is unchanged
@@ -128,6 +136,15 @@ TARGETS = {
         ("ov_event_abstract_patch", "apply_reindex"),
         ("ov_recall_time_patch", "apply_reindex"),
     ],
+    # BUG-1284: the extraction prefetch marks itself, the directory render acts in it.
+    "openviking.session.memory.session_extract_context_provider": (
+        "ov_memory_guard_patch",
+        "apply_prefetch",
+    ),
+    "openviking.session.memory.memory_isolation_handler": (
+        "ov_memory_guard_patch",
+        "apply_isolation",
+    ),
     "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
     "openviking.storage.viking_vector_index_backend": ("ov_http_update_patch", "apply"),
     "openviking.retrieve.hierarchical_retriever": (

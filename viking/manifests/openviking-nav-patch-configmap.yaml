@@ -1679,6 +1679,16 @@ data:
     ``shadow`` — the default, and the fallback for any other value — records
     ``"would_drop"`` and writes the event anyway.
 
+    **Write-time checks** (IMPR-1401, BUG-1283, BUG-1284; section "Write-time checks" below).
+    ``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write,
+    ``OV_EVENT_EXCERPT_CHECK`` logs an event whose summary names a ``#N`` its excerpt lacks,
+    ``OV_PREF_DEDUPE`` logs a preference equal to another (log only, never a skip), and
+    ``OV_PROFILE_PREFETCH_PEER_ONLY`` keeps the user-level singleton out of the extraction
+    prefetch when the rendered directories include a peer's (its file may not exist yet). Each is ``0|1|shadow`` with unset and typos meaning
+    shadow, and writes one ``ov-profile-filter`` / ``ov-event-excerpt`` / ``ov-pref-dup`` /
+    ``ov-profile-prefetch`` stderr line per match. A failure to write that line, or any check
+    failure, never fails a write or a prefetch.
+
     Guarded: applies only to openviking ``v0.5.1.1`` whose ``apply_operations``,
     ``_apply_upsert``, ``StreamingMemoryUpdater.submit`` and ``_split_append_only_request``
     sources hash to the expected values; otherwise it logs "NOT applied" and stock behaviour
@@ -2428,11 +2438,533 @@ data:
             return False
         cls._materialize_uri_migrations = wrap_materialize_uri_migrations(func)
         cls.apply_operations = wrap_apply_operations(module, orig)
+        try:
+            install_write_checks(module, cls)
+        except Exception as exc:  # noqa: BLE001 — the write checks must never undo the guard
+            logger.warning("ov-memory-guard: write checks NOT installed: %r", exc)
         logger.warning(
             "ov-memory-guard: applied to MemoryUpdater.apply_operations and "
             "_materialize_uri_migrations (pid %d)",
             os.getpid(),
         )
+        return True
+
+
+    # --- Write-time checks: profile bullets, event excerpts, duplicate preferences ---------
+    #
+    # IMPR-1401 item 1, BUG-1283. Three checks and one prefetch change, each with its own
+    # ``0|1|shadow`` switch where unset and any typo mean shadow, so deploying this changes no
+    # write until a human sets ``1``. Each match is one unwrapped ``<prefix> {json}`` stderr
+    # line (``emit_record``, for the reason ``emit_noise_record`` gives).
+    #
+    # The seam is ``MemoryFileUtils.write`` inside ``MemoryUpdater._apply_upsert``
+    # (``memory_updater.py`` L1521). ``profile.content`` is ``merge_op: patch``, so an
+    # operation can hold a StrPatch (``merge_op/patch.py`` L67-L68) and the merged text exists
+    # only there; ``wrap_apply_operations`` runs too early. ``MemoryFile`` and the extract
+    # context are both in hand at the write, so the event excerpt
+    # (``extract_context.get_event_content(ranges, summary, 0)``, the call ``events.yaml``
+    # L103 renders) is visible too. A wrapped ``_apply_upsert`` sets a task-local scope for the
+    # memory types checked, and the wrapped ``write`` acts only for a file in that scope, so
+    # the other ``MemoryFileUtils.write`` callers are untouched.
+    #
+    # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
+    #   each bullet that names a PR or issue number, a compendium item ID, a numbered phase, or
+    #   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. The
+    #   user-level ``profile.md`` (a URI with no peer in the parsed placement) is never filtered or logged: it is
+    #   the frozen fallback ``profile-inject`` reads for a peer with no profile.
+    # * ``OV_EVENT_EXCERPT_CHECK`` (``ov-event-excerpt``): logs an ``events`` write whose summary
+    #   names a ``#N`` its rendered excerpt lacks. Log only: ``1`` and shadow behave alike.
+    # * ``OV_PREF_DEDUPE`` (``ov-pref-dup``): logs a ``preferences`` write whose body equals another
+    #   preference file under the same ``.../memories/preferences`` root. Log only, like the
+    #   event check: ``1`` and shadow behave alike and the write always runs. A skip is left
+    #   for its own change, since a skipped URI is still reported as written and stock
+    #   ``_invalid_replacement_sources`` would then delete the replaced file (Codex round 1 of
+    #   homelab#296). Files are named ``{{ user }}/{{ topic }}.md``, so a duplicate can sit
+    #   under another user or topic. Cost: each preferences write lists the target's own
+    #   ``<space>/memories/preferences`` root (a paginated ``ls`` per level, ``LS_PAGE`` entries
+    #   a call) and reads every file once, under the write's lease. Nothing is cached between
+    #   writes, so a record cannot carry another tenant's or peer's file or a stale cache entry;
+    #   the price is that read per file on every preferences write (unmeasured on real
+    #   storage). The index is a snapshot from before the operation, so a record can still name
+    #   a file that has changed or gone since. A duplicate that the operation itself introduces
+    #   (two targets given the same body) is not recorded; one that already existed is.
+    # * ``OV_PROFILE_PREFETCH_PEER_ONLY`` (``ov-profile-prefetch``, BUG-1284): extraction's
+    #   prefetch reads ``<dir>/profile.md`` for every directory from
+    #   ``MemoryIsolationHandler.render_schema_directories`` (``session_extract_context_
+    #   provider.py`` L522-L547), the user level included, so the model sees the frozen
+    #   user-level file beside the peer's. With a peer directory in the set, ``1`` drops the
+    #   user-level directory for ``SINGLETON_TYPES`` from the prefetch only; shadow records
+    #   ``would_drop``. Writes and the file itself are untouched.
+
+    # ``viking://user/<user>[/peers/<peer>]/memories/<rest>``, anchored at both ends: a user ID
+    # such as ``peers``, ``memories`` or ``preferences`` is a path segment like any other, so
+    # every placement question (peer or user level, memory type, preferences root) is answered
+    # here and never by searching the URI for a substring (Codex round 2 of homelab#296). Only
+    # the checks of this section use it; the singleton guard keeps its own predicate.
+    USER_MEMORY_URI = re.compile(
+        r"^viking://user/(?P<user>[^/]+)(?:/peers/(?P<peer>[^/]+))?/memories/(?P<rest>[^/].*)$"
+    )
+
+
+    @dataclasses.dataclass(frozen=True)
+    class MemoryUri:
+        user: str
+        peer: str | None  # None for the user-level space
+        rest: str  # path under ``memories/``
+
+        @property
+        def memory_type(self) -> str:
+            """``profile`` for ``profile.md``, else the first directory (``events``, …)."""
+            head, slash, _ = self.rest.partition("/")
+            return head if slash else head.removesuffix(".md")
+
+        @property
+        def space(self) -> str:
+            peer = f"/peers/{self.peer}" if self.peer else ""
+            return f"viking://user/{self.user}{peer}/memories"
+
+
+    def parse_memory_uri(uri) -> MemoryUri | None:
+        match = USER_MEMORY_URI.match(uri) if isinstance(uri, str) else None
+        return MemoryUri(match["user"], match["peer"], match["rest"]) if match else None
+
+
+    EXPECTED_WRITE_SHA256 = (
+        "fc235ee1cc68c45a434e8774652fc99ce0447831558df0948789c552eb6dbc18"
+    )
+    EXPECTED_PREFETCH_SHA256 = (
+        "e8cedc9ab5ccd45d7d777793682fdc198a146454064c247a62fbf9a1cf56633b"
+    )
+    EXPECTED_RENDER_DIRS_SHA256 = (
+        "0c29c7af42e469eb238d8db6aff9436e243847f96ed4eb40967d699ad017aaaf"
+    )
+    PROFILE_PREFIX = "ov-profile-filter"
+    EXCERPT_PREFIX = "ov-event-excerpt"
+    PREF_DUP_PREFIX = "ov-pref-dup"
+    PREFETCH_PREFIX = "ov-profile-prefetch"
+    PROFILE_TYPE = "profile"
+    PREFERENCES = "preferences"
+    BULLET_LOG_CHARS = 300
+
+    PROFILE_BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+    PROFILE_REASONS = (
+        # Up to 5 digits and a boundary after, so a 6- or 8-digit colour (#336699) and
+        # #123abc do not match; ``C#10`` and ``F#8`` are language versions. ``#123`` as a
+        # colour and similar short runs still match: the shadow records are the check.
+        ("pr_or_issue", re.compile(r"(?<!\b[CF])#\d{1,5}\b")),
+        (
+            "item_id",
+            re.compile(r"\b(?:BUG|IMPR|TASK|FEAT|IDEA|PROJ|INFO|GUIDE)-\d+"),
+        ),
+        ("finding_label", re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\W*P[0-3]\**\s*:")),
+        ("phase", re.compile(r"\bPhase \d")),
+    )
+    EVENT_REF = re.compile(r"#\d+")
+
+
+    def _env_mode(var: str) -> str:
+        """``"1"`` acts, ``"0"`` is off, anything else (unset included) is ``"shadow"``.
+
+        A typo warns once and falls back to shadow, so it never starts changing writes.
+        """
+        raw = os.environ.get(var, "shadow").strip().lower()
+        if raw in ("0", "1", "shadow"):
+            return raw
+        key = f"{var}={raw}"
+        if key not in _MODE_WARNED:
+            _MODE_WARNED.add(key)
+            logger.warning("%s=%r is not 0, 1 or shadow; using shadow", var, raw)
+        return "shadow"
+
+
+    def emit_record(prefix: str, record: dict) -> None:
+        """One ``<prefix> {json}`` line on stderr, unwrapped (see ``emit_noise_record``)."""
+        try:
+            sys.stderr.write(f"{prefix} " + json.dumps(record, sort_keys=True) + "\n")
+            sys.stderr.flush()
+        except Exception as exc:  # noqa: BLE001 — a logging failure never fails a write or a prefetch
+            logger.warning("ov-memory-guard: %s record not written: %r", prefix, exc)
+
+
+    def _clip(text: str) -> str:
+        return " ".join(str(text).split())[:BULLET_LOG_CHARS]
+
+
+    def profile_bullet_reason(line: str) -> str | None:
+        """Why a bullet line is activity-log material, or None (not a bullet, or kept)."""
+        if not PROFILE_BULLET.match(line):
+            return None
+        for reason, pattern in PROFILE_REASONS:
+            if pattern.search(line):
+                return reason
+        return None
+
+
+    def filter_profile_content(content: str) -> tuple[str, list[tuple[str, str]]]:
+        """``(kept text, [(reason, bullet), ...])``; an indented continuation goes with its bullet."""
+        kept, removed = [], []
+        dropping = False
+        for line in content.splitlines(keepends=True):
+            reason = profile_bullet_reason(line)
+            if reason:
+                removed.append((reason, line.strip()))
+                dropping = True
+                continue
+            if (
+                dropping
+                and line.strip()
+                and line[:1].isspace()
+                and not PROFILE_BULLET.match(line)
+            ):
+                removed.append(("continuation", line.strip()))
+                continue
+            dropping = False
+            kept.append(line)
+        return "".join(kept), removed
+
+
+    def _body_digest(text: str) -> str:
+        return hashlib.sha256(text.strip().encode()).hexdigest()
+
+
+    @dataclasses.dataclass
+    class _WriteScope:
+        memory_type: str
+        uris: frozenset
+        pref_index: dict = dataclasses.field(default_factory=dict)  # root -> {uri: digest}
+
+
+    _WRITE_SCOPE: contextvars.ContextVar = contextvars.ContextVar(
+        "ov_memory_guard_write_scope", default=None
+    )
+
+
+    def _preferences_root(uri: str) -> str | None:
+        """The ``.../memories/preferences`` root a preference URI lives under, or None."""
+        parsed = parse_memory_uri(uri)
+        if parsed is None or parsed.memory_type != PREFERENCES or "/" not in parsed.rest:
+            return None
+        return f"{parsed.space}/{PREFERENCES}"
+
+
+    LS_PAGE = 1000  # VikingFS.ls stops at node_limit=1000 entries unless paged
+
+
+    async def _list_files(fs, uri, ctx) -> list[dict]:
+        """Every entry of a directory, a page at a time (``ls`` caps one call at ``LS_PAGE``)."""
+        entries: list[dict] = []
+        seen: set = set()
+        offset = 0
+        while True:
+            try:
+                page = list(
+                    await fs.ls(
+                        uri, node_limit=LS_PAGE, offset=offset, sort_by="name", ctx=ctx
+                    )
+                    or []
+                )
+            except Exception as exc:  # noqa: BLE001
+                if _is_not_found(exc):
+                    break
+                raise
+            fresh = [e for e in page if (e.get("uri") or e.get("name")) not in seen]
+            seen.update(e.get("uri") or e.get("name") for e in fresh)
+            entries.extend(fresh)
+            if not fresh:  # empty page, or a filesystem that ignores the offset
+                break
+            offset += LS_PAGE
+        return entries
+
+
+    async def _read_digest(module, fs, uri, ctx) -> str | None:
+        try:
+            raw = await fs.read_file(uri, ctx=ctx)
+            body = module.MemoryFileUtils.read(raw, uri=uri).plain_content().strip()
+        except Exception:  # noqa: BLE001 — a file that cannot be read cannot be compared
+            return None
+        return _body_digest(body) if body else None
+
+
+    async def preference_index(module, fs, root, ctx) -> dict[str, str]:
+        """``{uri: body digest}`` for every non-empty ``.md`` file under ``root``, read now."""
+        files: list[str] = []
+        for entry in await _list_files(fs, root, ctx):
+            name = str(entry.get("name", ""))
+            if name.startswith("."):
+                continue
+            if entry.get("isDir"):
+                for sub in await _list_files(fs, entry.get("uri") or f"{root}/{name}", ctx):
+                    sub_name = str(sub.get("name", ""))
+                    if (
+                        not sub.get("isDir")
+                        and sub_name.endswith(".md")
+                        and not sub_name.startswith(".")
+                    ):
+                        files.append(sub.get("uri") or f"{root}/{name}/{sub_name}")
+            elif name.endswith(".md"):
+                files.append(entry.get("uri") or f"{root}/{name}")
+        index: dict[str, str] = {}
+        for uri in files:
+            digest = await _read_digest(module, fs, uri, ctx)
+            if digest:
+                index[uri] = digest
+        return index
+
+
+    def _check_profile(memory_file) -> None:
+        mode = _env_mode("OV_PROFILE_FILTER")
+        parsed = parse_memory_uri(memory_file.uri)
+        if mode == "0" or parsed is None or parsed.peer is None:
+            return  # the user-level profile.md is the frozen fallback: never touched
+        kept, removed = filter_profile_content(memory_file.content or "")
+        for reason, bullet in removed:
+            emit_record(
+                PROFILE_PREFIX,
+                {
+                    "action": "would_drop" if mode == "shadow" else "dropped",
+                    "reason": reason,
+                    "uri": memory_file.uri,
+                    "bullet": _clip(bullet),
+                },
+            )
+        if removed and mode == "1":
+            memory_file.content = kept
+
+
+    def _check_event(memory_file, extract_context) -> None:
+        if _env_mode("OV_EVENT_EXCERPT_CHECK") == "0" or extract_context is None:
+            return
+        fields = memory_file.extra_fields or {}
+        summary = str(fields.get("summary") or "")
+        ranges = str(fields.get("ranges") or "")
+        wanted = list(dict.fromkeys(EVENT_REF.findall(summary)))
+        if not wanted or not ranges:
+            return
+        if extract_context.get_resource_event_content(ranges, summary):
+            return  # a resource event renders its summary, not an excerpt
+        excerpt = extract_context.get_event_content(ranges, summary, 0)
+        if not excerpt or excerpt == summary:
+            return  # no excerpt to compare against
+        present = {ref for ref in EVENT_REF.findall(excerpt)}
+        missing = [ref for ref in wanted if ref not in present]
+        if missing:
+            emit_record(
+                EXCERPT_PREFIX,
+                {
+                    "action": "mismatch",
+                    "uri": memory_file.uri,
+                    "event_name": fields.get("event_name"),
+                    "summary": _clip(summary),
+                    "missing": missing,
+                    "excerpt_refs": sorted(present),
+                },
+            )
+
+
+    def _check_preference(memory_file, scope: _WriteScope) -> None:
+        mode = _env_mode("OV_PREF_DEDUPE")
+        if mode == "0":
+            return
+        body = memory_file.plain_content().strip()
+        if not body:
+            return
+        digest = _body_digest(body)
+        index = scope.pref_index.get(_preferences_root(memory_file.uri), {})
+        matches = [
+            uri
+            for uri, other in index.items()
+            if other == digest and uri != memory_file.uri
+        ]
+        if not matches:
+            return
+        emit_record(
+            PREF_DUP_PREFIX,
+            {
+                "action": "duplicate",
+                "uri": memory_file.uri,
+                "duplicate_of": matches[0],
+                "chars": len(body),
+            },
+        )
+
+
+    def wrap_file_write(orig):
+        @functools.wraps(orig)
+        def write(memory_file, *args, **kwargs):
+            scope = _WRITE_SCOPE.get()
+            if scope is not None and getattr(memory_file, "uri", None) in scope.uris:
+                try:
+                    if scope.memory_type == PROFILE_TYPE:
+                        _check_profile(memory_file)
+                    elif scope.memory_type == EVENTS:
+                        _check_event(memory_file, kwargs.get("extract_context"))
+                    elif scope.memory_type == PREFERENCES:
+                        _check_preference(memory_file, scope)
+                except Exception as exc:  # noqa: BLE001 — a check failure never blocks a write
+                    logger.warning("ov-memory-guard: write check failed: %r", exc)
+            return orig(memory_file, *args, **kwargs)
+
+        write._ov_memory_guard = True
+        return write
+
+
+    def wrap_apply_upsert(module, orig):
+        @functools.wraps(orig)
+        async def _apply_upsert(
+            self, resolved_op, ctx, extract_context=None, lease_ref=None, uri_remap=None
+        ):
+            memory_type = getattr(resolved_op, "memory_type", None)
+            uris = [
+                u for u in (getattr(resolved_op, "uris", None) or []) if isinstance(u, str)
+            ]
+
+            def call():
+                return orig(
+                    self,
+                    resolved_op,
+                    ctx,
+                    extract_context=extract_context,
+                    lease_ref=lease_ref,
+                    uri_remap=uri_remap,
+                )
+
+            if memory_type not in (PROFILE_TYPE, EVENTS, PREFERENCES) or not uris:
+                return await call()
+            scope = _WriteScope(memory_type, frozenset(uris))
+            if memory_type == PREFERENCES and _env_mode("OV_PREF_DEDUPE") != "0":
+                try:
+                    for root in {_preferences_root(u) for u in uris} - {None}:
+                        scope.pref_index[root] = await preference_index(
+                            module, self._get_viking_fs(), root, ctx
+                        )
+                except Exception as exc:  # noqa: BLE001 — no index, no duplicate check
+                    logger.warning("ov-memory-guard: preference index failed: %r", exc)
+                    scope.pref_index.clear()
+            token = _WRITE_SCOPE.set(scope)
+            try:
+                result = await call()
+            finally:
+                _WRITE_SCOPE.reset(token)
+            return result
+
+        _apply_upsert._ov_memory_guard = True
+        return _apply_upsert
+
+
+    def install_write_checks(module, cls) -> bool:
+        """Wrap ``_apply_upsert`` and ``MemoryFileUtils.write``; False when sources drifted."""
+        utils = getattr(module, "MemoryFileUtils", None)
+        write = getattr(utils, "write", None)
+        if write is None or not hasattr(cls, "_apply_upsert"):
+            return False
+        if getattr(write, "_ov_memory_guard", False):
+            return True
+        write_digest = _source_hash(write)
+        if write_digest != EXPECTED_WRITE_SHA256:
+            logger.warning(
+                "ov-memory-guard: write checks NOT applied (write_sha256=%s)", write_digest
+            )
+            return False
+        utils.write = staticmethod(wrap_file_write(write))
+        cls._apply_upsert = wrap_apply_upsert(module, cls._apply_upsert)
+        return True
+
+
+    # --- Prefetch: the peer's singleton beside the frozen user-level file (BUG-1284) -------
+
+    _PREFETCH: contextvars.ContextVar = contextvars.ContextVar(
+        "ov_memory_guard_prefetch", default=False
+    )
+
+
+    def wrap_prefetch(orig):
+        @functools.wraps(orig)
+        async def prefetch(self, *args, **kwargs):
+            token = _PREFETCH.set(True)
+            try:
+                return await orig(self, *args, **kwargs)
+            finally:
+                _PREFETCH.reset(token)
+
+        prefetch._ov_memory_guard = True
+        return prefetch
+
+
+    def _peer_only(handler, memory_type_schema, dirs):
+        if not _PREFETCH.get():
+            return dirs
+        memory_type = getattr(memory_type_schema, "memory_type", None)
+        if memory_type not in SINGLETON_TYPES or not getattr(handler, "allow_self", False):
+            return dirs
+        if len(dirs) < 2:
+            return dirs
+        mode = _env_mode("OV_PROFILE_PREFETCH_PEER_ONLY")
+        if mode == "0":
+            return dirs
+        emit_record(
+            PREFETCH_PREFIX,
+            {
+                "action": "would_drop" if mode == "shadow" else "dropped",
+                "memory_type": memory_type,
+                "dropped": dirs[0],
+                "kept": list(dirs[1:]),
+            },
+        )
+        return dirs if mode == "shadow" else dirs[1:]
+
+
+    def wrap_render_schema_directories(orig):
+        @functools.wraps(orig)
+        def render_schema_directories(self, memory_type_schema):
+            dirs = orig(self, memory_type_schema)
+            try:
+                return _peer_only(self, memory_type_schema, dirs)
+            except Exception as exc:  # noqa: BLE001 — the stock directories are the fallback
+                logger.warning("ov-memory-guard: prefetch check failed: %r", exc)
+                return dirs
+
+        render_schema_directories._ov_memory_guard = True
+        return render_schema_directories
+
+
+    def _version_ok() -> bool:
+        import openviking
+
+        return getattr(openviking, "__version__", None) == EXPECTED_VERSION
+
+
+    def apply_prefetch(module) -> bool:
+        """Mark ``SessionExtractContextProvider.prefetch`` so the directory render knows."""
+        if not _enabled():
+            return False
+        cls = getattr(module, "SessionExtractContextProvider", None)
+        orig = getattr(cls, "prefetch", None)
+        if getattr(orig, "_ov_memory_guard", False):
+            return True
+        digest = _source_hash(orig) if orig else None
+        if not _version_ok() or digest != EXPECTED_PREFETCH_SHA256:
+            logger.warning("ov-memory-guard: NOT applied to prefetch (sha256=%s)", digest)
+            return False
+        cls.prefetch = wrap_prefetch(orig)
+        return True
+
+
+    def apply_isolation(module) -> bool:
+        """Wrap ``MemoryIsolationHandler.render_schema_directories`` (acts only in a prefetch)."""
+        if not _enabled():
+            return False
+        cls = getattr(module, "MemoryIsolationHandler", None)
+        orig = getattr(cls, "render_schema_directories", None)
+        if getattr(orig, "_ov_memory_guard", False):
+            return True
+        digest = _source_hash(orig) if orig else None
+        if not _version_ok() or digest != EXPECTED_RENDER_DIRS_SHA256:
+            logger.warning(
+                "ov-memory-guard: NOT applied to render_schema_directories (sha256=%s)",
+                digest,
+            )
+            return False
+        cls.render_schema_directories = wrap_render_schema_directories(orig)
         return True
 
 
@@ -5078,7 +5610,15 @@ data:
                             ``OV_ECHO_GUARD=0``); its noise filter drops ``events``
                             that only restate git lifecycle with no reasoning
                             (``OV_EVENT_NOISE_FILTER``: ``1`` drops, ``0`` off,
-                            anything else logs only).
+                            anything else logs only). Its write-time checks, all shadow until a
+                            human sets ``1`` (IMPR-1401, BUG-1283, BUG-1284): profile bullets
+                            naming a PR, item ID or phase (``OV_PROFILE_FILTER``), an event whose
+                            summary names a ``#N`` its excerpt lacks (``OV_EVENT_EXCERPT_CHECK``,
+                            log only), a preference equal to another (``OV_PREF_DEDUPE``), and the
+                            user-level profile read beside the peer's in the extraction prefetch
+                            (``OV_PROFILE_PREFETCH_PEER_ONLY``); one ``ov-profile-filter``,
+                            ``ov-event-excerpt``, ``ov-pref-dup`` or ``ov-profile-prefetch`` stderr
+                            line per match.
       * ov_event_abstract_patch — IMPR-1200: an ``events`` memory's vector record
                             stores its ``# Summary`` as the abstract instead of the
                             whole body; the embedding text is unchanged
@@ -5170,6 +5710,15 @@ data:
             ("ov_event_abstract_patch", "apply_reindex"),
             ("ov_recall_time_patch", "apply_reindex"),
         ],
+        # BUG-1284: the extraction prefetch marks itself, the directory render acts in it.
+        "openviking.session.memory.session_extract_context_provider": (
+            "ov_memory_guard_patch",
+            "apply_prefetch",
+        ),
+        "openviking.session.memory.memory_isolation_handler": (
+            "ov_memory_guard_patch",
+            "apply_isolation",
+        ),
         "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
         "openviking.storage.viking_vector_index_backend": ("ov_http_update_patch", "apply"),
         "openviking.retrieve.hierarchical_retriever": (
