@@ -1,6 +1,6 @@
 ---
 # BUG-1220: long-hold watchdog. Restarts deploy/openviking when ONE lock has
-# been held by the SAME lease_ref for more than 3 h (WATCHDOG_HOLD_SECONDS).
+# been held by the SAME owner for more than 3 h (WATCHDOG_HOLD_SECONDS).
 # On 2026-10-09..12 one MCP session's memory extraction held its
 # .path.ovlock for ~70 h, refreshing every ~10 s, and only an unrelated pod
 # replacement cleared it. The BUG-1181 in-Job heal restarts only for a wedge
@@ -15,9 +15,12 @@
 # restart that lands between its read and its write turns it into a 409 no-op.
 #
 # Identity: ov-exporter's openviking_s3_ovlock_live_age_seconds (homelab#205,
-# port 9210 on the openviking Service) says how long the lock has been present;
-# the openviking container log must show ONE lease_ref refreshing it within the
-# last 60 s and, over the part of the window the log covers, no other. Anything
+# port 9210 on the openviking Service) says how long the key has been present,
+# which can span holders it never read. Before the restart, two reads of the exporter's
+# GET /locks (WATCHDOG_RECHECK_SECONDS, 90 s apart) must show a later poll, the
+# same owner read on each poll, a refreshed lock, and an owner known to the
+# exporter for the whole hold. v0.5.1.1 logs no lease
+# lines (BUG-1282), so a handoff under one owner reads as one hold. Anything
 # unclear logs a reason and restarts nothing.
 #
 # Disruption guard: prefer a quiet queue, force at WATCHDOG_FORCE_SECONDS (6 h).
@@ -27,9 +30,14 @@
 # ENABLED 2026-10-22 after the BUG-1220 72 h soak (2026-10-19..22): it shipped
 # in shadow mode (--dry-run, IMPR-1095 precedent) and every logged decision was
 # `none`, with no lock held 15 min; 2 of the 85 runs Loki still held could not
-# read the exporter (logged `blind` since IMPR-1416). To return to shadow mode,
-# add "--dry-run"
-# to args and `kubectl apply` this one object.
+# read the exporter (logged `blind` since IMPR-1416).
+#
+# SHADOW MODE again for BUG-1282: the owner proof is new, cannot see a handoff
+# under one owner, and has not met a long hold on v0.5.1.1, whose longest was
+# about 30 min. A shadow run reads everything and logs `DRY-RUN would restart`
+# or `ABORTED before restart`. To enable, drop "--dry-run" from command once a
+# would-restart line has been checked against what held the lock, and
+# `kubectl apply` this one object.
 #
 # HOW IT IS SEEN: every run logs `ov-lock-watchdog: decision=...` and a real
 # restart logs `ov-lock-watchdog: RESTARTED ...` (Loki: {namespace="viking"}
@@ -72,7 +80,9 @@ spec:
       parallelism: 1
       # No retry: a failure is an alarm, and the next slot is 15 min away.
       backoffLimit: 0
-      # An exporter scrape, a few API calls and one log read of a few MB.
+      # Two /metrics and two /locks reads, the API calls and the 90 s recheck
+      # wait: about 220 s if every socket timeout runs out. Raising
+      # WATCHDOG_RECHECK_SECONDS spends this budget.
       activeDeadlineSeconds: 300
       ttlSecondsAfterFinished: 172800
       template:
@@ -94,11 +104,12 @@ spec:
               command:
                 - python3
                 - /scripts/ov-lock-watchdog.py
+                - --dry-run
               env:
                 - name: WATCHDOG_EXPORTER_URL
                   value: http://openviking.viking.svc.cluster.local:9210/metrics
                 # Thresholds written out so they can be tuned without a code
-                # change. Hold: the same lease continuously, from the exporter.
+                # change. Hold: one owner's time known to the exporter.
                 - name: WATCHDOG_HOLD_SECONDS
                   value: "10800"
                 # Hard cap: restart even though the queue is busy.

@@ -67,11 +67,13 @@ def wait_line(ms, path=LOCK):
     )
 
 
-def metrics_text(poll_ok=1, live_age=None):
+def metrics_text(poll_ok=1, live_age=None, oldest_age=None):
     lines = [
         f"openviking_s3_ovlock_poll_ok {poll_ok}",
         "# TYPE openviking_s3_ovlock_live_age_seconds gauge",
     ]
+    if oldest_age is not None:
+        lines.append(f"openviking_s3_ovlock_oldest_live_age_seconds {oldest_age}")
     if live_age is not None:
         lines.append(
             "openviking_s3_ovlock_live_age_seconds"
@@ -217,6 +219,113 @@ def run_watch(fake, polls=1, log=None, wake_wait_ms=cw.DEFAULT_WAKE_WAIT_MS):
 
 def has(lines, token):
     return [ln for ln in lines if token in ln]
+
+
+class WaitsBlind(unittest.TestCase):
+    """BUG-1282: v0.5.1.1 logs no lock lines, which must not read as no waits."""
+
+    def test_held_lock_without_lock_lines_reports_blind_once(self):
+        fake = FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("a lock live for 1000s", has(out, "WATCH ERROR waits:")[0])
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("waits unknown", end)
+        self.assertNotIn("waits 0", end)
+
+    def test_an_unlabelled_lock_without_lock_lines_reports_blind(self):
+        # Claude R4: locks under the 900 s label threshold are the usual case.
+        fake = FakeKubectl([POD_A], metrics=metrics_text(oldest_age=600))
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def test_a_lock_too_young_to_have_refreshed_stays_quiet(self):
+        fake = FakeKubectl(
+            [POD_A], metrics=metrics_text(oldest_age=cw.WAITS_BLIND_MIN_LOCK_AGE - 1)
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+
+    def test_the_first_poll_alone_does_not_report_blind(self):
+        fake = FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
+        out, _ = run_watch(fake, polls=1)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+
+    def test_no_held_lock_stays_quiet(self):
+        out, _ = run_watch(FakeKubectl([POD_A]), polls=3)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+        self.assertIn("waits 0 (max 0.0s)", has(out, "WATCH end:")[0])
+
+    def test_any_lock_line_counts_as_the_log_being_readable(self):
+        fake = FakeKubectl(
+            [POD_A], metrics=metrics_text(live_age=1000), logs=[wait_line(1200), ""]
+        )
+        out, _ = run_watch(fake, polls=3)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+        self.assertIn("waits 1", has(out, "WATCH end:")[0])
+
+    def test_a_lock_line_after_the_report_restores_the_figures(self):
+        fake = FakeKubectl(
+            [POD_A], metrics=metrics_text(live_age=1000), logs=["", "", wait_line(1200)]
+        )
+        out, _ = run_watch(fake, polls=3)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits 1", has(out, "WATCH end:")[0])
+
+    def test_a_new_pod_must_show_its_own_lock_lines(self):
+        # Codex R1: a rollback from a logging image to a counts-only one.
+        fake = FakeKubectl(
+            [POD_A, POD_B, POD_B, POD_B],
+            metrics=metrics_text(live_age=1000),
+            logs=[wait_line(1200), ""],
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def test_a_blind_pod_keeps_the_run_unknown_after_a_logging_pod(self):
+        # Codex R1: a pod that lost the lines is a gap the next pod cannot fill.
+        fake = FakeKubectl(
+            [POD_A, POD_A, POD_A, POD_B],
+            metrics=metrics_text(live_age=1000),
+            logs=["", "", "", wait_line(1200)],
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def test_each_blind_pod_reports(self):
+        fake = FakeKubectl(
+            [POD_A, POD_A, POD_B, POD_B], metrics=metrics_text(live_age=1000)
+        )
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 2)
+        self.assertIn("waits unknown", has(out, "WATCH end:")[0])
+
+    def beats(self, fake, polls=3):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(cw, "BEAT_EVERY", 2),
+        ):
+            _, logged = run_watch(fake, polls=polls, log=os.path.join(tmp, "e.log"))
+        return has(logged, "BEAT")
+
+    def test_a_beat_after_the_report_gives_no_wait_figure(self):
+        # Claude R5: the log showed the zeros the error line had just disowned.
+        first, later = self.beats(
+            FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
+        )
+        self.assertIn("waits_total=0 max_wait=0.0s", first)
+        self.assertIn("waits_total=unknown max_wait=unknown", later)
+
+    def test_a_beat_keeps_its_figures_when_lock_lines_show(self):
+        _, later = self.beats(
+            FakeKubectl(
+                [POD_A], metrics=metrics_text(live_age=1000), logs=[wait_line(1200), ""]
+            )
+        )
+        self.assertIn("waits_total=1 max_wait=1.2s", later)
 
 
 class LogParsing(unittest.TestCase):

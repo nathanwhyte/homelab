@@ -1,0 +1,13 @@
+# BUG-1282: takes off what ov-exporter-sidecar-patch.yaml added.
+#
+#   kubectl -n viking patch deployment openviking-test --type=strategic \
+#     --patch-file viking/manifests/test/ov-exporter-sidecar-remove-patch.yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: ov-exporter
+          $patch: delete
+      volumes:
+        - name: exporter-script
+          $patch: delete

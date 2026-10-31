@@ -1,19 +1,16 @@
 ---
 # BUG-1220: RBAC for the ov-lock-watchdog CronJob, which restarts
-# deploy/openviking when ONE lock has been held by the SAME lease for hours.
-# It reads the Deployment (settled? last restartedAt?), finds the one live
-# openviking pod, reads its container log (the ragfs::lock::manager refresh
-# lines carry lease_ref), and PATCHes the kubectl restartedAt annotation, which
-# is all `kubectl rollout restart` does. The Job image has no kubectl.
+# deploy/openviking when ONE lock has been held by the SAME owner for hours.
+# It reads the Deployment (settled? last restartedAt?) and PATCHes the kubectl
+# restartedAt annotation, which is all `kubectl rollout restart` does. The Job
+# image has no kubectl.
 #
 # Scope, deliberately the least that works:
 #   - deployments/openviking: get + patch, resourceNames-scoped to the ONE
 #     Deployment. No update, no delete, no other Deployment.
-#   - pods get/list and pods/log get, read-only. `list` cannot be
-#     resourceName-scoped (the pod name changes on every rollout), so this is
-#     namespace-wide read of pods and their logs in viking, the same grant and
-#     the same reason as compendium/sync-rbac.yaml (BUG-1181, homelab#207). No
-#     exec, attach, port-forward, delete, secrets or configmaps.
+#   - Nothing else: no pods or pods/log since BUG-1282, because the lock
+#     evidence comes from ov-exporter over HTTP, and no exec, attach,
+#     port-forward, delete, secrets or configmaps.
 # It never touches a lock file: locks live in the Garage bucket, and this
 # ServiceAccount holds no S3 credentials.
 #
@@ -22,7 +19,7 @@
 #     --as=system:serviceaccount:viking:ov-lock-watchdog              # yes
 #   kubectl auth can-i patch deployments/ov-vectordb -n viking \
 #     --as=system:serviceaccount:viking:ov-lock-watchdog              # no
-#   kubectl auth can-i delete pods -n viking \
+#   kubectl auth can-i get pods --subresource=log -n viking \
 #     --as=system:serviceaccount:viking:ov-lock-watchdog              # no
 #   kubectl auth can-i get secrets -n viking \
 #     --as=system:serviceaccount:viking:ov-lock-watchdog              # no
@@ -48,12 +45,6 @@ rules:
     resources: ["deployments"]
     resourceNames: ["openviking"]
     verbs: ["get", "patch"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

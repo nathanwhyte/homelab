@@ -213,29 +213,45 @@ data:
         )
   ov-lock-watchdog.py: |
     #!/usr/bin/env python3
-    """Long-hold watchdog for OpenViking lock leases (BUG-1220).
+    """Long-hold watchdog for OpenViking lock leases (BUG-1220, BUG-1282).
 
     On 2026-10-09..12 one OpenViking lease (an MCP session's memory extraction on
-    /local/default/user/noot/sessions/<session>/.path.ovlock) refreshed every ~10 s
-    for ~70 h while the rest of the queue kept completing work. Nothing restarted
+    default/user/noot/sessions/<session>/.path.ovlock) refreshed every ~10 s for
+    ~70 h while the rest of the queue kept completing work. Nothing restarted
     OpenViking: the in-Job heal (compendium-sync, BUG-1181) restarts only for a
     wedge its own run caused under resources/compendium, and the IMPR-1095 janitor
     deletes dead leases only. This job restarts deploy/openviking when ONE lock has
-    been held by the SAME lease for longer than WATCHDOG_HOLD_SECONDS (3 h).
+    been held by the SAME owner for longer than WATCHDOG_HOLD_SECONDS (3 h).
 
     Identity, all of it required (any doubt = no restart, with the reason logged):
 
     - ov-exporter's openviking_s3_ovlock_live_age_seconds{key,uri,owner,lock_type}
-      (BUG-1220, homelab#205) says the lock has been continuously present for at
-      least the hold threshold with a stable owner (the series restarts its age
-      when the holder changes) and is a live-refreshing lock, not a frozen one.
-    - The openviking container log shows ONE lease_ref refreshing that lock path
-      within the last WATCHDOG_LOG_RECENT_SECONDS, and, over the part of the hold
-      window the log covers, only that lease_ref with no refresh gap longer than
-      WATCHDOG_LOG_MAX_GAP_SECONDS. A lease whose refreshes stopped is the janitor's
-      dead-lease case; a lease_ref that changed on the path is ordinary churn.
+      (BUG-1220, homelab#205) says the key has been continuously present for at
+      least the hold threshold, which alone proves no holder (see below; the series
+      restarts its age only on an owner or lock type change it read), and is
+      live-refreshing: a lease whose
+      refreshes stopped leaves the series after the exporter's live window, which
+      is the janitor's dead-lease case.
+    - The lock's owner is readable.
+    - Two reads of the exporter's GET /locks, WATCHDOG_RECHECK_SECONDS apart, show
+      a later poll, the same key, owner and lock type, an owner read on each of
+      those polls, not a cached one, and a newer mtime on the second. The exporter
+      compares a lock's owner only from the poll after it is labelled, so a lock
+      labelled by this run's first read has not been compared yet, and a frozen
+      lock stays in the series for the exporter's live window.
+    - The exporter has known this owner for at least WATCHDOG_HOLD_SECONDS
+      (owner_held_seconds). The series' age counts from when the key appeared, so
+      it can span holders the exporter never read: before its 900 s label threshold,
+      while reads fail, or past OVLOCK_LABEL_TOP_N. A lock therefore restarts about
+      15 min later than its age alone suggests, and past the force cap on the
+      shorter of the two.
     - The exporter is healthy and fresh, the Deployment is settled and was not
       restarted within WATCHDOG_COOLDOWN_SECONDS.
+
+    The check is on the owner, not the lease (BUG-1282). v0.5.1.1 logs the ragfs
+    lease lines at debug, and lock tokens and `ov status` carry no lease_ref, so
+    nothing at the INFO level names a lease. A handoff keeps its owner and takes a
+    new lease_ref, so handoffs inside one owner read as one hold.
 
     Disruption guard. BUG-1220's original wording was "restart when the queue is
     not progressing", but in that incident the queue kept progressing around the one
@@ -252,25 +268,25 @@ data:
     touches a lock file; never deletes anything; the PATCH carries the Deployment's
     resourceVersion so a concurrent restart (the compendium heal, an operator, a
     rollout) turns it into a no-op conflict instead of a second restart.
-    --dry-run logs the decision and stops short of the PATCH.
-
-    Parsers for the ragfs::lock::manager log lines are copied from
-    compendium _scripts/compendium-sync.py (BUG-1181 option 3; the vault script
-    cannot be imported in-cluster). Keep them in step if that format changes.
+    --dry-run makes every read and every check, and stops short of the PATCH.
 
     Env (all optional): WATCHDOG_HOLD_SECONDS=10800, WATCHDOG_FORCE_SECONDS=21600,
     WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_WORK=0,
-    WATCHDOG_LOG_RECENT_SECONDS=60, WATCHDOG_LOG_MAX_GAP_SECONDS=60,
-    WATCHDOG_MIN_LOG_COVERAGE_SECONDS=600, WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
-    WATCHDOG_EXPORTER_URL, WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
+    WATCHDOG_RECHECK_SECONDS=90 (exporter polls ran about 44 s apart on 2026-10-31,
+    60 s at the 95th percentile, since POLL_INTERVAL is only the sleep after each
+    poll's work),
+    WATCHDOG_EXPORTER_MAX_STALE_SECONDS=120,
+    WATCHDOG_EXPORTER_URL (GET /locks is read from the same host),
+    WATCHDOG_NAMESPACE, WATCHDOG_DEPLOYMENT.
 
     Decisions (the run's `decision=` line, IMPR-1416):
 
-    - restart, defer: a same-lease lock held >= hold; the queue rule chose.
-    - held: a lock held >= hold was seen, but no restart: the cooldown, an
-      unsettled rollout or unreadable restartedAt stopped it, or no long lock
-      passed the same-lease check (the log was unreadable, too short, or showed a
-      changed, stopped or gapped lease).
+    - restart, defer: a key present >= hold with a readable owner; the queue rule
+      chose. At this first read nothing has shown how long that owner held it, so
+      its figures are key age. A restart still needs the two-read proof below.
+    - held: a lock with key age >= hold was seen, but no restart: the cooldown, an
+      unsettled rollout or unreadable restartedAt stopped it, or no long lock had a
+      readable owner.
     - none: usable lock series were read and no lock was held >= hold.
     - blind: no lock series were read (the Deployment was unreadable, or the
       exporter was unusable, reported OpenViking down or its lock poll failing, or
@@ -292,12 +308,12 @@ data:
     import argparse
     import datetime
     import json
+    import math
     import os
-    import re
     import ssl
     import sys
+    import time
     import urllib.error
-    import urllib.parse
     import urllib.request
     from dataclasses import dataclass, field
     from pathlib import Path
@@ -309,15 +325,6 @@ data:
     RESTARTED_AT = "kubectl.kubernetes.io/restartedAt"
     LAST_RESTART_NOTE = "ov-lock-watchdog.nathanwhyte.dev/last-restart"
     SA_DIR = Path("/var/run/secrets/kubernetes.io/serviceaccount")
-    POD_SELECTOR = "app=openviking"
-    CONTAINER = "openviking"
-    # AGFS mounts every account under /local, so bucket key `default/x/.path.ovlock`
-    # is logged as lock_path=/local/default/x/.path.ovlock.
-    LOCK_PATH_ROOT = "/local"
-    LOG_FETCH_LIMIT_BYTES = 16 * 1024 * 1024
-    LOG_MAX_CLOCK_SKEW_SECONDS = 30.0
-    # Extra log fetched before the hold window so its first refresh line is in.
-    LOG_FETCH_MARGIN_SECONDS = 120
 
 
     def utcnow() -> datetime.datetime:
@@ -333,13 +340,19 @@ data:
         force: float = 21600.0
         cooldown: float = 3600.0
         quiet_max_work: int = 0
-        log_recent: float = 60.0
-        log_max_gap: float = 60.0
-        min_log_coverage: float = 600.0
+        # Past the exporter's usual poll cycle (44 s on average, 60 s at the 95th
+        # percentile), so the re-read lands on a later poll; a slower cycle aborts
+        # this run and the next one tries again.
+        recheck: float = 90.0
         exporter_max_stale: float = 120.0
         exporter_url: str = "http://openviking.viking.svc.cluster.local:9210/metrics"
         namespace: str = "viking"
         deployment: str = "openviking"
+
+        @property
+        def locks_url(self) -> str:
+            """GET /locks on the exporter that serves exporter_url."""
+            return self.exporter_url.rsplit("/", 1)[0] + "/locks"
 
         @classmethod
         def from_env(cls, env=os.environ) -> Config:
@@ -354,11 +367,7 @@ data:
                 force=num("WATCHDOG_FORCE_SECONDS", d.force),
                 cooldown=num("WATCHDOG_COOLDOWN_SECONDS", d.cooldown),
                 quiet_max_work=int(num("WATCHDOG_QUIET_MAX_WORK", d.quiet_max_work)),
-                log_recent=num("WATCHDOG_LOG_RECENT_SECONDS", d.log_recent),
-                log_max_gap=num("WATCHDOG_LOG_MAX_GAP_SECONDS", d.log_max_gap),
-                min_log_coverage=num(
-                    "WATCHDOG_MIN_LOG_COVERAGE_SECONDS", d.min_log_coverage
-                ),
+                recheck=num("WATCHDOG_RECHECK_SECONDS", d.recheck),
                 exporter_max_stale=num(
                     "WATCHDOG_EXPORTER_MAX_STALE_SECONDS", d.exporter_max_stale
                 ),
@@ -371,6 +380,8 @@ data:
                     f"need 0 < WATCHDOG_HOLD_SECONDS ({cfg.hold}) <= "
                     f"WATCHDOG_FORCE_SECONDS ({cfg.force})"
                 )
+            if cfg.recheck < 0:
+                raise ValueError(f"need WATCHDOG_RECHECK_SECONDS >= 0, got {cfg.recheck}")
             return cfg
 
 
@@ -388,10 +399,6 @@ data:
         owner: str
         lock_type: str
         age: float
-
-        @property
-        def path(self) -> str:
-            return f"{LOCK_PATH_ROOT}/{self.key}"
 
 
     @dataclass(frozen=True)
@@ -443,207 +450,91 @@ data:
         )
 
 
-    # --- lock log (copied from compendium _scripts/compendium-sync.py) ----------
-    #
-    # BUG-1181 option 3: v0.4.20 logs one "pathlock lease automatically refreshed"
-    # line per lock path of every lease it holds, every lock_expire_secs/3 (~10 s).
-    # Nothing logs a normal release, so a lease is held while its newest line is
-    # young. Copied: _ANSI_RE, _LOCK_LOG_TS, the two marks, both regexes,
-    # _parse_log_ts and _parse_lock_log. A refresh or acquire line that no longer
-    # parses is format drift, so the whole read is None (unknown).
+    @dataclass(frozen=True)
+    class LockSample:
+        """One lock in one GET /locks snapshot: all of it from a single poll."""
 
-    _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-    _LOCK_LOG_TS = r"(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)"
-    _LOCK_REFRESH_MARK = "pathlock lease automatically refreshed"
-    _LOCK_ACQUIRED_MARK = "pathlock acquire batch succeeded after waiting"
-    _LOCK_REFRESH_RE = re.compile(
-        _LOCK_LOG_TS
-        + r"\s+INFO\s+ragfs::lock::manager:\s.*?"
-        + _LOCK_REFRESH_MARK
-        # lease_ref is a UUID in the live log, so require at least eight hex chars.
-        + r" lease_ref=(?P<lease>[0-9a-f-]{8,}) owner_id=(?P<owner>\S+)"
-        r" lock_path=(?P<path>/\S+)\s*$"
-    )
-    _LOCK_ACQUIRED_RE = re.compile(
-        _LOCK_LOG_TS
-        + r"\s+INFO\s+ragfs::lock::manager:\s.*?"
-        + _LOCK_ACQUIRED_MARK
-        + r" lease_ref=(?P<lease>[0-9a-f-]{8,}) owner_id=(?P<owner>\S+)"
-        r" lock_paths=\[(?P<paths>[^\]]*)\]"
-    )
-    # `timestamps=true` makes the kubelet prefix every line with its own RFC3339
-    # time; it dates the first line (log coverage) without trusting OV's format.
-    # The offset is the NODE's local one, not Z (seen live 2026-10-13:
-    # 2026-10-13T09:46:04.474978127-05:00), so it must be applied.
-    _KUBELET_TS_RE = re.compile(
-        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:\d{2}) ?(.*)$",
-        re.DOTALL,
-    )
-
-    Sighting = tuple[datetime.datetime, str, str, tuple[str, ...]]
+        generation: int
+        owner: str
+        lock_type: str
+        owner_read_ok: bool
+        last_modified: float
+        owner_held: float
 
 
-    def _parse_log_ts(ts: str) -> datetime.datetime | None:
-        """Parse a tracing timestamp (2026-10-13T14:08:53.687292Z) as UTC."""
-        whole, _, frac = ts.rstrip("Z").partition(".")
+    def _finite(value) -> float:
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError(f"not a finite number: {value!r}")
+        return number
+
+
+    def parse_lock_sample(text: str, key: str) -> LockSample:
+        """`key`'s sample from a GET /locks body. ParseError if there is none."""
         try:
-            base = datetime.datetime.strptime(whole, "%Y-%m-%dT%H:%M:%S")
-        except ValueError:
-            return None
-        micros = int((frac + "000000")[:6]) if frac else 0
-        return base.replace(tzinfo=UTC) + datetime.timedelta(microseconds=micros)
+            doc = json.loads(text)
+            if doc["ok"] is not True:
+                raise ParseError("the exporter's lock poll is failing")
+            for lock in doc["locks"]:
+                if lock["key"] == key:
+                    return LockSample(
+                        generation=int(doc["generation"]),
+                        owner=str(lock.get("owner", "")),
+                        lock_type=str(lock.get("lock_type", "")),
+                        owner_read_ok=lock.get("owner_read_ok") is True,
+                        last_modified=_finite(lock["last_modified"]),
+                        owner_held=_finite(lock.get("owner_held_seconds", 0.0)),
+                    )
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            raise ParseError(f"unreadable GET /locks reply: {e!r}") from e
+        raise ParseError("lock gone from GET /locks")
 
 
-    def _parse_kubelet_ts(local: str, offset: str) -> datetime.datetime | None:
-        """`2026-10-13T09:46:04.474978127` + `-05:00` -> the UTC instant."""
-        parsed = _parse_log_ts(local)
-        if parsed is None or offset == "Z":
-            return parsed
-        sign = 1 if offset[0] == "+" else -1
-        shift = datetime.timedelta(hours=int(offset[1:3]), minutes=int(offset[4:6]))
-        return parsed - sign * shift
+    def pick_candidate(reports, text: str, hold: float):
+        """(report, its /locks sample) to try to prove: of the locks with a fresh
+        owner read known for the hold, the longest by the force cap's measure, else
+        the longest listed. ParseError if none is."""
+        samples = []
+        failure = None
+        for report in reports:
+            try:
+                samples.append((report, parse_lock_sample(text, report.lock.key)))
+            except ParseError as e:
+                failure = e
+        provable = [
+            (report, sample)
+            for report, sample in samples
+            if sample.owner_read_ok and sample.owner_held >= hold
+        ]
+        if provable:
+            return max(provable, key=lambda p: min(p[0].lock.age, p[1].owner_held))
+        if samples:
+            return samples[0]
+        raise failure or ParseError("no candidate lock")
 
 
-    def _parse_lock_log(text: str) -> list[Sighting] | None:
-        """Lease sightings (ts, lease_ref, owner_id, lock_paths) from OV log text."""
-        sightings: list[Sighting] = []
-        for raw in text.splitlines():
-            line = _ANSI_RE.sub("", raw).strip()
-            if "ragfs::lock::manager" not in line:
-                continue
-            if _LOCK_REFRESH_MARK in line:
-                match = _LOCK_REFRESH_RE.search(line)
-                if not match:
-                    return None
-                paths: tuple[str, ...] = (match["path"],)
-            elif _LOCK_ACQUIRED_MARK in line:
-                match = _LOCK_ACQUIRED_RE.search(line)
-                if not match:
-                    return None
-                paths = tuple(re.findall(r'"([^"]+)"', match["paths"]))
-                if not paths:
-                    return None
-            else:
-                continue
-            ts = _parse_log_ts(match["ts"])
-            if ts is None:
-                return None
-            sightings.append((ts, match["lease"], match["owner"], paths))
-        return sightings
-
-
-    @dataclass(frozen=True)
-    class LogRead:
-        """One pod-log read: when it ended, where it began, what leases it saw."""
-
-        now: datetime.datetime
-        covered_from: datetime.datetime
-        sightings: tuple[Sighting, ...]
-
-
-    def parse_pod_log(text: str, now: datetime.datetime) -> LogRead:
-        """Kubelet-timestamped log text -> LogRead. ValueError on format drift."""
-        covered_from: datetime.datetime | None = None
-        stripped: list[str] = []
-        for raw in text.splitlines():
-            match = _KUBELET_TS_RE.match(raw)
-            if match:
-                if covered_from is None:
-                    covered_from = _parse_kubelet_ts(match[1], match[2])
-                raw = match[3]
-            stripped.append(raw)
-        sightings = _parse_lock_log("\n".join(stripped))
-        if sightings is None:
-            raise ValueError("a ragfs::lock::manager line no longer parses (format drift)")
-        return LogRead(
-            now=now, covered_from=covered_from or now, sightings=tuple(sightings)
-        )
-
-
-    @dataclass(frozen=True)
-    class LogVerdict:
-        ok: bool
-        reason: str
-        lease_ref: str = ""
-        owner_id: str = ""
-
-
-    def assess_log(
-        path: str, hold: float, log: LogRead | None, cfg: Config, log_error: str = ""
-    ) -> LogVerdict:
-        """Did ONE lease_ref refresh `path` continuously, and is it refreshing now?
-
-        `hold` is how long the exporter says the lock has been present. The window
-        it implies is checked over the part the log covers: a log that starts late
-        (rotation, a container restart) is judged on what it holds, but never on
-        less than min_log_coverage.
-        """
-        if log is None:
-            return LogVerdict(False, f"pod log unavailable: {log_error or 'no read'}")
-        mine = sorted(
-            (ts, lease, owner) for ts, lease, owner, paths in log.sightings if path in paths
-        )
-        if not mine:
-            return LogVerdict(False, "no lease line for this path in the pod log")
-        newest_ts, lease, owner = mine[-1]
-        if (newest_ts - log.now).total_seconds() > LOG_MAX_CLOCK_SKEW_SECONDS:
-            return LogVerdict(
-                False, "log timestamps run ahead of this pod's clock (clock skew)"
+    def proof_failure(
+        lock: LiveLock, first: LockSample, second: LockSample, hold: float
+    ) -> str:
+        """Why two /locks samples do not show `lock` held and refreshing, else ""."""
+        if second.generation <= first.generation:
+            return "the exporter has not polled again since the first read"
+        if not (first.owner_read_ok and second.owner_read_ok):
+            return "an owner read failed, so the owner is a cached value"
+        holder = (lock.owner, lock.lock_type)
+        if holder != (first.owner, first.lock_type) or holder != (
+            second.owner,
+            second.lock_type,
+        ):
+            return "lock gone or changed"
+        if second.last_modified <= first.last_modified:
+            return "the lock was not refreshed between the two reads"
+        if second.owner_held < hold:
+            return (
+                f"the exporter has known this owner for {int(second.owner_held)}s, "
+                f"under the {int(hold)}s hold"
             )
-        idle = (log.now - newest_ts).total_seconds()
-        if idle > cfg.log_recent:
-            return LogVerdict(
-                False,
-                f"refreshes stopped: last one {int(idle)}s ago (> {int(cfg.log_recent)}s);"
-                " a dead lease is the janitor's case",
-                lease,
-                owner,
-            )
-        window_start = log.now - datetime.timedelta(seconds=hold)
-        full = log.covered_from <= window_start + datetime.timedelta(
-            seconds=cfg.log_max_gap
-        )
-        start = window_start if full else log.covered_from
-        covered = (log.now - start).total_seconds()
-        if covered < cfg.min_log_coverage:
-            return LogVerdict(
-                False,
-                f"log covers only {int(covered)}s of the {int(hold)}s hold "
-                f"(< {int(cfg.min_log_coverage)}s)",
-                lease,
-                owner,
-            )
-        in_window = [s for s in mine if s[0] >= start]
-        leases = sorted({s[1] for s in in_window})
-        owners = sorted({s[2] for s in in_window})
-        if len(leases) > 1 or len(owners) > 1:
-            return LogVerdict(
-                False,
-                f"lease changed on this path within the window: lease_ref {leases}, "
-                f"owner_id {owners}",
-                lease,
-                owner,
-            )
-        points = [start] + [s[0] for s in in_window] + [log.now]
-        gap, at = max(
-            ((b - a).total_seconds(), a) for a, b in zip(points, points[1:], strict=False)
-        )
-        if gap > cfg.log_max_gap:
-            return LogVerdict(
-                False,
-                f"refresh gap of {int(gap)}s after {at.strftime('%H:%M:%SZ')} "
-                f"(> {int(cfg.log_max_gap)}s)",
-                lease,
-                owner,
-            )
-        scope = "full" if full else f"partial: {int(covered)}s of {int(hold)}s"
-        return LogVerdict(
-            True,
-            f"one lease refreshed continuously, last {int(idle)}s ago "
-            f"({len(in_window)} lines; log coverage {scope})",
-            lease,
-            owner,
-        )
+        return ""
 
 
     # --- Kubernetes -------------------------------------------------------------
@@ -723,8 +614,6 @@ data:
             path: str,
             body: bytes | None = None,
             content_type: str = "",
-            timeout: float = 30,
-            limit: int = LOG_FETCH_LIMIT_BYTES,
         ) -> bytes:
             host = os.environ.get("KUBERNETES_SERVICE_HOST")
             token_file = SA_DIR / "token"
@@ -745,8 +634,8 @@ data:
             )
             endpoint = path.split("?", 1)[0]
             try:
-                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-                    return resp.read(limit + 1)
+                with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                    return resp.read()
             except urllib.error.HTTPError as e:
                 if e.code in (401, 403):
                     raise K8sError(
@@ -772,57 +661,6 @@ data:
                 return parse_deployment(json.loads(body))
             except ValueError as e:
                 raise K8sError("unreadable Deployment JSON") from e
-
-        def ov_pod(self) -> tuple[str, str]:
-            """(name, uid) of the one live openviking pod, else K8sError.
-
-            The Deployment is Recreate, so two live pods mean a rollout is in
-            flight and the log would not hold every lease.
-            """
-            selector = urllib.parse.quote(POD_SELECTOR, safe="")
-            body = self._call(
-                "GET", f"/api/v1/namespaces/{self.namespace}/pods?labelSelector={selector}"
-            )
-            try:
-                items = json.loads(body)["items"]
-            except (ValueError, KeyError, TypeError) as e:
-                raise K8sError("unreadable openviking pod list") from e
-            live = [
-                p
-                for p in items
-                if (p.get("status") or {}).get("phase") == "Running"
-                and not (p.get("metadata") or {}).get("deletionTimestamp")
-            ]
-            if len(live) != 1:
-                raise K8sError(
-                    f"{len(live)} running openviking pods; the lease log needs exactly one"
-                )
-            meta = live[0]["metadata"]
-            return meta["name"], meta.get("uid", "")
-
-        def ov_log(self, pod: str, since_seconds: int, now: datetime.datetime) -> LogRead:
-            query = urllib.parse.urlencode(
-                {
-                    "container": CONTAINER,
-                    "sinceSeconds": max(1, int(since_seconds)),
-                    "limitBytes": LOG_FETCH_LIMIT_BYTES,
-                    "timestamps": "true",
-                }
-            )
-            body = self._call(
-                "GET",
-                f"/api/v1/namespaces/{self.namespace}/pods/{pod}/log?{query}",
-                timeout=120,
-            )
-            if len(body) >= LOG_FETCH_LIMIT_BYTES:
-                # limitBytes keeps the OLDEST bytes, so the newest lines are lost.
-                raise K8sError(
-                    f"log read reached {LOG_FETCH_LIMIT_BYTES} bytes and is truncated"
-                )
-            try:
-                return parse_pod_log(body.decode("utf-8", errors="replace"), now)
-            except ValueError as e:
-                raise K8sError(str(e)) from e
 
         def restart(self, resource_version: str, note: str, now: datetime.datetime) -> str:
             """Rolling-restart: what `kubectl rollout restart` does, as a PATCH.
@@ -863,7 +701,6 @@ data:
     @dataclass(frozen=True)
     class LockReport:
         lock: LiveLock
-        verdict: LogVerdict | None
         qualified: bool
         reason: str
 
@@ -890,7 +727,7 @@ data:
 
 
     def _held(reason: str) -> tuple[Decision, list[LiveLock]]:
-        """A stop after a lock held >= hold was seen: not a clean "none" either."""
+        """A stop after a key age >= hold was seen: not a clean "none" either."""
         return Decision("held", reason), []
 
 
@@ -901,8 +738,8 @@ data:
         exporter: Exporter | None,
         errors: dict[str, str],
     ) -> tuple[Decision, list[LiveLock]]:
-        """Cheap checks that need no pod log. (Decision, long locks): the locks are
-        empty exactly when the Decision is already final."""
+        """Everything but the per-lock owner and queue rules. (Decision, long locks):
+        the locks are empty exactly when the Decision is already final."""
         if deploy is None:
             return _blind(f"deployment unreadable: {errors.get('deploy', 'unknown')}")
         if exporter is None:
@@ -944,41 +781,43 @@ data:
         now: datetime.datetime,
         deploy: DeployState | None,
         exporter: Exporter | None,
-        log: LogRead | None,
         errors: dict[str, str] | None = None,
     ) -> Decision:
-        """The whole policy, free of I/O. See the module docstring."""
+        """The first read's policy, free of I/O. See the module docstring."""
         errors = errors or {}
         stop, longs = gate(cfg, now, deploy, exporter, errors)
         if not longs:
             return stop
-        reports = []
-        for lock in longs:
-            if lock.owner in ("", "unknown"):
-                verdict, reason = None, "owner unknown (lock token unreadable)"
-            else:
-                verdict = assess_log(lock.path, lock.age, log, cfg, errors.get("log", ""))
-                reason = verdict.reason
-            reports.append(LockReport(lock, verdict, bool(verdict and verdict.ok), reason))
+        reports = tuple(
+            LockReport(lock, False, "owner unknown (lock token unreadable)")
+            if lock.owner in ("", "unknown")
+            else LockReport(lock, True, "owner readable; tenure not proven yet")
+            for lock in longs
+        )
         qualified = [r for r in reports if r.qualified]
         if not qualified:
             return Decision(
                 "held",
-                f"{len(reports)} lock(s) held >= {int(cfg.hold)}s, none passed the "
-                "same-lease check",
-                tuple(reports),
+                f"{len(reports)} lock(s) with key age >= {int(cfg.hold)}s, none with a "
+                "readable owner",
+                reports,
             )
         longest = max(r.lock.age for r in qualified)
         work = exporter.queue_work if exporter else None
-        return queue_policy(cfg, longest, work, tuple(reports))
+        return queue_policy(cfg, longest, work, reports, measure="key age")
 
 
     def queue_policy(
-        cfg: Config, longest: float, work: int | None, reports: tuple[LockReport, ...]
+        cfg: Config,
+        longest: float,
+        work: int | None,
+        reports: tuple[LockReport, ...],
+        measure: str = "held",
     ) -> Decision:
-        """Restart, or defer, for a same-lease lock held `longest` seconds (>= hold)
-        with `work` queue items (None = unreadable). Applied again to fresh metrics
-        just before a restart, so a queue that turned busy defers it."""
+        """Restart, or defer, for a lock at `longest` seconds (>= hold) with `work`
+        queue items (None = unreadable). `measure` names what `longest` is: key age
+        at the first read, the proved hold at the second. Applied again to fresh
+        metrics just before a restart, so a queue that turned busy defers it."""
         queue = (
             "queue unreadable (counted as busy)"
             if work is None
@@ -987,19 +826,19 @@ data:
         if longest >= cfg.force:
             return Decision(
                 "restart",
-                f"forced: held {int(longest)}s >= {int(cfg.force)}s cap; {queue}",
+                f"forced: {measure} {int(longest)}s >= {int(cfg.force)}s cap; {queue}",
                 reports,
             )
         if work is not None and work <= cfg.quiet_max_work:
             return Decision(
                 "restart",
-                f"quiet moment: held {int(longest)}s >= {int(cfg.hold)}s; {queue}",
+                f"quiet moment: {measure} {int(longest)}s >= {int(cfg.hold)}s; {queue}",
                 reports,
             )
         return Decision(
             "defer",
-            f"busy: held {int(longest)}s >= {int(cfg.hold)}s but {queue}; forced "
-            f"restart in {int(cfg.force - longest)}s at {int(cfg.force)}s",
+            f"busy: {measure} {int(longest)}s >= {int(cfg.hold)}s but {queue}; forced "
+            f"restart at {int(cfg.force)}s of owner time",
             reports,
         )
 
@@ -1008,16 +847,25 @@ data:
 
 
     def _describe(report: LockReport) -> str:
-        v = report.verdict
         return (
-            f"{TAG} lock path={report.lock.path} uri={report.lock.uri} "
-            f"lease_ref={v.lease_ref if v and v.lease_ref else 'unknown'} "
-            f"owner_id={v.owner_id if v and v.owner_id else 'unknown'} "
-            f"exporter_owner={report.lock.owner} lock_type={report.lock.lock_type} "
-            f"hold={int(report.lock.age)}s "
-            f"identity={'same-lease' if report.qualified else 'REJECTED'} "
+            f"{TAG} lock key={report.lock.key} uri={report.lock.uri} "
+            f"owner={report.lock.owner} lock_type={report.lock.lock_type} "
+            f"key_age={int(report.lock.age)}s "
+            f"identity={'owner-readable' if report.qualified else 'REJECTED'} "
             f"reason={report.reason!r}"
         )
+
+
+    def same_holder(lock: LiveLock, locks: list[LiveLock]) -> LiveLock | None:
+        """`lock` as re-read in `locks`: same key, owner and lock type."""
+        for other in locks:
+            if (other.key, other.owner, other.lock_type) == (
+                lock.key,
+                lock.owner,
+                lock.lock_type,
+            ):
+                return other
+        return None
 
 
     def fetch_exporter_text(url: str, timeout: float = 10.0) -> str:
@@ -1028,11 +876,12 @@ data:
     def run(
         cfg: Config,
         cluster,
-        fetch_metrics,
+        fetch,
         *,
         dry_run: bool,
         now_fn=utcnow,
         say=None,
+        sleep=time.sleep,
     ) -> int:
         say = say or (lambda line: print(line, flush=True))
         mode = "dry-run" if dry_run else "apply"
@@ -1050,7 +899,7 @@ data:
         exporter = None
         try:
             exporter = parse_exporter(
-                fetch_metrics(cfg.exporter_url),
+                fetch(cfg.exporter_url),
                 source=cfg.exporter_url,
                 observed_at=now.timestamp(),
             )
@@ -1058,21 +907,7 @@ data:
             # Keep every parser diagnostic, including failures after the first row.
             errors["exporter"] = f"{type(e).__name__}: {e}"
 
-        stop, longs = gate(cfg, now, deploy, exporter, errors)
-        log = None
-        pod = None
-        if longs:
-            try:
-                pod = cluster.ov_pod()
-                since = int(max(lock.age for lock in longs)) + LOG_FETCH_MARGIN_SECONDS
-                log = cluster.ov_log(pod[0], since, now)
-                if cluster.ov_pod() != pod:
-                    raise K8sError("openviking pod changed while its log was read")
-            except K8sError as e:
-                errors["log"] = str(e)
-                blind = blind or e.blind
-                log = None
-        decision = decide(cfg, now, deploy, exporter, log, errors)
+        decision = decide(cfg, now, deploy, exporter, errors)
 
         for report in decision.locks:
             say(_describe(report))
@@ -1082,50 +917,54 @@ data:
                 say(f"{TAG} BLIND: cannot read the cluster as this ServiceAccount")
             return 2 if blind else 0
 
-        first = decision.qualified[0]
-        verdict = first.verdict
-        note = (
-            f"{now.strftime('%Y-%m-%dT%H:%M:%SZ')} path={first.lock.path} "
-            f"lease_ref={verdict.lease_ref} owner_id={verdict.owner_id} "
-            f"hold={int(first.lock.age)}s reason={decision.reason}"
-        )
-        if dry_run:
-            say(f"{TAG} DRY-RUN would restart deploy/{cfg.deployment}: {note}")
-            return 0
-        # Re-read everything the decision rests on just before acting: the log read
-        # can take a while, and a restart is the one step that cannot be undone. A
-        # failed re-read is an abort (retry in 15 min), not a failed restart.
+        # Re-read everything the decision rests on, on a later exporter poll: a
+        # restart is the one step that cannot be undone. A failed re-read is an
+        # abort (retry in 15 min), not a failed restart.
         try:
+            first, sample = pick_candidate(
+                decision.qualified, fetch(cfg.locks_url), cfg.hold
+            )
+            sleep(cfg.recheck)
             fresh = cluster.get_deployment()
             exporter_again = parse_exporter(
-                fetch_metrics(cfg.exporter_url),
+                fetch(cfg.exporter_url),
                 source=cfg.exporter_url,
                 observed_at=now_fn().timestamp(),
             )
             again, still_long = gate(cfg, now_fn(), fresh, exporter_again, errors)
-            same = [
-                lock
-                for lock in still_long
-                if lock.key == first.lock.key and lock.owner == first.lock.owner
-            ]
-            if not same:
-                say(
-                    f"{TAG} ABORTED before restart: {again.reason or 'lock gone or changed'}"
-                )
+            if not still_long:
+                say(f"{TAG} ABORTED before restart: {again.reason}")
+                return 0
+            same = same_holder(first.lock, still_long)
+            if same is None:
+                say(f"{TAG} ABORTED before restart: lock gone or changed")
+                return 0
+            last = parse_lock_sample(fetch(cfg.locks_url), first.lock.key)
+            why = proof_failure(first.lock, sample, last, cfg.hold)
+            if why:
+                say(f"{TAG} ABORTED before restart: {why}")
                 return 0
             # The quiet-queue / force decision too, on the fresh queue count.
             policy = queue_policy(
-                cfg, same[0].age, exporter_again.queue_work, decision.locks
+                cfg,
+                min(same.age, last.owner_held),
+                exporter_again.queue_work,
+                decision.locks,
             )
             if policy.action != "restart":
                 say(f"{TAG} ABORTED before restart: {policy.reason}")
                 return 0
-            if pod is not None and cluster.ov_pod() != pod:
-                say(f"{TAG} ABORTED before restart: the openviking pod changed")
-                return 0
         except Exception as e:  # noqa: BLE001 - nothing was changed; try next slot
             say(f"{TAG} ABORTED before restart: {type(e).__name__}: {e}")
             return 2 if getattr(e, "blind", False) else 0
+        note = (
+            f"{now.strftime('%Y-%m-%dT%H:%M:%SZ')} key={first.lock.key} "
+            f"owner={first.lock.owner} hold={int(last.owner_held)}s "
+            f"key_age={int(same.age)}s reason={policy.reason}"
+        )
+        if dry_run:
+            say(f"{TAG} DRY-RUN would restart deploy/{cfg.deployment}: {note}")
+            return 0
         try:
             cluster.restart(fresh.resource_version, note, now_fn())
         except K8sError as e:

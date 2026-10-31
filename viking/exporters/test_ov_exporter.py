@@ -26,6 +26,7 @@ import socket
 import threading
 import time
 import unittest
+import urllib.request
 from unittest import mock
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
@@ -180,6 +181,7 @@ class TestPollS3Locks(unittest.TestCase):
     def setUp(self):
         exporter._s3_first_seen.clear()
         exporter._s3_token_cache.clear()
+        exporter._s3_owner_since.clear()
         exporter._metrics["openviking_s3_ovlock_live_age_seconds"] = []
         self._orig_time = exporter.time.time
         self.now = T0
@@ -235,6 +237,149 @@ class TestPollS3Locks(unittest.TestCase):
             text,
         )
 
+    def test_locks_lists_every_live_lock_past_the_label_cap(self):
+        # BUG-1282: /metrics names only the top N; the sync needs them all.
+        keys = [f"default/resources/compendium/d{n}/.path.ovlock" for n in range(5)]
+        dead = "default/resources/old/.path.ovlock"
+        client = StubS3({**{k: self.now - 7 for k in keys}, dead: self.now - 7200})
+        self.assertTrue(self._poll(client))
+        self.now += 15
+        for k in keys:
+            client.objects[k] = self.now - 4
+        self.assertTrue(self._poll(client))
+
+        body = exporter.locks_payload()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["polled_at"], self.now)
+        self.assertEqual(body["live_window_seconds"], 120.0)
+        self.assertEqual([lock["key"] for lock in body["locks"]], keys)
+        first = body["locks"][0]
+        self.assertEqual(first["uri"], "viking://resources/compendium/d0")
+        self.assertEqual(first["first_seen"], T0)
+        self.assertEqual(first["last_modified"], self.now - 4)
+        self.assertEqual(first["refresh_age_seconds"], 4.0)
+
+    def test_locks_makes_no_s3_call(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        gets = list(client.gets)
+        exporter.locks_payload()
+        self.assertEqual(client.gets, gets)
+
+    def test_locks_names_an_owner_only_once_labelled(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self.assertNotIn("owner", exporter.locks_payload()["locks"][0])
+        self.now += 3000
+        client.objects[WEDGED_KEY] = self.now - 5
+        self.assertTrue(self._poll(client))
+        lock = exporter.locks_payload()["locks"][0]
+        self.assertEqual(lock["owner"], "9959d01e-e133-4e46-8074-04cc1de18b00")
+        self.assertEqual(lock["lock_type"], "E")
+        self.assertIs(lock["owner_read_ok"], True)
+
+    def test_locks_says_when_the_owner_is_a_cached_value(self):
+        # Codex R1: a failed GET keeps the label, so a reader must see the
+        # owner was not read on this poll.
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self.now += 3000
+        client.objects[WEDGED_KEY] = self.now - 5
+        self.assertTrue(self._poll(client))
+        self.now += 15
+        client.objects[WEDGED_KEY] = self.now - 5
+        client.bodies[WEDGED_KEY] = OSError("reset")
+        self.assertTrue(self._poll(client))
+        lock = exporter.locks_payload()["locks"][0]
+        self.assertEqual(lock["owner"], "9959d01e-e133-4e46-8074-04cc1de18b00")
+        self.assertIs(lock["owner_read_ok"], False)
+
+    def _hold(self, client, seconds):
+        """A poll `seconds` later with the lock just refreshed."""
+        self.now += seconds
+        client.objects[WEDGED_KEY] = self.now - 5
+        self.assertTrue(self._poll(client))
+        return exporter.locks_payload()["locks"][0]
+
+    def test_owner_time_counts_from_the_first_read_of_the_owner(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self.assertEqual(self._hold(client, 3000)["owner_held_seconds"], 0.0)
+        self.assertEqual(self._hold(client, 600)["owner_held_seconds"], 600.0)
+
+    def test_a_newly_readable_owner_does_not_inherit_the_key_age(self):
+        # Codex R2: three unreadable hours, then a fresh holder's first read.
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: OSError("reset")})
+        self.assertTrue(self._poll(client))
+        lock = self._hold(client, 3 * 3600)
+        self.assertEqual(lock["owner_held_seconds"], 0.0)
+        client.bodies[WEDGED_KEY] = WEDGED_BODY
+        lock = self._hold(client, 15)
+        self.assertIs(lock["owner_read_ok"], True)
+        self.assertEqual(lock["owner_held_seconds"], 0.0)
+        self.assertEqual(self._hold(client, 15)["owner_held_seconds"], 15.0)
+
+    def test_failed_reads_keep_a_known_owner_counting(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self._hold(client, 3000)
+        client.bodies[WEDGED_KEY] = OSError("reset")
+        self.assertEqual(self._hold(client, 15)["owner_held_seconds"], 15.0)
+
+    def test_a_new_holder_restarts_the_owner_time(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self._hold(client, 3000)
+        self._hold(client, 600)
+        client.bodies[WEDGED_KEY] = b"new-owner:42:E"
+        self._hold(client, 15)
+        self.assertEqual(exporter._s3_owner_since[WEDGED_KEY], self.now)
+
+    def test_locks_generation_counts_successful_polls_only(self):
+        client = StubS3({WEDGED_KEY: self.now - 5})
+        self.assertTrue(self._poll(client))
+        first = exporter.locks_payload()["generation"]
+        self.assertTrue(self._poll(client))
+        self.assertEqual(exporter.locks_payload()["generation"], first + 1)
+        self.assertFalse(self._poll(client, ov_up=False))
+        self.assertEqual(exporter.locks_payload()["generation"], first + 1)
+
+    def test_locks_snapshot_is_replaced_whole(self):
+        # Codex R1: lock data and its poll marker must publish together.
+        client = StubS3({WEDGED_KEY: self.now - 5})
+        self.assertTrue(self._poll(client))
+        before = exporter.locks_payload()
+        self.now += 15
+        client.objects.clear()
+        self.assertTrue(self._poll(client))
+        after = exporter.locks_payload()
+        self.assertEqual(len(before["locks"]), 1)
+        self.assertEqual(after["locks"], [])
+        self.assertEqual(after["generation"], before["generation"] + 1)
+        self.assertEqual(after["polled_at"], self.now)
+
+    def test_locks_first_seen_restarts_with_the_holder(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self.now += 3000
+        client.objects[WEDGED_KEY] = self.now - 5
+        self.assertTrue(self._poll(client))
+        self.now += 15
+        client.objects[WEDGED_KEY] = self.now - 5
+        client.bodies[WEDGED_KEY] = b"new-owner:1:E"
+        self.assertTrue(self._poll(client))
+        self.assertEqual(exporter.locks_payload()["locks"][0]["first_seen"], self.now)
+
+    def test_locks_says_when_it_is_not_current(self):
+        client = StubS3({WEDGED_KEY: self.now - 5})
+        self.assertTrue(self._poll(client))
+        polled = self.now
+        self.now += 15
+        self.assertFalse(self._poll(client, ov_up=False))
+        body = exporter.locks_payload()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["polled_at"], polled)
+
     def test_get_failure_keeps_cached_owner(self):
         client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
         self._poll(client)
@@ -277,6 +422,7 @@ class TestPollS3Locks(unittest.TestCase):
         self.assertEqual(self._series(), [])
         self.assertEqual(exporter._s3_first_seen, {})
         self.assertEqual(exporter._s3_token_cache, {})
+        self.assertEqual(exporter._s3_owner_since, {})
 
     def test_ov_down_holds_last_series(self):
         client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
@@ -543,6 +689,15 @@ class TestConnectionDeadline(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"OPENVIKING_KEY": "k"})
         self.env.start()
         self.addCleanup(self.env.stop)
+
+    def test_locks_route_serves_json(self):
+        url = "http://%s:%d/locks" % self.server.server_address
+        with urllib.request.urlopen(url, timeout=2) as resp:
+            self.assertEqual(resp.headers["Content-Type"], "application/json")
+            self.assertEqual(
+                set(json.load(resp)),
+                {"ok", "generation", "polled_at", "live_window_seconds", "locks"},
+            )
 
     def trickle(self, head: bytes) -> float:
         """Send `head`, then a byte every 0.1 s; seconds until the server closes."""
