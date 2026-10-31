@@ -7,7 +7,7 @@ removed, without repeating its failure modes:
 
 - Not blind-by-time: a lock is deleted only when its mtime stayed frozen
   across two list passes >= 4 refresh intervals apart AND its age exceeds the
-  dead threshold (default 30 min = 30x the deployed lock_expire) AND OpenViking
+  dead threshold (default 30 min = 60x the default lock_expire_secs) AND OpenViking
   answered /health at both passes. Live-refreshing locks (mtime advancing —
   the BUG-1039 wedge signature) are logged and left for the IMPR-1062 Phase 4
   in-Job heal / operator; a file delete cannot kill a server-side refresher.

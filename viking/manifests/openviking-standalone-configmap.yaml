@@ -10,15 +10,16 @@ data:
   # object trees to the openviking-agfs bucket at the v0.4.7 bump. Opt in
   # deliberately if VikingFS snapshots are ever wanted (IMPR-1032).
   #
-  # There is deliberately NO AGFS path-lock timeout configured. Both spellings
-  # are dead as of v0.4.20, verified against the running server:
-  #   storage.transaction.lock_timeout / lock_expire   (the pre-v0.4.19 keys)
-  #   storage.agfs.pathlock.lock_timeout_secs / _secs  (their documented successor)
-  # The second pair still logs "is deprecated and ignored; the runtime wait
-  # timeout is fixed at 0.0 seconds" on every start. Re-adding either spelling
-  # buys nothing and re-introduces the warning. The 0.0s wait is the live
-  # behaviour and is tracked separately — it is the reason BUG-1039's orphaned
-  # tree locks matter and why raising embedding concurrency needs its own gate.
+  # There is deliberately NO AGFS path-lock setting here. On v0.5.1.1:
+  #   storage.agfs.pathlock.lock_timeout_secs is ignored ("is deprecated and
+  #     ignored; the runtime wait timeout is fixed at 0.0 seconds"), as is
+  #     storage.transaction.lock_timeout. Either one only adds that warning.
+  #   storage.agfs.pathlock.lock_expire_secs is live and defaults to 30 s, which
+  #     gives the 10 s refresh (expire/3) that ov-exporter's live window and the
+  #     janitor assume. storage.transaction.lock_expire maps onto it.
+  # The 0.0s wait is the live behaviour and is tracked separately — it is the
+  # reason BUG-1039's orphaned tree locks matter and why raising embedding
+  # concurrency needs its own gate.
   #
   # embedding.max_input_tokens is 6000, not the embedder's 8192 ctx (BUG-1191).
   # OpenViking trims by an estimate (utils/embedding_input.py: non-CJK chars / 4),

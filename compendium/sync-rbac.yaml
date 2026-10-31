@@ -6,24 +6,15 @@
 # deploy/openviking by PATCHing the kubectl restartedAt annotation via the
 # Kubernetes API (no kubectl in the Job image).
 #
-# Scope: get/patch on the ONE named deployment in viking, plus read-only
-# pods and pods/log in viking (below). The `kubectl auth can-i` matrix the
-# IMPR-1062 plan recorded (Phase 4 automated verification, 2026-07-21) is no
-# longer true as written: its `list/get pods -> no` deny is superseded by the
-# read rules, which also allow get pods/log. Every other deny in it still
-# holds (delete, other deployments, namespace-wide or cross-namespace patch,
-# secrets). `get` on the named deployment lets the SA read its own restart's rollout
-# status when diagnosing a heal.
+# Scope: get/patch on the ONE named deployment in viking, and nothing else: the
+# `kubectl auth can-i` matrix the IMPR-1062 plan recorded (Phase 4 automated
+# verification, 2026-07-21) holds as written again. `get` on the named
+# deployment lets the SA read its own restart's rollout status when diagnosing
+# a heal.
 #
-# Pod and pod-log read (BUG-1181 option 3, approved 2026-10-13). PR #51 dropped
-# a "+ get pods" rule as unneeded. That no longer holds: since OV v0.4.20 the
-# lock status is counts-only, and the per-lease identity the wedge check needs
-# exists only in the openviking container log (ragfs::lock::manager refresh
-# lines). The Job lists pods (labelSelector app=openviking) to find the one
-# live OV pod and reads its log through the API. `list` cannot be
-# resourceName-scoped and the pod name changes on every rollout, so this
-# grants namespace-wide read of pods and their logs in viking. It stays
-# read-only: no exec, attach, port-forward, delete, or secrets.
+# BUG-1282 dropped the pod and pod-log read that BUG-1181 option 3 added: the
+# lease lines it read are debug on v0.5.1.1, and the wedge check reads
+# ov-exporter's GET /locks over HTTP instead.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -40,13 +31,6 @@ rules:
     resources: ["deployments"]
     resourceNames: ["openviking"]
     verbs: ["get", "patch"]
-  # BUG-1181: find the live openviking pod and read its lock-manager log.
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
