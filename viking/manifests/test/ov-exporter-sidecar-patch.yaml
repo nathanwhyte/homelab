@@ -1,0 +1,81 @@
+# BUG-1282: a temporary ov-exporter sidecar on openviking-test, so the watchdog's
+# owner evidence and GET /locks can be probed against a held lock. Not in
+# kustomization.yaml, so `kubectl apply -k` leaves it out; it comes off again
+# after the probe.
+#
+# It needs the openviking-exporter ConfigMap that carries GET /locks.
+#
+#   kubectl -n viking patch deployment openviking-test --type=strategic \
+#     --patch-file viking/manifests/test/ov-exporter-sidecar-patch.yaml
+#   kubectl -n viking rollout status deployment/openviking-test
+#   kubectl -n viking exec deploy/openviking-test -c ov-exporter -- \
+#     python3 -c "import urllib.request as u; print(u.urlopen('http://localhost:9210/locks').read().decode())"
+#
+# Remove it by re-applying the Deployment, which has no sidecar:
+#   kubectl diff -f viking/manifests/test/openviking-test-deployment.yaml
+#   kubectl apply -f viking/manifests/test/openviking-test-deployment.yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: ov-exporter
+          # digest: sha256:551b1ae00f59fd7b1a2434ecc10a4860be34aae8b7627f5f57240be355b23217
+          image: ghcr.io/volcengine/openviking:v0.5.1.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /tmp/ov
+              cat >/tmp/ov/ovcli.conf <<EOF
+              {"url": "${OPENVIKING_URL}", "api_key": "${OPENVIKING_KEY}", "account": "default", "user": "noot"}
+              EOF
+              export OPENVIKING_CLI_CONFIG_FILE=/tmp/ov/ovcli.conf
+              ov language en >/dev/null 2>&1 || true
+              exec python3 /scripts/ov-exporter.py
+          env:
+            - name: OPENVIKING_URL
+              value: http://localhost:1933
+            - name: OPENVIKING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-api-key
+                  key: api-key
+            - name: AGFS_PATH
+              value: /app/data/viking
+            - name: POLL_INTERVAL
+              value: "15"
+            - name: PORT
+              value: "9210"
+            - name: OVLOCK_S3_BUCKET
+              value: openviking-agfs-test
+            - name: OVLOCK_S3_ENDPOINT
+              value: http://garage.garage.svc.cluster.local:3900
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openviking-s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: exporter-script
+              mountPath: /scripts
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+              readOnly: true
+      volumes:
+        - name: exporter-script
+          configMap:
+            name: openviking-exporter

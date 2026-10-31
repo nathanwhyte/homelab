@@ -35,8 +35,8 @@ module mounted alongside this script; no SDK exists in the OV image.
     AWS_ACCESS_KEY_ID              S3 credentials (openviking-s3-credentials)
     AWS_SECRET_ACCESS_KEY          S3 credentials
     OVLOCK_LIVE_WINDOW_SECONDS     mtime age at/below which a lock counts as
-                                   live-refreshing (default: 120 = 4x the 30s
-                                   lease refresh cadence)
+                                   live-refreshing (default: 120 = 12x the 10 s
+                                   lease refresh cadence, lock_expire_secs/3)
     OVLOCK_DEAD_THRESHOLD_SECONDS  mtime age above which a lock counts as a
                                    dead lease (default: 1800)
     OVLOCK_LABEL_TOP_N             how many of the longest-present live locks
@@ -62,6 +62,11 @@ re-acquired between two polls, so the key never left the bucket), its first
 sighting restarts, so the series never pairs a new holder with the old
 holder's age. Locks are read only once labelled, so a hand-off before the
 minimum age still counts from the first sighting (at most min_age extra).
+
+GET /locks returns every live lock as JSON (BUG-1282), because v0.5.1.1 logs no
+lease lines and `ov status` reports counts only. It serves the last poll's
+result, so it makes no S3 call and carries no owner: reading an owner is one
+GET per lock.
 
 Client delivery telemetry: what the Claude Code / Codex memory hooks put into
 a session's context is decided on the Mac (token budget, truncation), so the
@@ -424,6 +429,11 @@ _s3_first_seen: dict[str, float] = {}
 # detect a holder change on a key that never left the bucket.
 _s3_token_cache: dict[str, dict] = {}
 
+# The last successful poll's live locks, served by GET /locks (BUG-1282).
+_s3_live_locks: list[dict] = []
+_s3_live_polled_at = 0.0
+_s3_live_window = 0.0
+
 UNKNOWN = "unknown"
 
 
@@ -491,7 +501,7 @@ def poll_s3_locks(
     """Classify .ovlock objects in the S3 AGFS bucket by mtime age.
 
     age = now - LastModified. The lease refresh loop rewrites the object every
-    ~30s while its owner lives, so: age <= live_window -> live-refreshing;
+    ~10 s while its owner lives, so: age <= live_window -> live-refreshing;
     age > dead_threshold -> dead lease (refresh loop gone); in between ->
     fresh/pending (left uncounted in either bucket). Skips classification
     entirely (poll_ok=0, gauges hold) when OV is down: every lock looks
@@ -511,7 +521,7 @@ def poll_s3_locks(
 
     now = time.time()
     total = dead = live = 0
-    live_keys: set[str] = set()
+    live_keys: dict[str, float] = {}  # key -> seconds since its last refresh
     for obj in objects:
         if not s3lite.is_lock_key(obj["Key"]):
             continue
@@ -519,7 +529,7 @@ def poll_s3_locks(
         age = now - obj["LastModified"].timestamp()
         if age <= live_window:
             live += 1
-            live_keys.add(obj["Key"])
+            live_keys[obj["Key"]] = age
             _s3_first_seen.setdefault(obj["Key"], now)
         elif age > dead_threshold:
             dead += 1
@@ -548,8 +558,21 @@ def poll_s3_locks(
             continue
         labelled.append((lock_labels(key, token), round(age, 1)))
     oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
+    live_locks = [
+        {
+            "key": key,
+            "uri": s3lite.lock_target(key) or UNKNOWN,
+            "first_seen": round(_s3_first_seen[key], 3),
+            "refresh_age_seconds": round(max(age, 0.0), 1),
+        }
+        for key, age in sorted(live_keys.items())
+    ]
 
+    global _s3_live_locks, _s3_live_polled_at, _s3_live_window
     with _lock:
+        _s3_live_locks = live_locks
+        _s3_live_polled_at = now
+        _s3_live_window = live_window
         _metrics["openviking_s3_ovlock_live_age_seconds"] = labelled
         _metrics["openviking_s3_ovlock_total"] = total
         _metrics["openviking_s3_ovlock_dead"] = dead
@@ -559,6 +582,18 @@ def poll_s3_locks(
         )
         _metrics["openviking_s3_ovlock_poll_ok"] = 1
     return True
+
+
+def locks_payload() -> dict:
+    """The GET /locks body. `ok` false means the last lock poll failed or was
+    skipped, so `locks` is the last good poll's list, as old as `polled_at`."""
+    with _lock:
+        return {
+            "ok": bool(_metrics["openviking_s3_ovlock_poll_ok"]),
+            "polled_at": _s3_live_polled_at,
+            "live_window_seconds": _s3_live_window,
+            "locks": _s3_live_locks,
+        }
 
 
 def poll_lock_count(agfs_path: str) -> bool:
@@ -815,6 +850,13 @@ class MetricsHandler(BaseHTTPRequestHandler):
             body = format_metrics().encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/locks":
+            body = json.dumps(locks_payload()).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
