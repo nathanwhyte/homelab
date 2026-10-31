@@ -109,6 +109,7 @@ TARGETS = {
         ("ov_pref_gate_patch", "apply_session"),
     ],
     "openviking.session.compressor_v3": ("ov_pref_gate_patch", "apply"),
+    "openviking.metrics.global_api": ("ov_extract_patch", "apply_metrics"),
     "openviking.session.memory.streaming_memory_updater": [
         ("ov_memory_guard_patch", "apply_streaming"),
         ("ov_extract_patch", "apply_streaming"),

@@ -117,7 +117,10 @@ before it, so a failure in either leaves ``.failed.json`` and no count, and an a
 already has ``.done`` is not counted again. Only an archive this process ran whole is
 measured: a wrapper around ``Session._run_memory_extraction`` reads ``.meta.json`` before
 the run, and if any ``completed_memory_steps`` entry is already complete (a recovery, which
-cannot see what the finished steps filed), the start state cannot be read, or
+cannot see what the finished steps filed), a ``memory_diff.json`` or ``.failed.json``
+already exists (the stock code writes them before the step checkpoint, so a stop between
+the memory write and the checkpoint leaves no completed step), the start state cannot be
+read, or
 ``_merge_and_save_commit_meta`` never reported this run's ``memories_extracted`` total, the
 archive is left out of both counters and one "not measured" line is logged. Nothing new is
 persisted in the archive. For a measured archive, ``reason="empty"`` means a
@@ -127,6 +130,12 @@ message was left to extract); an archive whose only output was skipped operation
 ``empty``, since no memory operation was applied. The 7-day rate of real zero results is
 the ``empty`` series over ``measured``. No alert yet: a baseline comes first. Each wrapper
 is hash-guarded and installed by ``apply_session`` after the loop half.
+The three series are created at 0 as soon as the server builds its metrics registry
+(``init_metrics_from_server_config`` is wrapped; the registry does not exist at import), and
+at the first run start or count if that hook found none, so ``increase()`` sees the first
+event. A missing registry fails open. One window remains: a stop after the memory write but
+before the extraction wrote ``memory_diff.json`` (or an unchanged-update-only extraction,
+which writes no diff) leaves no durable trace, so that retry can be measured.
 
 Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
@@ -189,6 +198,9 @@ EXPECTED_RUN_EXTRACTION_SHA256 = (
 EXPECTED_MERGE_META_SHA256 = (
     "9e560862c4b9c1a9255bfc027e789c70c8817d23ad64f6b3873d5da93742f50d"
 )
+EXPECTED_INIT_METRICS_SHA256 = (
+    "d2619abf6acd1309f5f4906310d389d6074197add3788c5f057f6cf1d59d9243"
+)
 EXPECTED_WRITE_DONE_SHA256 = (
     "457fcfba31bb4d1608980343e3fbb3a47edb59beb595b46f915f29dc97d399bc"
 )
@@ -238,7 +250,7 @@ logger = logging.getLogger("ov_extract_patch")
 SESSION_PROVIDER = (
     "SessionExtractContextProvider"  # exact class; subclasses are merge loops
 )
-_state = {"loop_applied": False}
+_state = {"loop_applied": False, "series_registry": None}
 
 _LOCK_WAIT_TEXT = re.compile(
     r"lock acquir\w* timed out|pathlock\S* .*timed out", re.IGNORECASE
@@ -738,23 +750,102 @@ def _archive_uri_of(args, kwargs):
 
 
 async def _started_fresh(session, archive_uri, is_not_found) -> bool | None:
-    """True when no memory step of this archive was complete before this run started.
+    """True when nothing shows an earlier attempt at this archive's memory work.
 
-    ``.meta.json`` holds ``completed_memory_steps`` (persisted per finished step). A missing
-    file is a fresh archive; any other read or parse failure is unknown (``None``).
+    An earlier attempt shows as a completed step in ``.meta.json`` (persisted per finished
+    step), or, because the stock code writes them before that checkpoint, a
+    ``memory_diff.json`` (written by the extraction as each batch lands) or a
+    ``.failed.json`` (Phase 2's failure marker). Existence only for the last two. A missing
+    file is fresh; any other read or existence failure is unknown (``None``).
     """
-    try:
-        raw = await session._viking_fs.read_file(
-            f"{archive_uri.rstrip('/')}/.meta.json", ctx=session.ctx
-        )
-        steps = (json.loads(raw or "{}") or {}).get("completed_memory_steps") or {}
-        return not any(steps.values())
-    except Exception as exc:
-        if isinstance(exc, FileNotFoundError) or (
+
+    def missing(exc) -> bool:
+        return isinstance(exc, FileNotFoundError) or (
             is_not_found is not None and is_not_found(exc)
-        ):
-            return True
-        return None
+        )
+
+    base = archive_uri.rstrip("/")
+    try:
+        raw = await session._viking_fs.read_file(f"{base}/.meta.json", ctx=session.ctx)
+        steps = (json.loads(raw or "{}") or {}).get("completed_memory_steps") or {}
+        if any(steps.values()):
+            return False
+    except Exception as exc:
+        if not missing(exc):
+            return None
+    for name in ("memory_diff.json", ".failed.json"):
+        try:
+            if await session._viking_fs.exists(f"{base}/{name}", ctx=session.ctx):
+                return False
+        except Exception as exc:
+            if not missing(exc):
+                return None
+    return True
+
+
+def ensure_series(registry=None) -> None:
+    """Create the zero-result and measured series at 0 on the live registry, once.
+
+    Stock registers a counter family on its first increment, so Prometheus would first see
+    a series at 1 and ``increase()`` would lose that event. Never raises; a missing registry
+    is a no-op and is retried at the next hook (metrics init, a run start, a count). Always
+    called before the first increment on a registry, so it never resets a live series.
+    """
+    with contextlib.suppress(Exception):
+        if registry is None:
+            from openviking.metrics.global_api import try_get_metrics_registry
+
+            registry = try_get_metrics_registry()
+        if registry is None or _state["series_registry"] is registry:
+            return
+        for reason in (ZERO_REASON_EMPTY, ZERO_REASON_SKIPPED):
+            registry.set_counter(
+                ZERO_RESULT_METRIC,
+                0,
+                labels={"reason": reason},
+                label_names=ZERO_RESULT_LABELS,
+            )
+        registry.set_counter(MEASURED_METRIC, 0)
+        _state["series_registry"] = registry
+
+
+def wrap_init_metrics(orig):
+    """Create the series as soon as the server builds its metrics registry."""
+
+    @functools.wraps(orig)
+    def init_metrics_from_server_config(*args, **kwargs):
+        result = orig(*args, **kwargs)
+        ensure_series()
+        return result
+
+    init_metrics_from_server_config._ov_extract_patch = True  # type: ignore[attr-defined]
+    return init_metrics_from_server_config
+
+
+def apply_metrics(module) -> bool:
+    """Wrap ``init_metrics_from_server_config``; the registry does not exist at import."""
+    if not _enabled():
+        return False
+    import openviking
+
+    orig = getattr(module, "init_metrics_from_server_config", None)
+    if getattr(orig, "_ov_extract_patch", False):
+        return True
+    digest = _source_hash(orig) if orig else None
+    if (
+        getattr(openviking, "__version__", None) != EXPECTED_VERSION
+        or digest != EXPECTED_INIT_METRICS_SHA256
+    ):
+        logger.warning(
+            "ov-extract-patch: NOT applied to metrics init (source_sha256=%s); the "
+            "zero-result series appear at their first increment",
+            digest,
+        )
+        return False
+    module.init_metrics_from_server_config = wrap_init_metrics(orig)
+    ensure_series()  # a registry built before this import
+    logger.warning("ov-extract-patch: applied metrics init hook (pid %d)", os.getpid())
+    return True
 
 
 def wrap_run_extraction(orig, is_not_found=None):
@@ -769,6 +860,7 @@ def wrap_run_extraction(orig, is_not_found=None):
         state = {"loops": 0, "memories": 0, "seen": False, "fresh": None}
         token = _ARCHIVE.set(state)
         try:
+            ensure_series()
             uri = _archive_uri_of(args, kwargs)
             if uri:
                 with contextlib.suppress(Exception):
@@ -809,6 +901,7 @@ def count_zero_result(archive_uri) -> None:
         registry = try_get_metrics_registry()
         if registry is None:
             return
+        ensure_series(registry)
         registry.inc_counter(MEASURED_METRIC)
         if archive["memories"] > 0:
             return
@@ -1055,6 +1148,7 @@ def apply_session(module) -> bool:
     _apply_retry_wrapper(module)
     _apply_chunking(module)
     _apply_zero_result_counter(module)
+    ensure_series()  # a no-op unless the registry already exists
     return True
 
 
@@ -1115,4 +1209,5 @@ TARGETS = {
     "openviking.session.memory.extract_loop": apply_extract_loop,
     "openviking.session.session": apply_session,
     "openviking.session.memory.streaming_memory_updater": apply_streaming,
+    "openviking.metrics.global_api": apply_metrics,
 }
