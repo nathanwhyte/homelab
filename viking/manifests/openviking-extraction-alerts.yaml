@@ -64,8 +64,9 @@ spec:
               through its retry writes an ov-extract-outcome line with failure_class
               (timeout, lock_wait, degraded or other); other failures write none.
               lock_wait means the step could not get a path lock, and the line does not
-              say what held it; the known case is an events-tree reindex. Read the line
-              in kubectl logs on that pod, since Loki can miss it (BUG-1279). kubectl logs
+              say what held it; the known case is an events-tree reindex. Find the line
+              with the same selector and |= "ov-extract-outcome". Loki lost one such line
+              (BUG-1279), so if that returns nothing, read kubectl logs on that pod. kubectl logs
               reads only the newest log file (rotated at 10 MiB), so an empty result does
               not prove no line was
               written: list the older files, which may be gzipped, with kubectl get --raw

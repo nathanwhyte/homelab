@@ -80,8 +80,8 @@ plus a streaming half that tracks writes for the lock-wait retry):
     the step gather reach Phase 2's failure handler with no such line. It goes to stderr,
     naming the step, attempt and
     ``failure_class`` (``timeout``, ``lock_wait``, ``degraded`` or ``other``), so a lock
-    wait reads differently from a model timeout in ``kubectl logs`` (the line has not been
-    seen in Loki, BUG-1279). A retry line is written when the
+    wait reads differently from a model timeout in Loki or ``kubectl logs`` (Loki lost one
+    such line, BUG-1279). A retry line is written when the
     next attempt starts, because v0.5.1.1's ``retry_async`` retries a recognised model
     error without asking the classifier (``_retry_limit``, model_retry.py:432-451). Not
     through ``logger``: the rich handler folds long records into several Loki entries
