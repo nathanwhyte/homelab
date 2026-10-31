@@ -53,7 +53,7 @@ Safety: at most one restart per run no matter how many locks qualify; never
 touches a lock file; never deletes anything; the PATCH carries the Deployment's
 resourceVersion so a concurrent restart (the compendium heal, an operator, a
 rollout) turns it into a no-op conflict instead of a second restart.
---dry-run logs the decision and stops short of the second read and the PATCH.
+--dry-run makes every read and every check, and stops short of the PATCH.
 
 Env (all optional): WATCHDOG_HOLD_SECONDS=10800, WATCHDOG_FORCE_SECONDS=21600,
 WATCHDOG_COOLDOWN_SECONDS=3600, WATCHDOG_QUIET_MAX_WORK=0,
@@ -674,9 +674,6 @@ def run(
         f"owner={first.lock.owner} hold={int(first.lock.age)}s "
         f"reason={decision.reason}"
     )
-    if dry_run:
-        say(f"{TAG} DRY-RUN would restart deploy/{cfg.deployment}: {note}")
-        return 0
     # Re-read everything the decision rests on, on a later exporter poll: a
     # restart is the one step that cannot be undone. A failed re-read is an
     # abort (retry in 15 min), not a failed restart.
@@ -715,6 +712,9 @@ def run(
     except Exception as e:  # noqa: BLE001 - nothing was changed; try next slot
         say(f"{TAG} ABORTED before restart: {type(e).__name__}: {e}")
         return 2 if getattr(e, "blind", False) else 0
+    if dry_run:
+        say(f"{TAG} DRY-RUN would restart deploy/{cfg.deployment}: {note}")
+        return 0
     try:
         cluster.restart(fresh.resource_version, note, now_fn())
     except K8sError as e:

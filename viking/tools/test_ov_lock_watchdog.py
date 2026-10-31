@@ -449,9 +449,29 @@ class TestRun(unittest.TestCase):
         code, out = self.go(cluster, metrics_text(work=0), dry_run=True)
         self.assertEqual(code, 0)
         self.assertEqual(cluster.patches, [])
-        self.assertEqual(self.events, ["fetch metrics"])
+        self.assertEqual(self.events.count("fetch locks"), 2)
         self.assertIn("DRY-RUN would restart", out)
         self.assertIn("mode=dry-run", out)
+
+    def test_dry_run_reports_a_failed_proof_instead_of_a_restart(self):
+        # A shadow run must show what the live mode would do, proof included.
+        cluster = FakeCluster()
+        code, out = self.go(
+            cluster,
+            metrics_text(work=0),
+            dry_run=True,
+            locks=[locks_text(), locks_text(generation=2)],
+        )
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: the lock was not refreshed", out)
+        self.assertNotIn("DRY-RUN would restart", out)
+
+    def test_the_cronjob_ships_in_shadow_mode(self):
+        path = os.path.join(_DIR, "..", "manifests", "ov-lock-watchdog-cronjob.yaml")
+        with open(path) as fh:
+            lines = [line.strip() for line in fh]
+        at = lines.index("- /scripts/ov-lock-watchdog.py")
+        self.assertEqual(lines[at + 1], "- --dry-run")
 
     def test_long_lock_in_cooldown_logs_held_without_patching(self):
         cluster = FakeCluster(deploy_state=deploy(restarted_ago=1800.0))

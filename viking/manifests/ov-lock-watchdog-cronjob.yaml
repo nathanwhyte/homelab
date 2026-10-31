@@ -30,9 +30,14 @@
 # ENABLED 2026-10-22 after the BUG-1220 72 h soak (2026-10-19..22): it shipped
 # in shadow mode (--dry-run, IMPR-1095 precedent) and every logged decision was
 # `none`, with no lock held 15 min; 2 of the 85 runs Loki still held could not
-# read the exporter (logged `blind` since IMPR-1416). To return to shadow mode,
-# add "--dry-run"
-# to args and `kubectl apply` this one object.
+# read the exporter (logged `blind` since IMPR-1416).
+#
+# SHADOW MODE again for BUG-1282: the owner proof is new, cannot see a handoff
+# under one owner, and has not met a long hold on v0.5.1.1, whose longest was
+# about 30 min. A shadow run reads everything and logs `DRY-RUN would restart`
+# or `ABORTED before restart`. To enable, drop "--dry-run" from command once a
+# would-restart line has been checked against what held the lock, and
+# `kubectl apply` this one object.
 #
 # HOW IT IS SEEN: every run logs `ov-lock-watchdog: decision=...` and a real
 # restart logs `ov-lock-watchdog: RESTARTED ...` (Loki: {namespace="viking"}
@@ -97,6 +102,7 @@ spec:
               command:
                 - python3
                 - /scripts/ov-lock-watchdog.py
+                - --dry-run
               env:
                 - name: WATCHDOG_EXPORTER_URL
                   value: http://openviking.viking.svc.cluster.local:9210/metrics
