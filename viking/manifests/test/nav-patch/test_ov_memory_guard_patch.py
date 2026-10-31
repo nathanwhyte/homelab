@@ -1878,7 +1878,6 @@ class WriteCheckCase(unittest.TestCase):
     def setUp(self):
         for var in ENVS:
             os.environ.pop(var, None)
-        mg._PREF_INDEX.clear()
         mg._MODE_WARNED.clear()
         self.module = writer_module()
         patch = mock.patch.object(
@@ -1913,6 +1912,62 @@ ACTIVITY = (
     "- P2: the dotfiles filter misses a case (as of 2026-10-21)\n"
     "- Finished Phase 2 of the cutover (as of 2026-10-21)\n"
 )
+
+
+class MemoryUriTests(unittest.TestCase):
+    def test_parses_user_peer_type_and_space(self):
+        for uri, user, peer, memory_type in (
+            ("viking://user/noot/memories/profile.md", "noot", None, "profile"),
+            (
+                "viking://user/noot/peers/pop/memories/profile.md",
+                "noot",
+                "pop",
+                "profile",
+            ),
+            ("viking://user/peers/memories/profile.md", "peers", None, "profile"),
+            ("viking://user/peers/peers/pop/memories/soul.md", "peers", "pop", "soul"),
+            (
+                "viking://user/memories/memories/events/2026/10/30/x.md",
+                "memories",
+                None,
+                "events",
+            ),
+            (
+                "viking://user/preferences/memories/preferences/noot/t.md",
+                "preferences",
+                None,
+                "preferences",
+            ),
+        ):
+            parsed = mg.parse_memory_uri(uri)
+            self.assertEqual(
+                (parsed.user, parsed.peer, parsed.memory_type),
+                (user, peer, memory_type),
+                uri,
+            )
+
+    def test_rejects_what_is_not_a_user_memory(self):
+        for uri in (
+            None,
+            "viking://resources/x/memories/profile.md",
+            "viking://user/noot/preferences/memories/profile.md",
+            "viking://user/noot/memories/",
+            "viking://user//memories/profile.md",
+        ):
+            self.assertIsNone(mg.parse_memory_uri(uri), uri)
+
+    def test_a_singleton_is_the_file_in_a_memories_root_only(self):
+        self.assertTrue(
+            mg.is_singleton(None, "viking://user/peers/memories/profile.md")
+        )
+        self.assertFalse(
+            mg.is_singleton(
+                None, "viking://user/x/memories/preferences/memories/profile.md"
+            )
+        )
+        self.assertFalse(
+            mg.is_singleton(None, "viking://user/x/preferences/memories/profile.md")
+        )
 
 
 class ProfileFilterTests(WriteCheckCase):
@@ -2020,6 +2075,24 @@ class ProfileFilterTests(WriteCheckCase):
                 CLEAN + "- Merged #12 (as of 2026-10-01)\n" + ACTIVITY,
                 mode,
             )
+
+    def test_a_user_id_named_like_a_path_segment_is_still_user_level(self):
+        # Codex round 2, P2: user "peers" or "memories" has a user-level profile too
+        for user in ("peers", "memories", "preferences"):
+            uri = f"viking://user/{user}/memories/profile.md"
+            for mode in ("1", "shadow"):
+                os.environ["OV_PROFILE_FILTER"] = mode
+                fs = WFS({uri: CLEAN})
+                records, _ = self.apply(fs, upsert("profile", uri, Append(ACTIVITY)))
+                self.assertEqual(records, [], (user, mode))
+                self.assertEqual(fs.files[uri], CLEAN + ACTIVITY, (user, mode))
+
+    def test_a_peer_of_a_user_named_peers_is_still_filtered(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/peers/peers/pop/memories/profile.md"
+        fs = WFS()
+        self.apply(fs, upsert("profile", uri, CLEAN + ACTIVITY))
+        self.assertEqual(fs.files[uri], CLEAN)
 
     def test_a_peer_profile_is_filtered_too(self):
         os.environ["OV_PROFILE_FILTER"] = "1"
@@ -2164,7 +2237,6 @@ class PreferenceDedupeTests(WriteCheckCase):
 
     def test_a_duplicate_under_another_user_and_topic_is_logged_and_written(self):
         for mode in ("shadow", "1"):
-            mg._PREF_INDEX.clear()
             os.environ["OV_PREF_DEDUPE"] = mode
             fs = WFS({URI_A: SAME_BODY, f"{PREFS}/noot/other.md": "different\n"})
             records, _ = self.put(fs, URI_B, SAME_BODY)
@@ -2222,32 +2294,63 @@ class PreferenceDedupeTests(WriteCheckCase):
         self.assertEqual(fs.files[c], "Prefers coffee daily.\n")
         self.assertEqual({r["uri"] for r in records}, {URI_B, c})
 
-    def test_the_index_is_listed_once_then_extended_by_our_own_writes(self):
+    def test_every_write_sees_the_files_as_they_are_now(self):
         os.environ["OV_PREF_DEDUPE"] = "1"
         fs = WFS({URI_A: SAME_BODY})
         self.put(fs, f"{PREFS}/pop/fresh.md", "Fresh fact.\n")
-        listed = len(fs.ls_calls)
-        self.assertGreater(listed, 0)
-        # a fact written a moment ago is already known to the index
+        fs.files[f"{PREFS}/noot/new.md"] = "Added elsewhere.\n"  # another worker
+        records, _ = self.put(fs, f"{PREFS}/pop/again.md", "Added elsewhere.\n")
+        self.assertEqual([r["duplicate_of"] for r in records], [f"{PREFS}/noot/new.md"])
+        # and a fact written a moment ago by this worker is seen too
         records, _ = self.put(fs, f"{PREFS}/pop/fresh_again.md", "Fresh fact.\n")
-        self.assertEqual([r["action"] for r in records], ["duplicate"])
-        self.assertEqual(len(fs.ls_calls), listed)
+        self.assertEqual(
+            [r["duplicate_of"] for r in records], [f"{PREFS}/pop/fresh.md"]
+        )
 
-    def test_the_index_expires(self):
+    def test_one_tenants_files_are_never_named_for_another(self):
+        # Codex round 2, P2: the same logical URI is a different filesystem per account
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        alpha, beta = WFS({URI_A: SAME_BODY}), WFS()
+        self.assertEqual(len(self.put(alpha, URI_B, SAME_BODY)[0]), 1)
+        self.assertEqual(self.put(beta, URI_B, SAME_BODY)[0], [])
+
+    def test_an_emptied_preference_is_no_longer_a_duplicate(self):
+        # Codex round 2, P2
+        os.environ["OV_PREF_DEDUPE"] = "1"
         fs = WFS({URI_A: SAME_BODY})
-        self.put(fs, URI_B, "x\n")
-        listed = len(fs.ls_calls)
-        root, (built, index) = next(iter(mg._PREF_INDEX.items()))
-        mg._PREF_INDEX[root] = (built - mg.PREF_INDEX_TTL_S - 1, index)
-        self.put(fs, f"{PREFS}/pop/z.md", "z\n")
-        self.assertGreater(len(fs.ls_calls), listed)
+        self.put(fs, f"{PREFS}/pop/warm.md", "warm\n")
+        self.put(fs, URI_A, "")  # the content was deleted
+        self.assertEqual(self.put(fs, URI_B, SAME_BODY)[0], [])
+
+    def test_each_target_is_compared_only_within_its_own_peer_root(self):
+        # Codex round 2, P2: pop's file must not be reported as workbook's duplicate
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        pop = "viking://user/noot/peers/pop/memories/preferences/noot/tea.md"
+        wb = "viking://user/noot/peers/workbook/memories/preferences/noot/tea.md"
+        fs = WFS({pop: "pop\n", wb: "wb\n"})
+        operation = upsert("preferences", pop, Append("X\n"), user="x", topic="y")
+        operation.uris = [pop, wb]
+        self.apply(fs, operation, prefix="ov-pref-dup")
+        later = "viking://user/noot/peers/pop/memories/preferences/noot/later.md"
+        self.assertEqual(self.put(fs, later, "wb\nX\n")[0], [])
+        # within a root it is still found
+        again = "viking://user/noot/peers/pop/memories/preferences/noot/again.md"
+        records, _ = self.put(fs, again, "pop\nX\n")
+        self.assertEqual([r["duplicate_of"] for r in records], [pop])
+
+    def test_a_user_id_that_looks_like_a_path_segment_does_not_move_the_root(self):
+        # Codex round 2, P2: user "preferences" must not put its profile in the index
+        os.environ["OV_PREF_DEDUPE"] = "1"
+        profile = "viking://user/preferences/memories/profile.md"
+        fs = WFS({profile: SAME_BODY})
+        uri = "viking://user/preferences/memories/preferences/noot/new.md"
+        self.assertEqual(self.put(fs, uri, SAME_BODY)[0], [])
 
     def test_the_index_pages_past_1000_files_in_a_folder(self):
         # Codex round 1, P2: VikingFS.ls returns at most 1000 entries per call
         files = {f"{PREFS}/noot/t{i:04d}.md": f"fact {i}\n" for i in range(1001)}
         fs = WFS(files)
         records, _ = self.put(fs, URI_B, "fact 1000\n")
-        self.assertEqual(len(mg._PREF_INDEX[PREFS][1]), 1001 + 1)  # plus the write
         self.assertEqual(
             [r["duplicate_of"] for r in records], [f"{PREFS}/noot/t1000.md"]
         )
@@ -2302,7 +2405,6 @@ class RecordFailureTests(WriteCheckCase):
                 "OV_PREF_DEDUPE",
             ):
                 os.environ[var] = mode
-            mg._PREF_INDEX.clear()
             fs = WFS({URI_A: SAME_BODY})
             self.apply_broken(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
             self.assertEqual("dotfiles#509" in fs.files[PROFILE_URI], mode == "shadow")
