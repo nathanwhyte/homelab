@@ -1956,17 +1956,19 @@ class MemoryUriTests(unittest.TestCase):
         ):
             self.assertIsNone(mg.parse_memory_uri(uri), uri)
 
-    def test_a_singleton_is_the_file_in_a_memories_root_only(self):
-        self.assertTrue(
-            mg.is_singleton(None, "viking://user/peers/memories/profile.md")
-        )
-        self.assertFalse(
-            mg.is_singleton(
-                None, "viking://user/x/memories/preferences/memories/profile.md"
-            )
-        )
-        self.assertFalse(
-            mg.is_singleton(None, "viking://user/x/preferences/memories/profile.md")
+    def test_the_singleton_guard_keeps_its_old_predicate(self):
+        # Codex round 3, P2: the delete guard matches the URI tail, wherever it sits
+        for uri in (
+            "viking://user/peers/memories/profile.md",
+            "viking://user/u/memories/preferences/memories/profile.md",
+            "viking://user/x/preferences/memories/soul.md",
+        ):
+            self.assertTrue(mg.is_singleton(None, uri), uri)
+        self.assertTrue(mg.is_singleton("identity", "viking://user/u/memories/x.md"))
+        self.assertFalse(mg.is_singleton(None, "viking://user/u/memories/events/a.md"))
+        self.assertFalse(mg.is_singleton(None, None))
+        self.assertEqual(
+            mg.SINGLETON_URI.pattern, r"/memories/(?:profile|identity|soul)\.md$"
         )
 
 
