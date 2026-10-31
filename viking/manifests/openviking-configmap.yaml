@@ -1,4 +1,7 @@
 ---
+# Retired ov-worker StatefulSet only, kept for a restore. The server mounts
+# openviking-standalone-config (openviking-standalone-configmap.yaml), which holds
+# the live VLM route; the vlm block below is not maintained.
 apiVersion: v1
 kind: ConfigMap
 metadata:
