@@ -2245,38 +2245,7 @@ data:
     # ``ov-singleton-guard {json}`` line on stderr. Disable with ``OV_SINGLETON_GUARD=0``.
 
     SINGLETON_TYPES = frozenset({"profile", "identity", "soul"})
-    # ``viking://user/<user>[/peers/<peer>]/memories/<rest>``, anchored at both ends: a user ID
-    # such as ``peers``, ``memories`` or ``preferences`` is a path segment like any other, so
-    # every placement question (peer or user level, memory type, preferences root) is answered
-    # here and never by searching the URI for a substring (Codex round 2 of homelab#296).
-    USER_MEMORY_URI = re.compile(
-        r"^viking://user/(?P<user>[^/]+)(?:/peers/(?P<peer>[^/]+))?/memories/(?P<rest>[^/].*)$"
-    )
-
-
-    @dataclasses.dataclass(frozen=True)
-    class MemoryUri:
-        user: str
-        peer: str | None  # None for the user-level space
-        rest: str  # path under ``memories/``
-
-        @property
-        def memory_type(self) -> str:
-            """``profile`` for ``profile.md``, else the first directory (``events``, …)."""
-            head, slash, _ = self.rest.partition("/")
-            return head if slash else head.removesuffix(".md")
-
-        @property
-        def space(self) -> str:
-            peer = f"/peers/{self.peer}" if self.peer else ""
-            return f"viking://user/{self.user}{peer}/memories"
-
-
-    def parse_memory_uri(uri) -> MemoryUri | None:
-        match = USER_MEMORY_URI.match(uri) if isinstance(uri, str) else None
-        return MemoryUri(match["user"], match["peer"], match["rest"]) if match else None
-
-
+    SINGLETON_URI = re.compile(r"/memories/(?:profile|identity|soul)\.md$")
     SINGLETON_PREFIX = "ov-singleton-guard "
 
 
@@ -2285,11 +2254,8 @@ data:
 
 
     def is_singleton(memory_type, uri) -> bool:
-        parsed = parse_memory_uri(uri)
         return memory_type in SINGLETON_TYPES or bool(
-            parsed
-            and parsed.memory_type in SINGLETON_TYPES
-            and parsed.rest == f"{parsed.memory_type}.md"
+            isinstance(uri, str) and SINGLETON_URI.search(uri)
         )
 
 
@@ -2504,7 +2470,7 @@ data:
     # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
     #   each bullet that names a PR or issue number, a compendium item ID, a numbered phase, or
     #   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. The
-    #   user-level ``profile.md`` (no ``/peers/`` in its URI) is never filtered or logged: it is
+    #   user-level ``profile.md`` (a URI with no peer in the parsed placement) is never filtered or logged: it is
     #   the frozen fallback ``profile-inject`` reads for a peer with no profile.
     # * ``OV_EVENT_EXCERPT_CHECK`` (``ov-event-excerpt``): logs an ``events`` write whose summary
     #   names a ``#N`` its rendered excerpt lacks. Log only: ``1`` and shadow behave alike.
@@ -2516,10 +2482,12 @@ data:
     #   homelab#296). Files are named ``{{ user }}/{{ topic }}.md``, so a duplicate can sit
     #   under another user or topic. Cost: each preferences write lists the target's own
     #   ``<space>/memories/preferences`` root (a paginated ``ls`` per level, ``LS_PAGE`` entries
-    #   a call) and reads every file once. Nothing is cached between writes, so the record
-    #   never names a file that is gone, emptied or another tenant's; the price is that read
-    #   per file on every preferences write. The index is read before the operation writes, so
-    #   a duplicate between two targets of one operation is not recorded.
+    #   a call) and reads every file once, under the write's lease. Nothing is cached between
+    #   writes, so a record cannot carry another tenant's or peer's file or a stale cache entry;
+    #   the price is that read per file on every preferences write (unmeasured on real
+    #   storage). The index is a snapshot from before the operation, so a record can still name
+    #   a file that has changed or gone since. A duplicate that the operation itself introduces
+    #   (two targets given the same body) is not recorded; one that already existed is.
     # * ``OV_PROFILE_PREFETCH_PEER_ONLY`` (``ov-profile-prefetch``, BUG-1284): extraction's
     #   prefetch reads ``<dir>/profile.md`` for every directory from
     #   ``MemoryIsolationHandler.render_schema_directories`` (``session_extract_context_
@@ -2527,6 +2495,39 @@ data:
     #   user-level file beside the peer's. With a peer directory in the set, ``1`` drops the
     #   user-level directory for ``SINGLETON_TYPES`` from the prefetch only; shadow records
     #   ``would_drop``. Writes and the file itself are untouched.
+
+    # ``viking://user/<user>[/peers/<peer>]/memories/<rest>``, anchored at both ends: a user ID
+    # such as ``peers``, ``memories`` or ``preferences`` is a path segment like any other, so
+    # every placement question (peer or user level, memory type, preferences root) is answered
+    # here and never by searching the URI for a substring (Codex round 2 of homelab#296). Only
+    # the checks of this section use it; the singleton guard keeps its own predicate.
+    USER_MEMORY_URI = re.compile(
+        r"^viking://user/(?P<user>[^/]+)(?:/peers/(?P<peer>[^/]+))?/memories/(?P<rest>[^/].*)$"
+    )
+
+
+    @dataclasses.dataclass(frozen=True)
+    class MemoryUri:
+        user: str
+        peer: str | None  # None for the user-level space
+        rest: str  # path under ``memories/``
+
+        @property
+        def memory_type(self) -> str:
+            """``profile`` for ``profile.md``, else the first directory (``events``, …)."""
+            head, slash, _ = self.rest.partition("/")
+            return head if slash else head.removesuffix(".md")
+
+        @property
+        def space(self) -> str:
+            peer = f"/peers/{self.peer}" if self.peer else ""
+            return f"viking://user/{self.user}{peer}/memories"
+
+
+    def parse_memory_uri(uri) -> MemoryUri | None:
+        match = USER_MEMORY_URI.match(uri) if isinstance(uri, str) else None
+        return MemoryUri(match["user"], match["peer"], match["rest"]) if match else None
+
 
     EXPECTED_WRITE_SHA256 = (
         "fc235ee1cc68c45a434e8774652fc99ce0447831558df0948789c552eb6dbc18"
