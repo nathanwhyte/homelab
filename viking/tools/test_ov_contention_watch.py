@@ -219,6 +219,45 @@ def has(lines, token):
     return [ln for ln in lines if token in ln]
 
 
+class WaitsBlind(unittest.TestCase):
+    """BUG-1282: v0.5.1.1 logs no lock lines, which must not read as no waits."""
+
+    def test_held_lock_without_lock_lines_reports_blind_once(self):
+        fake = FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
+        out, _ = run_watch(fake, polls=4)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("1 labelled lock(s)", has(out, "WATCH ERROR waits:")[0])
+        (end,) = has(out, "WATCH end:")
+        self.assertIn("waits unknown", end)
+        self.assertNotIn("waits 0", end)
+
+    def test_the_first_poll_alone_does_not_report_blind(self):
+        fake = FakeKubectl([POD_A], metrics=metrics_text(live_age=1000))
+        out, _ = run_watch(fake, polls=1)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+
+    def test_no_held_lock_stays_quiet(self):
+        out, _ = run_watch(FakeKubectl([POD_A]), polls=3)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+        self.assertIn("waits 0 (max 0.0s)", has(out, "WATCH end:")[0])
+
+    def test_any_lock_line_counts_as_the_log_being_readable(self):
+        fake = FakeKubectl(
+            [POD_A], metrics=metrics_text(live_age=1000), logs=[wait_line(1200), ""]
+        )
+        out, _ = run_watch(fake, polls=3)
+        self.assertEqual(has(out, "WATCH ERROR waits:"), [])
+        self.assertIn("waits 1", has(out, "WATCH end:")[0])
+
+    def test_a_lock_line_after_the_report_restores_the_figures(self):
+        fake = FakeKubectl(
+            [POD_A], metrics=metrics_text(live_age=1000), logs=["", "", wait_line(1200)]
+        )
+        out, _ = run_watch(fake, polls=3)
+        self.assertEqual(len(has(out, "WATCH ERROR waits:")), 1)
+        self.assertIn("waits 1", has(out, "WATCH end:")[0])
+
+
 class LogParsing(unittest.TestCase):
     def events(self, logs):
         fake = FakeKubectl([POD_A], logs=logs)

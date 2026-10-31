@@ -31,6 +31,10 @@ Events (each line starts with the UTC time, HH:MMZ):
   BEAT     periodic summary (every BEAT_EVERY polls), so silence is not mistaken
            for health
   WATCH ERROR <probe>: <reason>   a probe failed; the run continues
+  WATCH ERROR waits: ...          a labelled lock is held for a full poll and no
+           ragfs::lock::manager line has appeared in the log, so the wait figures
+           mean nothing; v0.5.1.1 logs those lines at debug (BUG-1282). Sent once,
+           and WATCH end then reads `waits unknown`.
   WATCH start / WATCH end         bracket the run; WATCH end is an actionable line
 
 Target-uptime mode (BUG-1220 split-window rule: a planned restart splits the soak
@@ -417,6 +421,7 @@ class LogCursor:
         self.since = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.seen = set()
         self.dag_open = False
+        self.saw_lock_log = False
 
     def reset_pod(self):
         self.seen = set()
@@ -471,6 +476,8 @@ def log_events(sink, pod, cursor):
     dag_miss = 0
     clean = True
     for line in cursor.fresh(s):
+        if "ragfs::lock::manager" in line:
+            cursor.saw_lock_log = True
         if "Failed to dispatch directory" in line:
             dag_miss += 1
             cursor.dag_open = True
@@ -791,6 +798,7 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
     cursor = LogCursor()
     peak, tot_waits, max_wait, tot_outcomes, n = 0.0, 0, 0, {}, 0
     tot_dag_miss = 0
+    waits_blind = False
     window = f"target uptime {fmt_dur(target_uptime)}" if tracker else f"{hours:g} h"
     done = False
     status = ""
@@ -803,10 +811,14 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                 f"uptime {fmt_dur(tracker.closed)} of {fmt_dur(target_uptime)}, "
                 f"bridged {fmt_dur(tracker.bridged)}, "
             )
+        waits = (
+            "waits unknown"
+            if waits_blind and not cursor.saw_lock_log
+            else f"waits {tot_waits} (max {max_wait / 1000:.1f}s)"
+        )
         return (
-            f"WATCH end: {uptime}peak lease {peak:.0f}s, waits {tot_waits} "
-            f"(max {max_wait / 1000:.1f}s), dag_miss {tot_dag_miss}, "
-            f"outcomes {tot_outcomes or '{}'}"
+            f"WATCH end: {uptime}peak lease {peak:.0f}s, {waits}, "
+            f"dag_miss {tot_dag_miss}, outcomes {tot_outcomes or '{}'}"
         )
 
     try:
@@ -892,6 +904,22 @@ def watch(hours, sink, wake_wait_ms=DEFAULT_WAKE_WAIT_MS, target_uptime=None):
                             f"outcomes={outcomes or '{}'}"
                             + (f" top: {top}" if top else ""),
                             wake=actionable,
+                        )
+                    # Poll 1 reads almost no log, so it cannot show the lines are
+                    # missing; a labelled lock has been refreshing for 15 min.
+                    if (
+                        n > 1
+                        and got
+                        and got.locks
+                        and not cursor.saw_lock_log
+                        and not waits_blind
+                    ):
+                        waits_blind = True
+                        sink.emit(
+                            f"WATCH ERROR waits: {len(got.locks)} labelled lock(s) "
+                            "held and no ragfs::lock::manager line in the log; "
+                            "v0.5.1.1 logs them at debug (BUG-1282), so lock waits "
+                            "cannot be seen and waits=0 does not mean no waits"
                         )
                 if n % BEAT_EVERY == 1 and got:
                     sink.emit(
