@@ -59,20 +59,22 @@ data:
     (the unlabelled fallback arm stays muted while any labelled instance fires)
     and the janitor reports the rest as `presence_age=not-exported`.
 
-    Presence age measures one holder's tenure. When a labelled lock's body
-    names a different owner or lock type than the last read (released and
+    Presence age measures how long a key has been held. When a labelled lock's
+    body names a different owner or lock type than the last read (released and
     re-acquired between two polls, so the key never left the bucket), its first
     sighting restarts, so the series never pairs a new holder with the old
-    holder's age. Locks are read only once labelled, so a hand-off before the
-    minimum age still counts from the first sighting (at most min_age extra).
+    holder's age. Locks are read only once labelled and only while reads succeed,
+    so a hand-off before then still counts from the first sighting. GET /locks'
+    `owner_held_seconds` has no such span: it starts at the first read of a holder.
 
     GET /locks returns every live lock as JSON (BUG-1282), because v0.5.1.1 logs no
     lease lines and `ov status` reports counts only. It serves the last poll's
     result as one snapshot, so it makes no S3 call. `generation` counts successful
     polls, and `last_modified` is the lock's mtime, so two reads can show a later
-    poll and a refresh between them. Only labelled locks carry `owner`, `lock_type`
-    and `owner_read_ok`, which is false when this poll's GET failed and the owner is
-    the cached one; reading every owner would be one GET per live lock.
+    poll and a refresh between them. Only labelled locks carry `owner`, `lock_type`,
+    `owner_read_ok`, which is false when this poll's GET failed and the owner is the
+    cached one, and `owner_held_seconds`, the time since this holder was first read;
+    reading every owner would be one GET per live lock.
 
     Client delivery telemetry: what the Claude Code / Codex memory hooks put into
     a session's context is decided on the Mac (token budget, truncation), so the
@@ -435,6 +437,11 @@ data:
     # detect a holder change on a key that never left the bucket.
     _s3_token_cache: dict[str, dict] = {}
 
+    # When this exporter first read each live key's current holder. A key's presence
+    # age can span holders it never read: before min_age, while reads fail, or past
+    # the label cap. This clock cannot, so the watchdog restarts on it (BUG-1282).
+    _s3_owner_since: dict[str, float] = {}
+
     # The last successful poll, served by GET /locks (BUG-1282). Replaced whole
     # under _lock, so one read never mixes two polls.
     _s3_snapshot: dict = {
@@ -548,9 +555,10 @@ data:
         for key in list(_s3_first_seen):
             if key not in live_keys:
                 del _s3_first_seen[key]
-        for key in list(_s3_token_cache):
-            if key not in live_keys:
-                del _s3_token_cache[key]
+        for cache in (_s3_token_cache, _s3_owner_since):
+            for key in list(cache):
+                if key not in live_keys:
+                    del cache[key]
 
         labelled = []
         holders: dict[str, dict] = {}
@@ -568,13 +576,17 @@ data:
                     flush=True,
                 )
                 _s3_first_seen[key] = now
+                _s3_owner_since[key] = now
                 continue
+            if fresh:
+                _s3_owner_since.setdefault(key, now)
             labels = lock_labels(key, token)
             labelled.append((labels, round(age, 1)))
             holders[key] = {
                 "owner": labels["owner"],
                 "lock_type": labels["lock_type"],
                 "owner_read_ok": fresh,
+                "owner_held_seconds": round(now - _s3_owner_since.get(key, now), 1),
             }
         oldest_live_age = max((now - t for t in _s3_first_seen.values()), default=0.0)
         live_locks = [

@@ -261,7 +261,13 @@ def metrics_text(age=4 * HOUR, work=11, up=1, poll_ok=1) -> str:
 
 
 def locks_text(
-    generation=1, mtime=1000.0, owner="tok-1", lock_type="E", read_ok=True, ok=True
+    generation=1,
+    mtime=1000.0,
+    owner="tok-1",
+    lock_type="E",
+    read_ok=True,
+    ok=True,
+    owner_held=4 * HOUR,
 ) -> str:
     return json.dumps(
         {
@@ -279,6 +285,7 @@ def locks_text(
                     "owner": owner,
                     "lock_type": lock_type,
                     "owner_read_ok": read_ok,
+                    "owner_held_seconds": owner_held,
                 }
             ],
         }
@@ -389,6 +396,37 @@ class TestRun(unittest.TestCase):
                     [locks_text(**changed), locks_text(**later)],
                     "lock gone or changed",
                 )
+
+    def test_an_owner_known_for_less_than_the_hold_aborts(self):
+        # Codex R2: a key's age can span holders the exporter never read.
+        self.assert_aborts(
+            [
+                locks_text(owner_held=60.0),
+                locks_text(generation=2, mtime=1030.0, owner_held=90.0),
+            ],
+            "the exporter has known this owner for 90s, under the 10800s hold",
+        )
+
+    def test_exactly_the_hold_is_enough(self):
+        cluster = FakeCluster()
+        code, out = self.go(
+            cluster,
+            metrics_text(work=0),
+            locks=[
+                locks_text(),
+                locks_text(generation=2, mtime=1030.0, owner_held=3 * HOUR),
+            ],
+        )
+        self.assertEqual((code, len(cluster.patches)), (0, 1), out)
+
+    def test_the_force_cap_reads_the_owner_time_not_the_key_age(self):
+        # Codex R2: a key 7 h old with an owner known for 4 h is not forced
+        # through a busy queue.
+        texts = iter([metrics_text(age=7 * HOUR, work=0), metrics_text(age=7 * HOUR)])
+        cluster = FakeCluster()
+        code, out = self.go(cluster, lambda url: next(texts))
+        self.assertEqual((code, cluster.patches), (0, []))
+        self.assertIn("ABORTED before restart: busy:", out)
 
     def test_exporter_without_the_route_aborts(self):
         self.assert_aborts([OSError("HTTP 404")], "OSError: HTTP 404")
@@ -564,7 +602,14 @@ class TestRun(unittest.TestCase):
     def test_busy_recheck_past_the_force_cap_still_restarts(self):
         texts = iter([metrics_text(age=7 * HOUR, work=0), metrics_text(age=7 * HOUR)])
         cluster = FakeCluster()
-        code, out = self.go(cluster, lambda url: next(texts))
+        code, out = self.go(
+            cluster,
+            lambda url: next(texts),
+            locks=[
+                locks_text(),
+                locks_text(generation=2, mtime=1030.0, owner_held=7 * HOUR),
+            ],
+        )
         self.assertEqual(code, 0, out)
         self.assertEqual(len(cluster.patches), 1)
         self.assertIn("forced:", out)
@@ -604,8 +649,10 @@ class TestConfigMapInSync(unittest.TestCase):
 
 class TestLockSample(unittest.TestCase):
     def test_reads_the_named_lock(self):
-        sample = wd.parse_lock_sample(locks_text(generation=7, mtime=5.5), KEY)
-        self.assertEqual(sample, wd.LockSample(7, "tok-1", "E", True, 5.5))
+        sample = wd.parse_lock_sample(
+            locks_text(generation=7, mtime=5.5, owner_held=9.0), KEY
+        )
+        self.assertEqual(sample, wd.LockSample(7, "tok-1", "E", True, 5.5, 9.0))
 
     def test_a_lock_not_listed_is_an_error(self):
         with self.assertRaisesRegex(wd.ParseError, "lock gone"):
@@ -613,10 +660,22 @@ class TestLockSample(unittest.TestCase):
 
     def test_an_unlabelled_lock_names_no_owner(self):
         doc = json.loads(locks_text())
-        for field in ("owner", "lock_type", "owner_read_ok"):
+        for field in ("owner", "lock_type", "owner_read_ok", "owner_held_seconds"):
             del doc["locks"][0][field]
         sample = wd.parse_lock_sample(json.dumps(doc), KEY)
-        self.assertEqual((sample.owner, sample.owner_read_ok), ("", False))
+        self.assertEqual(
+            (sample.owner, sample.owner_read_ok, sample.owner_held), ("", False, 0.0)
+        )
+
+    def test_non_finite_numbers_are_an_error(self):
+        # json.loads accepts NaN, and every comparison with it is false.
+        for text in (
+            locks_text(mtime=float("nan")),
+            locks_text(mtime=float("inf")),
+            locks_text(owner_held=float("nan")),
+        ):
+            with self.subTest(text), self.assertRaises(wd.ParseError):
+                wd.parse_lock_sample(text, KEY)
 
     def test_a_body_that_is_not_the_expected_document_is_an_error(self):
         no_mtime = json.loads(locks_text())

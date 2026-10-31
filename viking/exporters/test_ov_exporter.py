@@ -181,6 +181,7 @@ class TestPollS3Locks(unittest.TestCase):
     def setUp(self):
         exporter._s3_first_seen.clear()
         exporter._s3_token_cache.clear()
+        exporter._s3_owner_since.clear()
         exporter._metrics["openviking_s3_ovlock_live_age_seconds"] = []
         self._orig_time = exporter.time.time
         self.now = T0
@@ -293,6 +294,47 @@ class TestPollS3Locks(unittest.TestCase):
         self.assertEqual(lock["owner"], "9959d01e-e133-4e46-8074-04cc1de18b00")
         self.assertIs(lock["owner_read_ok"], False)
 
+    def _hold(self, client, seconds):
+        """A poll `seconds` later with the lock just refreshed."""
+        self.now += seconds
+        client.objects[WEDGED_KEY] = self.now - 5
+        self.assertTrue(self._poll(client))
+        return exporter.locks_payload()["locks"][0]
+
+    def test_owner_time_counts_from_the_first_read_of_the_owner(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self.assertEqual(self._hold(client, 3000)["owner_held_seconds"], 0.0)
+        self.assertEqual(self._hold(client, 600)["owner_held_seconds"], 600.0)
+
+    def test_a_newly_readable_owner_does_not_inherit_the_key_age(self):
+        # Codex R2: three unreadable hours, then a fresh holder's first read.
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: OSError("reset")})
+        self.assertTrue(self._poll(client))
+        lock = self._hold(client, 3 * 3600)
+        self.assertEqual(lock["owner_held_seconds"], 0.0)
+        client.bodies[WEDGED_KEY] = WEDGED_BODY
+        lock = self._hold(client, 15)
+        self.assertIs(lock["owner_read_ok"], True)
+        self.assertEqual(lock["owner_held_seconds"], 0.0)
+        self.assertEqual(self._hold(client, 15)["owner_held_seconds"], 15.0)
+
+    def test_failed_reads_keep_a_known_owner_counting(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self._hold(client, 3000)
+        client.bodies[WEDGED_KEY] = OSError("reset")
+        self.assertEqual(self._hold(client, 15)["owner_held_seconds"], 15.0)
+
+    def test_a_new_holder_restarts_the_owner_time(self):
+        client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})
+        self.assertTrue(self._poll(client))
+        self._hold(client, 3000)
+        self._hold(client, 600)
+        client.bodies[WEDGED_KEY] = b"new-owner:42:E"
+        self._hold(client, 15)
+        self.assertEqual(exporter._s3_owner_since[WEDGED_KEY], self.now)
+
     def test_locks_generation_counts_successful_polls_only(self):
         client = StubS3({WEDGED_KEY: self.now - 5})
         self.assertTrue(self._poll(client))
@@ -380,6 +422,7 @@ class TestPollS3Locks(unittest.TestCase):
         self.assertEqual(self._series(), [])
         self.assertEqual(exporter._s3_first_seen, {})
         self.assertEqual(exporter._s3_token_cache, {})
+        self.assertEqual(exporter._s3_owner_since, {})
 
     def test_ov_down_holds_last_series(self):
         client = StubS3({WEDGED_KEY: self.now - 5}, {WEDGED_KEY: WEDGED_BODY})

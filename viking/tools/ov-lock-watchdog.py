@@ -24,15 +24,19 @@ Identity, all of it required (any doubt = no restart, with the reason logged):
   compares a lock's owner only from the poll after it is labelled, so a lock
   labelled by this run's first read has not been compared yet, and a frozen
   lock stays in the series for the exporter's live window.
+- The exporter has known this owner for at least WATCHDOG_HOLD_SECONDS
+  (owner_held_seconds). The series' age counts from when the key appeared, so
+  it can span holders the exporter never read: before its 900 s label threshold,
+  while reads fail, or past OVLOCK_LABEL_TOP_N. A lock therefore restarts about
+  15 min later than its age alone suggests, and past the force cap on the
+  shorter of the two.
 - The exporter is healthy and fresh, the Deployment is settled and was not
   restarted within WATCHDOG_COOLDOWN_SECONDS.
 
 The check is on the owner, not the lease (BUG-1282). v0.5.1.1 logs the ragfs
 lease lines at debug, and lock tokens and `ov status` carry no lease_ref, so
 nothing at the INFO level names a lease. A handoff keeps its owner and takes a
-new lease_ref, so handoffs inside one owner read as one hold. Across more than
-OVLOCK_LABEL_TOP_N long locks, an unlabelled lock's holder changes go unread
-until it is labelled, so its age can span them.
+new lease_ref, so handoffs inside one owner read as one hold.
 
 Disruption guard. BUG-1220's original wording was "restart when the queue is
 not progressing", but in that incident the queue kept progressing around the one
@@ -85,6 +89,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import ssl
 import sys
@@ -233,6 +238,14 @@ class LockSample:
     lock_type: str
     owner_read_ok: bool
     last_modified: float
+    owner_held: float
+
+
+def _finite(value) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"not a finite number: {value!r}")
+    return number
 
 
 def parse_lock_sample(text: str, key: str) -> LockSample:
@@ -248,14 +261,17 @@ def parse_lock_sample(text: str, key: str) -> LockSample:
                     owner=str(lock.get("owner", "")),
                     lock_type=str(lock.get("lock_type", "")),
                     owner_read_ok=lock.get("owner_read_ok") is True,
-                    last_modified=float(lock["last_modified"]),
+                    last_modified=_finite(lock["last_modified"]),
+                    owner_held=_finite(lock.get("owner_held_seconds", 0.0)),
                 )
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise ParseError(f"unreadable GET /locks reply: {e!r}") from e
     raise ParseError("lock gone from GET /locks")
 
 
-def proof_failure(lock: LiveLock, first: LockSample, second: LockSample) -> str:
+def proof_failure(
+    lock: LiveLock, first: LockSample, second: LockSample, hold: float
+) -> str:
     """Why two /locks samples do not show `lock` held and refreshing, else ""."""
     if second.generation <= first.generation:
         return "the exporter has not polled again since the first read"
@@ -269,6 +285,11 @@ def proof_failure(lock: LiveLock, first: LockSample, second: LockSample) -> str:
         return "lock gone or changed"
     if second.last_modified <= first.last_modified:
         return "the lock was not refreshed between the two reads"
+    if second.owner_held < hold:
+        return (
+            f"the exporter has known this owner for {int(second.owner_held)}s, "
+            f"under the {int(hold)}s hold"
+        )
     return ""
 
 
@@ -676,16 +697,18 @@ def run(
         if same is None:
             say(f"{TAG} ABORTED before restart: lock gone or changed")
             return 0
-        why = proof_failure(
-            first.lock,
-            sample,
-            parse_lock_sample(fetch(cfg.locks_url), first.lock.key),
-        )
+        last = parse_lock_sample(fetch(cfg.locks_url), first.lock.key)
+        why = proof_failure(first.lock, sample, last, cfg.hold)
         if why:
             say(f"{TAG} ABORTED before restart: {why}")
             return 0
         # The quiet-queue / force decision too, on the fresh queue count.
-        policy = queue_policy(cfg, same.age, exporter_again.queue_work, decision.locks)
+        policy = queue_policy(
+            cfg,
+            min(same.age, last.owner_held),
+            exporter_again.queue_work,
+            decision.locks,
+        )
         if policy.action != "restart":
             say(f"{TAG} ABORTED before restart: {policy.reason}")
             return 0
