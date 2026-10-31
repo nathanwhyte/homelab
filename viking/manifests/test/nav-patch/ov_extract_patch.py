@@ -106,24 +106,27 @@ covers both protocols. ``_build_patch_repair_instruction`` gets the same wrapper
 defence only: its ``patch_errors`` hold JSON-native values on v0.5.1.1. Upstream's default
 branch still had the bare call on 2026-10-30.
 
-IMPR-1453 adds a counter, ``openviking_session_archive_zero_memories_total{reason}``, of
-archives that finish with zero memories. Stock ``openviking_memory_extracted_total`` only
-increments above zero, and the 0-operations WARNING above also fires for merge loops (327
-lines against 89 zero-result archives in one day), so neither can count archives. The count
-sits in ``Session._write_done_file`` (session.py:2559), Phase 2's last step: the metadata save
-and ``tracker.complete`` run before it, so a failure in either leaves ``.failed.json`` and no
-count, and an archive that already has ``.done`` is not counted again. The archive is judged
-as a whole, not by the last run: non-zero when the run filed a memory
-(``_merge_and_save_commit_meta`` records its ``memories_extracted`` total) or the persisted,
-archive-wide ``memory_diff.json`` holds an add, update or delete from an earlier attempt. A wrapper around
-``Session._run_memory_extraction`` opens per-run state and ``wrap_run`` counts the
-session-extraction loops in it: ``reason="empty"`` is an archive where a session-extraction
-loop ran (this run, or an earlier one recorded in ``completed_memory_steps``) and nothing was
-filed, ``reason="skipped"`` one where none ran (extraction disabled,
-the preference gate left no type to extract, or no message was left to extract). Count both
-under the label so a baseline can use either; the 7-day rate of real zero results is the
-``empty`` series. No alert yet: a baseline comes first. Each wrapper is hash-guarded and
-installed by ``apply_session`` after the loop half.
+IMPR-1453 adds two counters: ``openviking_session_archive_zero_memories_total{reason}``,
+archives that finish with zero memories, and ``openviking_session_archive_measured_total``,
+every archive that was measured, zero or not (the rate's denominator). Stock
+``openviking_memory_extracted_total`` only increments above zero, and the 0-operations
+WARNING above also fires for merge loops (327 lines against 89 zero-result archives in one
+day), so neither can count archives. Both are counted in ``Session._write_done_file``
+(session.py:2559), Phase 2's last step: the metadata save and ``tracker.complete`` run
+before it, so a failure in either leaves ``.failed.json`` and no count, and an archive that
+already has ``.done`` is not counted again. Only an archive this process ran whole is
+measured: a wrapper around ``Session._run_memory_extraction`` reads ``.meta.json`` before
+the run, and if any ``completed_memory_steps`` entry is already complete (a recovery, which
+cannot see what the finished steps filed), the start state cannot be read, or
+``_merge_and_save_commit_meta`` never reported this run's ``memories_extracted`` total, the
+archive is left out of both counters and one "not measured" line is logged. Nothing new is
+persisted in the archive. For a measured archive, ``reason="empty"`` means a
+session-extraction loop ran (``wrap_run`` counts them) and filed nothing, ``reason="skipped"``
+that none ran (extraction disabled, the preference gate left no type to extract, or no
+message was left to extract); an archive whose only output was skipped operations counts as
+``empty``, since no memory operation was applied. The 7-day rate of real zero results is
+the ``empty`` series over ``measured``. No alert yet: a baseline comes first. Each wrapper
+is hash-guarded and installed by ``apply_session`` after the loop half.
 
 Guarded: applies only to openviking ``v0.5.1.1`` whose ``ExtractLoop.run`` source hashes to
 ``EXPECTED_RUN_SHA256``; otherwise it logs "NOT applied" and stock behaviour stays. The
@@ -222,6 +225,7 @@ _ARCHIVE: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 )
 
 ZERO_RESULT_METRIC = "openviking_session_archive_zero_memories_total"
+MEASURED_METRIC = "openviking_session_archive_measured_total"  # no labels
 ZERO_RESULT_LABELS = ("reason",)
 ZERO_REASON_EMPTY = (
     "empty"  # a session-extraction loop ran and the archive got no memory
@@ -726,13 +730,49 @@ def wrap_grouped_merge(orig):
 # --- zero-result archive counter (IMPR-1453) ----------------------------------------------
 
 
-def wrap_run_extraction(orig):
-    """Open the per-archive state around one Phase 2 run (swallows its own failures)."""
+def _archive_uri_of(args, kwargs):
+    uri = kwargs.get("archive_uri")
+    if uri is None and len(args) > 1:
+        uri = args[1]
+    return uri
+
+
+async def _started_fresh(session, archive_uri, is_not_found) -> bool | None:
+    """True when no memory step of this archive was complete before this run started.
+
+    ``.meta.json`` holds ``completed_memory_steps`` (persisted per finished step). A missing
+    file is a fresh archive; any other read or parse failure is unknown (``None``).
+    """
+    try:
+        raw = await session._viking_fs.read_file(
+            f"{archive_uri.rstrip('/')}/.meta.json", ctx=session.ctx
+        )
+        steps = (json.loads(raw or "{}") or {}).get("completed_memory_steps") or {}
+        return not any(steps.values())
+    except Exception as exc:
+        if isinstance(exc, FileNotFoundError) or (
+            is_not_found is not None and is_not_found(exc)
+        ):
+            return True
+        return None
+
+
+def wrap_run_extraction(orig, is_not_found=None):
+    """Open the per-run state around one Phase 2 run (swallows its own failures).
+
+    The run is measured only if no memory step was complete when it started: a recovery
+    skips the finished steps and cannot report what they filed.
+    """
 
     @functools.wraps(orig)
     async def _run_memory_extraction(self, *args, **kwargs):
-        token = _ARCHIVE.set({"loops": 0, "memories": 0})
+        state = {"loops": 0, "memories": 0, "seen": False, "fresh": None}
+        token = _ARCHIVE.set(state)
         try:
+            uri = _archive_uri_of(args, kwargs)
+            if uri:
+                with contextlib.suppress(Exception):
+                    state["fresh"] = await _started_fresh(self, uri, is_not_found)
             return await orig(self, *args, **kwargs)
         finally:
             _ARCHIVE.reset(token)
@@ -741,52 +781,44 @@ def wrap_run_extraction(orig):
     return _run_memory_extraction
 
 
-async def _diff_has_memories(session, archive_uri) -> bool:
-    """True when the archive's persisted ``memory_diff.json`` holds an add, update or delete.
+def count_zero_result(archive_uri) -> None:
+    """Count one measured archive just marked ``.done``; add a zero-result when it was one.
 
-    The diff is archive-wide: batches and recovery attempts merge into it
-    (``_extract_long_term_memories_with_batching`` re-reads the previous diff), so it
-    carries what earlier attempts filed, which ``memories_extracted`` of this run does not.
-    """
-    try:
-        raw = await session._viking_fs.read_file(
-            f"{archive_uri.rstrip('/')}/memory_diff.json", ctx=session.ctx
-        )
-        summary = (json.loads(raw or "{}") or {}).get("summary") or {}
-    except Exception:
-        return False
-    return any(
-        int(summary.get(key) or 0) > 0
-        for key in ("total_adds", "total_updates", "total_deletes")
-    )
-
-
-async def count_zero_result(session, archive_uri, completed_memory_steps) -> None:
-    """Add one to the zero-result counter for an archive just marked ``.done``; never raises.
-
-    Archive-wide, not per run: the archive is non-zero when this run filed a memory or
-    the persisted diff holds one from an earlier attempt, and a session-extraction loop
-    ran when this run ran one or ``completed_memory_steps`` (persisted per step, so it
-    survives recovery) records a finished ``long_term`` step.
+    Never raises. An archive this run did not see whole (recovered, unknown start, or the
+    memory total never observed) is left out of both counters, with one log line.
     """
     # Metrics must never fail an archive.
     with contextlib.suppress(Exception):
         archive = _ARCHIVE.get()
         if archive is None:
             return
-        if archive["memories"] > 0 or await _diff_has_memories(session, archive_uri):
+        if archive["fresh"] is not True or not archive["seen"]:
+            why = (
+                "recovered (a memory step was already complete)"
+                if archive["fresh"] is False
+                else "start state unknown"
+                if archive["fresh"] is None
+                else "extraction result not observed"
+            )
+            logger.warning(
+                "ov-extract-patch: archive %s not measured: %s", archive_uri, why
+            )
             return
         from openviking.metrics.global_api import try_get_metrics_registry
 
         registry = try_get_metrics_registry()
         if registry is None:
             return
-        ran = archive["loops"] > 0 or bool(
-            (completed_memory_steps or {}).get("long_term")
-        )
+        registry.inc_counter(MEASURED_METRIC)
+        if archive["memories"] > 0:
+            return
         registry.inc_counter(
             ZERO_RESULT_METRIC,
-            labels={"reason": ZERO_REASON_EMPTY if ran else ZERO_REASON_SKIPPED},
+            labels={
+                "reason": ZERO_REASON_EMPTY
+                if archive["loops"] > 0
+                else ZERO_REASON_SKIPPED
+            },
             label_names=ZERO_RESULT_LABELS,
         )
 
@@ -803,6 +835,7 @@ def wrap_merge_meta(orig):
         if archive is not None:
             with contextlib.suppress(Exception):
                 archive["memories"] = sum((memories_extracted or {}).values())
+                archive["seen"] = True
         return result
 
     _merge_and_save_commit_meta._ov_extract_patch = True  # type: ignore[attr-defined]
@@ -810,12 +843,11 @@ def wrap_merge_meta(orig):
 
 
 def wrap_write_done(orig):
-    """Count once per archive when ``.done`` is durably written with zero memories.
+    """Count once per measured archive when ``.done`` is durably written.
 
     ``_write_done_file`` is Phase 2's last step: ``_merge_and_save_commit_meta`` and
     ``tracker.complete`` run before it, so a failure in either leaves ``.failed.json``
-    and no count. Recovery skips an archive that has ``.done``, and an existing ``.done``
-    is checked here too, so one archive is counted once however often it was attempted.
+    and no count. An existing ``.done`` is checked too, so one archive is counted once.
     """
 
     @functools.wraps(orig)
@@ -829,8 +861,7 @@ def wrap_write_done(orig):
             )
         result = await orig(self, archive_uri, *args, **kwargs)
         if not already and getattr(self, "_viking_fs", None) is not None:
-            steps = kwargs.get("completed_memory_steps")
-            await count_zero_result(self, archive_uri, steps)
+            count_zero_result(archive_uri)
         return result
 
     _write_done_file._ov_extract_patch = True  # type: ignore[attr-defined]
@@ -841,7 +872,13 @@ def _apply_zero_result_counter(module) -> bool:
     """Wrap the two Session methods; all or none, each guarded on its source hash."""
     cls = getattr(module, "Session", None)
     targets = (
-        ("_run_memory_extraction", EXPECTED_RUN_EXTRACTION_SHA256, wrap_run_extraction),
+        (
+            "_run_memory_extraction",
+            EXPECTED_RUN_EXTRACTION_SHA256,
+            lambda fn: wrap_run_extraction(
+                fn, getattr(module, "_is_storage_not_found", None)
+            ),
+        ),
         ("_merge_and_save_commit_meta", EXPECTED_MERGE_META_SHA256, wrap_merge_meta),
         ("_write_done_file", EXPECTED_WRITE_DONE_SHA256, wrap_write_done),
     )

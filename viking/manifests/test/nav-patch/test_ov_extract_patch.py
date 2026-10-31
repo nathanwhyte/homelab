@@ -1805,12 +1805,15 @@ class Phase2HarnessTests(unittest.TestCase):
         )
 
 
+MEASURED_METRIC = "openviking_session_archive_measured_total"
+
+
 class FakeRegistry:
     def __init__(self):
         self.calls = []
 
     def inc_counter(self, name, *, amount=1.0, labels=None, label_names=()):
-        self.calls.append((name, dict(labels), tuple(label_names), amount))
+        self.calls.append((name, dict(labels or {}), tuple(label_names), amount))
 
 
 class FakeFS:
@@ -1846,13 +1849,14 @@ class FakeSession:
     merge_loops = 0
     produce = 0  # memories the step files (persisted into memory_diff.json)
     fail_at = None
+    unchanged = False
 
     def __init__(self, fs=None, steps=None):
         self._viking_fs = fs or FakeFS()
         self.ctx = None
         self.steps = steps if steps is not None else set()
 
-    async def _run_memory_extraction(self, archive_uri):
+    async def _run_memory_extraction(self, task_id, archive_uri):
         try:
             memories = {}
             if not self.steps:
@@ -1864,12 +1868,19 @@ class FakeSession:
                 )
                 if self.loops:
                     self.steps.add("m0")
+                    await self._viking_fs.write_file(
+                        f"{archive_uri}/.meta.json",
+                        json.dumps({"completed_memory_steps": {"long_term": ["m0"]}}),
+                    )
                 if self.produce:
                     memories = {"events": self.produce}
-                    await self._viking_fs.write_file(
-                        f"{archive_uri}/memory_diff.json",
-                        json.dumps({"summary": {"total_adds": self.produce}}),
-                    )
+                    if (
+                        not self.unchanged
+                    ):  # an unchanged update is a context, not a diff op
+                        await self._viking_fs.write_file(
+                            f"{archive_uri}/memory_diff.json",
+                            json.dumps({"summary": {"total_adds": self.produce}}),
+                        )
             if self.fail_at == "cancel_mid":
                 raise asyncio.CancelledError()
             await self._merge_and_save_commit_meta(1, memories, None)
@@ -1957,15 +1968,25 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
             setattr(self.cls, key, value)
         with contextlib.suppress(asyncio.CancelledError):
             asyncio.run(
-                self.cls(self.fs, self.steps)._run_memory_extraction(ARCHIVE_URI)
+                self.cls(self.fs, self.steps)._run_memory_extraction(
+                    task_id="t1", archive_uri=ARCHIVE_URI
+                )
             )
 
     def reasons(self):
+        out = []
         for name, labels, label_names, amount in self.registry.calls:
-            self.assertEqual(name, ep.ZERO_RESULT_METRIC)
-            self.assertEqual(label_names, ("reason",))
             self.assertEqual(amount, 1.0)
-        return [labels["reason"] for _, labels, _, _ in self.registry.calls]
+            if name == ep.ZERO_RESULT_METRIC:
+                self.assertEqual(label_names, ("reason",))
+                out.append(labels["reason"])
+            else:
+                self.assertEqual(name, MEASURED_METRIC)
+                self.assertEqual((labels, label_names), ({}, ()))
+        return out
+
+    def measured(self):
+        return sum(1 for c in self.registry.calls if c[0] == MEASURED_METRIC)
 
     def marker(self, name):
         return f"{ARCHIVE_URI}/{name}" in self.fs.files
@@ -1973,11 +1994,13 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
     def test_archive_with_several_loops_counts_once(self):
         self.run_archive(loops=3, merge_loops=4)
         self.assertEqual(self.reasons(), ["empty"])
+        self.assertEqual(self.measured(), 1)
         self.assertTrue(self.marker(".done"))
 
     def test_archive_with_memories_is_not_counted(self):
         self.run_archive(loops=3, merge_loops=1, produce=2)
         self.assertEqual(self.reasons(), [])
+        self.assertEqual(self.measured(), 1)  # measured, just not zero
 
     def test_archive_where_no_loop_ran_is_labelled_skipped(self):
         self.run_archive(loops=0, merge_loops=0)
@@ -2000,25 +2023,79 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
         self.assertFalse(self.marker(".done"))
         self.assertEqual(self.reasons(), [])
 
-    def test_failed_then_recovered_archive_counts_once(self):
-        self.run_archive(loops=2, fail_at="complete")
-        self.run_archive(fail_at=None)
-        self.assertTrue(self.marker(".done"))
-        self.assertEqual(self.reasons(), ["empty"])
-
-    def test_recovery_keeps_the_empty_label_of_the_loop_an_earlier_run_ran(self):
-        # Run 1 ran the loop and was cancelled; run 2 skips the recorded step, runs no
-        # loop, and must still call the archive empty, not skipped.
-        self.run_archive(loops=2, fail_at="cancel_mid")
+    def assert_unmeasured(self):
         self.assertEqual(self.reasons(), [])
-        self.run_archive(fail_at=None)
-        self.assertEqual(self.reasons(), ["empty"])
+        self.assertEqual(self.measured(), 0)
 
-    def test_recovery_sees_a_memory_an_earlier_run_filed(self):
+    def test_a_completion_failure_then_recovery_moves_neither_counter(self):
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            self.run_archive(loops=2, fail_at="complete")
+            self.run_archive(fail_at=None)
+        self.assertTrue(self.marker(".done"))
+        self.assert_unmeasured()
+        self.assertEqual(
+            sum("not measured: recovered" in line for line in logs.output), 1
+        )
+
+    def test_a_recovery_is_not_measured_whatever_the_earlier_run_filed(self):
+        for attrs in (
+            {"loops": 2},  # empty
+            {"loops": 1, "produce": 1},  # filed, with a diff
+            {"loops": 1, "produce": 1, "unchanged": True},  # filed, no diff operation
+        ):
+            with self.subTest(attrs=attrs):
+                self.fs, self.steps = FakeFS(), set()
+                self.registry.calls.clear()
+                self.run_archive(fail_at="cancel_mid", **attrs)
+                self.run_archive(fail_at=None)
+                self.assertTrue(self.marker(".done"))
+                self.assert_unmeasured()
+
+    def test_a_recovery_never_reads_the_diff(self):
         self.run_archive(loops=1, produce=1, fail_at="cancel_mid")
+        reads = []
+        read = self.fs.read_file
+
+        async def spy(uri, **kwargs):
+            reads.append(uri)
+            if uri.endswith("memory_diff.json"):
+                raise TimeoutError("diff read timed out")
+            return await read(uri, **kwargs)
+
+        self.fs.read_file = spy
         self.run_archive(fail_at=None)
         self.assertTrue(self.marker(".done"))
-        self.assertEqual(self.reasons(), [])
+        self.assertFalse([u for u in reads if u.endswith("memory_diff.json")])
+        self.assert_unmeasured()
+
+    def test_an_unreadable_start_state_is_not_measured(self):
+        async def broken(uri, **kwargs):
+            raise TimeoutError("meta read timed out")
+
+        self.fs.read_file = broken
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            self.run_archive(loops=1)
+        self.assertTrue(self.marker(".done"))
+        self.assert_unmeasured()
+        self.assertTrue(any("start state unknown" in line for line in logs.output))
+
+    def test_an_unobserved_extraction_result_is_not_measured(self):
+        self.assertTrue(ep._apply_zero_result_counter(self.mod))
+        session = self.cls(self.fs)
+
+        async def go():
+            token = ep._ARCHIVE.set(
+                {"loops": 1, "memories": 0, "seen": False, "fresh": True}
+            )
+            try:
+                await session._write_done_file(ARCHIVE_URI, "m0", "m0")
+            finally:
+                ep._ARCHIVE.reset(token)
+
+        with self.assertLogs("ov_extract_patch", level="WARNING") as logs:
+            asyncio.run(go())
+        self.assert_unmeasured()
+        self.assertTrue(any("not observed" in line for line in logs.output))
 
     def test_an_archive_that_already_has_done_is_not_counted_again(self):
         self.fs.files[f"{ARCHIVE_URI}/.done"] = "{}"
@@ -2031,6 +2108,7 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
         self.steps = set()
         self.run_archive()
         self.assertEqual(self.reasons(), ["empty", "empty"])
+        self.assertEqual(self.measured(), 2)
         self.assertIsNone(ep._ARCHIVE.get())
 
     def test_done_write_outside_a_phase2_run_is_not_counted(self):
@@ -2077,6 +2155,13 @@ class ZeroResultCounterTests(EnvMixin, unittest.TestCase):
         self.assertTrue(getattr(self.cls._write_done_file, "_ov_extract_patch", False))
 
 
+MEMORY_SCENARIOS = (
+    "recovered_memory",
+    "recovered_unchanged",
+    "recovered_diff_timeout",
+)
+
+
 def _zero_counter_harness_main(scenario):
     """Drive the real ``Session._run_memory_extraction`` to ``.done`` / ``.failed.json``.
 
@@ -2096,12 +2181,20 @@ def _zero_counter_harness_main(scenario):
     assert ep._apply_zero_result_counter(sm)
     ovc.OpenVikingConfigSingleton._instance = ovc.OpenVikingConfig()
 
-    reasons = []
+    reasons, measured = [], []
+
+    def inc_counter(name, **kw):
+        if name == MEASURED_METRIC:
+            measured.append(name)
+        else:
+            assert name == ep.ZERO_RESULT_METRIC, name
+            reasons.append(kw["labels"]["reason"])
+
     api.try_get_metrics_registry = lambda: types.SimpleNamespace(
-        inc_counter=lambda name, **kw: reasons.append(kw["labels"]["reason"])
+        inc_counter=inc_counter
     )
     files, progress = {}, {}
-    state = {"fail": scenario != "success", "extractions": 0}
+    state = {"fail": scenario != "success", "extractions": 0, "block_reads": False}
     base = "viking://session/default/s1/history/archive_001"
 
     class Agfs:
@@ -2118,6 +2211,14 @@ def _zero_counter_harness_main(scenario):
             return uri
 
         async def read_file(self, uri, **kwargs):
+            if scenario == "meta_timeout" and uri.endswith("/.meta.json"):
+                raise TimeoutError("meta read timed out")
+            if (
+                scenario == "recovered_diff_timeout"
+                and state["block_reads"]
+                and uri.endswith("/memory_diff.json")
+            ):
+                raise TimeoutError("diff read timed out")
             if uri not in files:
                 raise FileNotFoundError(uri)
             return files[uri]
@@ -2140,16 +2241,13 @@ def _zero_counter_harness_main(scenario):
         async def extract_long_term_memories(self, messages, archive_uri, **kwargs):
             state["extractions"] += 1
             await run_loop(Loop())
-            if scenario == "recovered_memory":
-                files[f"{archive_uri}/memory_diff.json"] = json.dumps(
-                    {
-                        "summary": {
-                            "total_adds": 1,
-                            "total_updates": 0,
-                            "total_deletes": 0,
-                        }
-                    }
-                )
+            if scenario in MEMORY_SCENARIOS:
+                if (
+                    scenario != "recovered_unchanged"
+                ):  # an unchanged update has no diff op
+                    files[f"{archive_uri}/memory_diff.json"] = json.dumps(
+                        {"summary": {"total_adds": 1}}
+                    )
                 return {"contexts": [types.SimpleNamespace(category="events")]}
             return {"contexts": []}
 
@@ -2160,7 +2258,7 @@ def _zero_counter_harness_main(scenario):
         async def complete(self, *args, **kwargs):
             if not state["fail"]:
                 return
-            if scenario in ("recovered_memory", "restart_empty"):
+            if scenario in MEMORY_SCENARIOS or scenario == "restart_empty":
                 raise asyncio.CancelledError("injected shutdown cancellation")
             if scenario == "complete_failure":
                 raise RuntimeError("injected task completion failure")
@@ -2185,6 +2283,8 @@ def _zero_counter_harness_main(scenario):
             progress[uri] = {
                 k: set(v) for k, v in updates["completed_memory_steps"].items()
             }
+            # What the real _merge_archive_meta persists, and the run's start state reads.
+            files[f"{uri}/.meta.json"] = json.dumps(updates)
 
     async def hydrate(messages):
         return messages
@@ -2214,13 +2314,10 @@ def _zero_counter_harness_main(scenario):
         "failed": f"{base}/.failed.json" in files,
         "done": f"{base}/.done" in files,
     }
-    if scenario in (
-        "recovered_memory",
-        "restart_empty",
-        "complete_failure",
-        "done_failure",
-    ):
+    first_measured = len(measured)
+    if scenario not in ("success", "meta_timeout"):
         state["fail"] = False
+        state["block_reads"] = True
         files.pop(f"{base}/.failed.json", None)
         asyncio.run(run())
     print(
@@ -2228,6 +2325,8 @@ def _zero_counter_harness_main(scenario):
         + json.dumps(
             {
                 "first": first,
+                "first_measured": first_measured,
+                "measured": len(measured),
                 "first_markers": first_markers,
                 "final": reasons,
                 "done": f"{base}/.done" in files,
@@ -2266,31 +2365,46 @@ def _run_zero_counter_harness(scenario):
 class ZeroResultRealSessionTests(unittest.TestCase):
     """The real Session methods in stock order, not FakeSession's simplified failure model."""
 
+    def assert_counted(self, record, reasons, measured):
+        self.assertEqual(
+            (record["final"], record["measured"]), (reasons, measured), record
+        )
+
     def test_a_successful_empty_archive_counts_once(self):
         record = _run_zero_counter_harness("success")
-        self.assertEqual(record["final"], ["empty"])
+        self.assert_counted(record, ["empty"], 1)
         self.assertTrue(record["done"])
 
-    def test_failure_in_tracker_complete_counts_only_the_recovered_done(self):
-        record = _run_zero_counter_harness("complete_failure")
-        self.assertEqual(record["first"], [])
-        self.assertEqual(record["final"], ["empty"])
+    def test_a_completion_failure_then_recovery_moves_neither_counter(self):
+        for scenario in ("complete_failure", "done_failure"):
+            with self.subTest(scenario=scenario):
+                record = _run_zero_counter_harness(scenario)
+                self.assertEqual((record["first"], record["first_measured"]), ([], 0))
+                self.assert_counted(record, [], 0)
+                self.assertTrue(record["done"])
 
-    def test_failure_writing_done_counts_only_the_recovered_done(self):
-        record = _run_zero_counter_harness("done_failure")
-        self.assertEqual(record["first"], [])
-        self.assertEqual(record["final"], ["empty"])
+    def test_a_recovery_that_kept_a_memory_is_not_measured(self):
+        for scenario in ("recovered_memory", "recovered_unchanged"):
+            with self.subTest(scenario=scenario):
+                record = _run_zero_counter_harness(scenario)
+                self.assertEqual(record["extractions"], 1)  # the step was not repeated
+                self.assert_counted(record, [], 0)
+                self.assertTrue(record["done"])
 
-    def test_recovery_of_an_archive_that_kept_a_memory_counts_nothing(self):
-        record = _run_zero_counter_harness("recovered_memory")
-        self.assertEqual(record["extractions"], 1)  # the step was not repeated
-        self.assertEqual(record["final"], [])
+    def test_a_recovery_whose_diff_read_would_time_out_is_not_measured(self):
+        record = _run_zero_counter_harness("recovered_diff_timeout")
+        self.assert_counted(record, [], 0)
         self.assertTrue(record["done"])
 
-    def test_recovery_of_an_empty_archive_is_empty_not_skipped(self):
+    def test_a_recovered_empty_archive_is_not_measured(self):
         record = _run_zero_counter_harness("restart_empty")
         self.assertEqual(record["extractions"], 1)
-        self.assertEqual(record["final"], ["empty"])
+        self.assert_counted(record, [], 0)
+
+    def test_an_unreadable_start_state_is_not_measured(self):
+        record = _run_zero_counter_harness("meta_timeout")
+        self.assert_counted(record, [], 0)
+        self.assertTrue(record["done"])
 
 
 if __name__ == "__main__":
