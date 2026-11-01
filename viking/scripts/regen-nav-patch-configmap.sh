@@ -5,7 +5,8 @@
 # BUG-1177 ChatLog, BUG-1174 S3 cache, BUG-1180 memory guard, IMPR-1200 event
 # abstract, BUG-1189 grep scope, IMPR-1215 recall time, BUG-1218 fetch-items,
 # IMPR-1303 WM-update-skip, IMPR-1311 Claude-params, IMPR-1404 preference-gate,
-# BUG-1268 vectordb aggregate route and BUG-1269 HTTP adapter update_data).
+# BUG-1268 vectordb aggregate route, BUG-1269 HTTP adapter update_data and BUG-1285
+# sanitizer lock).
 # The file set is that glob (IMPR-1413), so a new patch needs no edit here. The test
 # stack builds its own ConfigMap (ov-nav-patch) through its kustomization, which has
 # to list the same files; every Deployment that loads the patches (openviking and

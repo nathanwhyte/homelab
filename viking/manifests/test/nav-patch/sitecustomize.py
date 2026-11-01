@@ -95,8 +95,12 @@ off switch; a patch failure never breaks the import):
                         ``/api/vikingdb/data/update`` instead of failing with
                         AttributeError (installed when
                         ``viking_vector_index_backend`` loads).
+  * ov_sanitizer_lock_patch — BUG-1285: the privacy sanitizer's cache lock works across
+                        event loops, so a contended matcher build from a second loop
+                        neither raises "bound to a different event loop" nor stalls
+                        (``PrivacySanitizer.__init__``).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``, ``OV_HTTP_UPDATE_PATCH=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``, ``OV_HTTP_UPDATE_PATCH=0``, ``OV_SANITIZER_LOCK_PATCH=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 
 Retired at v0.5.1.1 (IMPR-1412): ``ov_fetch_items_patch`` (BUG-1218, fixed upstream
@@ -155,6 +159,7 @@ TARGETS = {
     ),
     "openviking.service.fs_service": ("ov_grep_scope_patch", "apply"),
     "openviking.storage.viking_vector_index_backend": ("ov_http_update_patch", "apply"),
+    "openviking.privacy.sanitizer": ("ov_sanitizer_lock_patch", "apply"),
     "openviking.retrieve.hierarchical_retriever": (
         "ov_recall_time_patch",
         "apply_retriever",
