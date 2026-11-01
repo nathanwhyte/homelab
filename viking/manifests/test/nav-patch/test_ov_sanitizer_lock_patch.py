@@ -21,6 +21,7 @@ import importlib
 import importlib.util
 import inspect
 import os
+import selectors
 import threading
 import time
 import types
@@ -33,9 +34,7 @@ import ov_sanitizer_lock_patch as sl
 HAVE_OPENVIKING = importlib.util.find_spec("openviking") is not None
 TICK_SECONDS = 0.001
 JOIN_SECONDS = 10
-# Lets a waiting loop reach its selector before the holder releases.
-SETTLE_SECONDS = 0.05
-# How long a stalled loop has to stay stalled for the stock pin.
+# How long the stock pin watches a loop that nothing can wake.
 STALL_SECONDS = 0.3
 CTX = types.SimpleNamespace(account_id="a", user=types.SimpleNamespace(user_id="u"))
 
@@ -67,7 +66,20 @@ class StubPrivacy:
         return []
 
 
-def on_thread(factory):
+class IdleSelector(selectors.DefaultSelector):
+    """Reports a loop with nothing left to run: only a real wake moves it after this."""
+
+    def __init__(self):
+        super().__init__()
+        self.idle = threading.Event()
+
+    def select(self, timeout=None):
+        if timeout is None:
+            self.idle.set()
+        return super().select(timeout)
+
+
+def on_thread(factory, selector=None):
     """Run ``factory()`` on a new thread's own event loop."""
     box = {}
 
@@ -75,7 +87,12 @@ def on_thread(factory):
         box["loop"] = asyncio.get_running_loop()
         box["result"] = await factory()
 
-    thread = threading.Thread(target=lambda: asyncio.run(main()), daemon=True)
+    def run():
+        loop_factory = selector and (lambda: asyncio.SelectorEventLoop(selector))
+        with asyncio.Runner(loop_factory=loop_factory or None) as runner:
+            runner.run(main())
+
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
     return thread, box
 
@@ -125,13 +142,17 @@ def bind_then_cross(sanitizer, privacy):
     return box_a["result"], box_b["result"]
 
 
-def first_contender_cross(sanitizer, privacy):
-    """Loop B contends first while loop A holds, so the lock binds to B; A then releases."""
+def first_contender_cross(sanitizer, privacy, selector=None):
+    """Loop B contends first while loop A holds, so the lock binds to B; A then releases.
+
+    With ``selector``, A releases only once B's loop has blocked with no timeout.
+    """
     thread_a, _ = on_thread(lambda: matcher_error(sanitizer))
     wait_until(privacy.building.is_set)
-    thread_b, box_b = on_thread(lambda: matcher_error(sanitizer))
+    thread_b, box_b = on_thread(lambda: matcher_error(sanitizer), selector)
     wait_until(lambda: waiting(sanitizer._cache_lock) == 1)
-    time.sleep(SETTLE_SECONDS)
+    if selector:
+        wait_until(selector.idle.is_set)
     privacy.gate.set()
     thread_a.join(JOIN_SECONDS)
     return thread_b, box_b
@@ -413,7 +434,8 @@ class RealTargetTests(unittest.TestCase):
 
     def test_stock_lock_stalls_a_first_contender(self):
         privacy = StubPrivacy()
-        thread_b, box_b = first_contender_cross(self.stock(privacy), privacy)
+        selector = IdleSelector()
+        thread_b, box_b = first_contender_cross(self.stock(privacy), privacy, selector)
         thread_b.join(STALL_SECONDS)
         self.assertTrue(thread_b.is_alive(), "the release woke the other loop")
         box_b["loop"].call_soon_threadsafe(lambda: None)
