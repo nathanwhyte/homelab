@@ -82,10 +82,23 @@ def live_data(namespace):
     return config_data(json.loads(proc.stdout))
 
 
+def section(configmap, name):
+    """A ConfigMap section; only an absent or null one counts as empty."""
+    value = configmap.get(name)
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
+        raise CompareError(f"{name} is not a map with string keys")
+    return value
+
+
 def config_data(configmap):
-    """Every key of a ConfigMap, as the bytes a pod mounts."""
-    data = configmap.get("data") or {}
-    binary = configmap.get("binaryData") or {}
+    """Every key of a ConfigMap, as the bytes a pod mounts. The one check of its
+    shape: anything but a well-formed ConfigMap cannot be compared."""
+    if not isinstance(configmap, dict) or configmap.get("kind") != "ConfigMap":
+        raise CompareError("not a ConfigMap")
+    data = section(configmap, "data")
+    binary = section(configmap, "binaryData")
     both = sorted(set(data) & set(binary))
     if both:
         raise CompareError(f"in both data and binaryData: {', '.join(both)}")

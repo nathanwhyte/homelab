@@ -152,6 +152,36 @@ class DriftTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
+    def test_malformed_configmap_exits_two(self):
+        good = configmap({"ov_x_patch.py": PATCH})
+        cases = {
+            "data list": {**good, "data": []},
+            "data string": {**good, "data": "x"},
+            "binaryData list": {**good, "binaryData": []},
+            "not a ConfigMap": {"kind": "Secret", "data": {}},
+            "no kind": {},
+            "not a mapping": [],
+        }
+        for side in ("render", "live"):
+            other = "live" if side == "render" else "render"
+            self.write(other, good)
+            for label, bad in cases.items():
+                if side == "render" and not (
+                    isinstance(bad, dict) and bad.get("kind") == "ConfigMap"
+                ):
+                    continue  # the render finds its ConfigMap by kind
+                with self.subTest(side=side, case=label):
+                    self.write(side, bad)
+                    proc = self.run_script()
+                    self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+                    self.assertNotIn("Traceback", proc.stderr)
+
+    def test_null_sections_count_as_empty(self):
+        self.write("render", {**configmap({}), "data": None})
+        self.write("live", configmap({}))
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
     def test_invalid_base64_exits_two(self):
         self.write("live", configmap({}, binary={"ov_x_patch.py": "!!!"}))
         proc = self.run_script()
