@@ -99,6 +99,27 @@ spec:
           annotations:
             summary: "ov-exporter S3 lock polling not succeeding for 30m"
             description: "The bucket-level lock gauges are stale (OV down, Garage unreachable, or credentials broken) — the two lock alerts above are flying blind while this fires."
+        # BUG-1282: the lock alerts above, ov-lock-watchdog and the sync's wedge
+        # check all read the exporter's bucket listing, so a listing that stops
+        # seeing locks reads as "no locks" to every one of them. The server's
+        # own count is the independent check. It must hold for 30m because the
+        # two sources routinely disagree for a poll or two: the count is live
+        # and includes short write leases, and the listing is up to a poll old.
+        # In the 2 days to 2026-11-01 the exporter was empty on 19% of samples
+        # with a lease held, and the longest such stretch in 7 days was about
+        # 14 min. A wedged lock beside other listed locks does not fire this:
+        # one listed lock resets the 30m.
+        - alert: OpenVikingLockListingBlind
+          expr: |
+            sum(openviking_lock_active) > 0
+            unless on() (sum(openviking_s3_ovlock_live_refreshing) > 0)
+            and on() (openviking_s3_ovlock_poll_ok == 1)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "OpenViking counts {{ $value }} held lock(s) but ov-exporter has listed none for 30m"
+            description: "The server's openviking_lock_active stayed above 0 for 30m while the exporter's S3 listing found no live lock and its poll succeeded, so OpenVikingWedgedLockFile, ov-lock-watchdog and the sync's wedge check are all blind to whatever is held. Suspect a changed lock key layout or a lease whose object is gone. Compare GET /locks on port 9210 of the openviking Service with the bucket before trusting a watchdog decision=none (BUG-1282)."
     # Exporter-sidecar rules (ov-exporter, port 9210). Kept during the Phase C
     # parity window; retire with the sidecar once the native rules have soaked.
     - name: openviking.rules
