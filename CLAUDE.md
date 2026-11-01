@@ -110,6 +110,8 @@ Parallel indexing (coordinator/worker/merge trio) was removed at the 2026-06-03 
 
 See [openviking.md](viking/openviking.md) for the organization guide (L0/L1/L2 tiers, directory rules, what to index). See `~/.claude/OPENVIKING.md` for the save/search workflow rules. Indexed-compendium table: [reference/compendium-index.md](reference/compendium-index.md).
 
+Before planning an `ov-test` canary, run `viking/scripts/ov-test-drift.py` from an up-to-date `main/`: applying `viking/manifests/test` ships every file it lists, not only the patch under test.
+
 ### Stack implementation report
 
 Full reference (components, access patterns, data flow, OV internals, parallel design, architecture diagram): [viking/docs/2026-06-04-openviking-stack-implementation-report.md](viking/docs/2026-06-04-openviking-stack-implementation-report.md).
