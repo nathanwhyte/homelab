@@ -391,3 +391,66 @@ tests:
       - expr: count(ALERTS{alertname="OpenVikingWedgedLockFile"}) or vector(0)
         eval_time: 60m
         exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a held lock the exporter never lists fires at 30m, not before
+    # BUG-1282: the listing is the only evidence the wedge readers have.
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_active{pod="openviking-a"}'
+        values: "2x60"
+      - series: "openviking_s3_ovlock_live_refreshing"
+        values: "0x60"
+      - series: "openviking_s3_ovlock_poll_ok"
+        values: "1x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingLockListingBlind",alertstate="firing"}) or vector(0)
+        eval_time: 29m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname="OpenVikingLockListingBlind",alertstate="firing"}) or vector(0)
+        eval_time: 31m
+        exp_samples: [{ labels: "{}", value: 1 }]
+
+  - name: one listed lock restarts the blind clock
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_active{pod="openviking-a"}'
+        values: "1x60"
+      - series: "openviking_s3_ovlock_live_refreshing"
+        values: "0x25 1 0x34"
+      - series: "openviking_s3_ovlock_poll_ok"
+        values: "1x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingLockListingBlind"}) or vector(0)
+        eval_time: 26m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname="OpenVikingLockListingBlind",alertstate="firing"}) or vector(0)
+        eval_time: 55m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a failing lock poll leaves the alert to OpenVikingS3LockPollFailing
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_active{pod="openviking-a"}'
+        values: "1x60"
+      - series: "openviking_s3_ovlock_live_refreshing"
+        values: "0x60"
+      - series: "openviking_s3_ovlock_poll_ok"
+        values: "0x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingLockListingBlind"}) or vector(0)
+        eval_time: 60m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: no held lock never fires
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_active{pod="openviking-a"}'
+        values: "0x60"
+      - series: "openviking_s3_ovlock_live_refreshing"
+        values: "0x60"
+      - series: "openviking_s3_ovlock_poll_ok"
+        values: "1x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingLockListingBlind"}) or vector(0)
+        eval_time: 60m
+        exp_samples: [{ labels: "{}", value: 0 }]
