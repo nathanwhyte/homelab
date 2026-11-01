@@ -17,9 +17,11 @@ Usage: uv run --no-project --with pyyaml python viking/scripts/ov-test-drift.py
 """
 
 import argparse
+import base64
 import difflib
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +30,10 @@ CONFIGMAP = "ov-nav-patch"
 REQUEST_TIMEOUT = "15s"
 EXIT_DRIFT = 1
 EXIT_UNKNOWN = 2
+
+
+class CompareError(Exception):
+    """A failed comparison, with a message free of ConfigMap contents."""
 
 
 def load_checker():
@@ -42,10 +48,18 @@ def load_checker():
 def rendered_data(checker, root):
     """The keys of the ConfigMap the test kustomization generates."""
     stack = next(s for s in checker.STACKS if s["configmap"] == CONFIGMAP)
-    objects = checker.render(root, stack["dir"])
+    if shutil.which("kubectl") is None:
+        raise CompareError("kubectl not found")
+    try:
+        objects = checker.render(root, stack["dir"])
+    except Exception as exc:  # noqa: BLE001 — its text can quote manifest contents
+        raise CompareError(
+            f"rendering failed ({type(exc).__name__}); run kubectl kustomize on "
+            f"{stack['dir']} to see why"
+        ) from None
     found = checker.named(objects, "ConfigMap", CONFIGMAP, checker.NAMESPACE)
     if len(found) != 1:
-        raise RuntimeError(f"render has {len(found)} ConfigMaps named {CONFIGMAP}")
+        raise CompareError(f"render has {len(found)} ConfigMaps named {CONFIGMAP}")
     return stack["dir"], config_data(found[0])
 
 
@@ -64,13 +78,28 @@ def live_data(namespace):
     ]
     proc = subprocess.run(args, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
-        raise RuntimeError(f"kubectl get: {proc.stderr.strip()[:300]}")
+        raise CompareError(f"kubectl get: {proc.stderr.strip()[:300]}")
     return config_data(json.loads(proc.stdout))
 
 
 def config_data(configmap):
-    """Every key of a ConfigMap; a binaryData value compares as its base64 text."""
-    return {**(configmap.get("binaryData") or {}), **(configmap.get("data") or {})}
+    """Every key of a ConfigMap, as the bytes a pod mounts."""
+    data = configmap.get("data") or {}
+    binary = configmap.get("binaryData") or {}
+    both = sorted(set(data) & set(binary))
+    if both:
+        raise CompareError(f"in both data and binaryData: {', '.join(both)}")
+    values = {}
+    for key, value in data.items():
+        if not isinstance(value, str):
+            raise CompareError(f"data key {key} is not a string")
+        values[key] = value.encode("utf-8")
+    for key, value in binary.items():
+        try:
+            values[key] = base64.b64decode(value, validate=True)
+        except (TypeError, ValueError):
+            raise CompareError(f"binaryData key {key} is not base64") from None
+    return values
 
 
 def line_changes(live, rendered):
@@ -114,11 +143,15 @@ def main(argv=None):
         checker = load_checker()
         kdir, rendered = rendered_data(checker, args.root)
         live = live_data(checker.NAMESPACE)
-    except (SystemExit, Exception) as exc:  # noqa: BLE001 — SystemExit is the
-        # checker's missing-PyYAML message.
+        rows = compare(rendered, live)
+    except (CompareError, SystemExit) as exc:  # SystemExit: no PyYAML
         print(f"ov-test-drift: could not compare: {exc}", file=sys.stderr)
         return EXIT_UNKNOWN
-    rows = compare(rendered, live)
+    except Exception as exc:  # noqa: BLE001 — the type alone, for the same reason
+        print(
+            f"ov-test-drift: could not compare: {type(exc).__name__}", file=sys.stderr
+        )
+        return EXIT_UNKNOWN
     source = args.root / kdir
     if not rows:
         print(f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)")

@@ -14,6 +14,7 @@ from git_env import scrub_environ  # noqa: E402
 
 scrub_environ()
 
+import base64
 import json
 import os
 import subprocess
@@ -128,7 +129,42 @@ class DriftTests(unittest.TestCase):
         )
         proc = self.run_script()
         self.assertEqual(proc.returncode, 1, proc.stderr)
-        self.assertIn("ov_x_patch.py: +3 -1", proc.stdout)
+        self.assertIn("ov_x_patch.py: +2 -0", proc.stdout)
+
+    def test_binary_data_with_the_same_bytes_is_no_drift(self):
+        encoded = base64.b64encode(PATCH.encode()).decode()
+        self.write(
+            "live",
+            configmap({"sitecustomize.py": SITE}, binary={"ov_x_patch.py": encoded}),
+        )
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_binary_data_equal_as_text_only_is_drift(self):
+        self.write("render", configmap({"ov_x_patch.py": "pass"}))
+        self.write("live", configmap({}, binary={"ov_x_patch.py": "pass"}))
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+
+    def test_non_string_value_exits_two(self):
+        self.write("render", configmap({"ov_x_patch.py": 1}))
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_invalid_base64_exits_two(self):
+        self.write("live", configmap({}, binary={"ov_x_patch.py": "!!!"}))
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("ov_x_patch.py", proc.stderr)
+
+    def test_key_in_both_sections_exits_two(self):
+        self.write(
+            "live",
+            configmap({"ov_x_patch.py": PATCH}, binary={"ov_x_patch.py": "YQo="}),
+        )
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
 
     def test_every_file_in_one_screen(self):
         names = [f"ov_{i}_patch.py" for i in range(13)]
@@ -151,17 +187,21 @@ class DriftTests(unittest.TestCase):
 
     def test_render_failure_exits_two(self):
         (self.dir / "render.fail").write_text(
-            "accumulating resources\n", encoding="utf-8"
+            "bad patch: ov_x_patch.py: PRIVATE_CONTENT\n", encoding="utf-8"
         )
         proc = self.run_script()
         self.assertEqual(proc.returncode, 2, proc.stdout)
-        self.assertIn("accumulating resources", proc.stderr)
+        self.assertIn("kubectl kustomize", proc.stderr)
+        self.assertNotIn("PRIVATE_CONTENT", proc.stderr)
 
     def test_unparseable_render_exits_two(self):
-        (self.dir / "render.json").write_text("{: [\n", encoding="utf-8")
+        (self.dir / "render.json").write_text(
+            "{: PRIVATE_CONTENT [\n", encoding="utf-8"
+        )
         proc = self.run_script()
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertNotIn("Traceback", proc.stderr)
+        self.assertNotIn("PRIVATE_CONTENT", proc.stderr)
 
     def test_unparseable_live_exits_two(self):
         (self.dir / "live.json").write_text("not json", encoding="utf-8")
