@@ -5647,14 +5647,17 @@ data:
         that loop next wakes (2.95 s against a 0.3 s build on ``ov-test``).
 
     ``PrivacySanitizer.__init__`` is wrapped to replace the lock with ``CrossLoopLock``, a
-    ``threading.Lock`` taken without blocking and retried on the caller's own loop. It keeps
-    what the stock lock gives on one loop, one holder at a time, across all of them, which
-    ``_matcher`` needs: it iterates and then mutates ``_cache`` under the lock. A lock per
-    loop would drop that, leaving two threads free to mutate and iterate the same dict.
+    first-come queue whose state sits behind a ``threading.Lock`` held for a few statements,
+    never across an ``await``. It keeps what the stock lock gives on one loop, one holder at
+    a time in arrival order, across all of them. ``_matcher`` needs the exclusion: it
+    iterates and then mutates ``_cache`` under the lock. A lock per loop would drop that,
+    leaving two threads free to mutate and iterate the same dict.
 
-    A waiter polls every ``POLL_SECONDS``, so its loop stays free and it enters at most that
-    much after the release. Contention is rare: the lock is taken only on a cache miss, and
-    a matcher lives an hour unless the catalog changes.
+    A waiter polls every ``POLL_SECONDS``, so its loop stays free, and the first in line
+    enters within one poll of the release. The lock stands idle for that poll, because a
+    later caller queues behind the waiter instead of overtaking it. Contention is rare: the
+    lock is taken only on a cache miss, and a matcher lives an hour unless the catalog
+    changes.
 
     The guard hashes ``__init__`` and ``_matcher``, the two methods that hold this contract.
     Upstream ``main`` still has the single ``asyncio.Lock``. Only this lock is covered; other
@@ -5664,6 +5667,7 @@ data:
     """
 
     import asyncio
+    import collections
     import functools
     import hashlib
     import inspect
@@ -5678,17 +5682,36 @@ data:
 
 
     class CrossLoopLock:
-        """``async with`` mutual exclusion across event loops and their threads."""
+        """First-come ``async with`` mutual exclusion across event loops and their threads."""
 
         def __init__(self):
-            self._lock = threading.Lock()
+            self._guard = threading.Lock()
+            self._tickets = collections.deque()
+            self._held = False
+
+        def _take(self, ticket):
+            with self._guard:
+                if self._held or self._tickets[0] is not ticket:
+                    return False
+                self._tickets.popleft()
+                self._held = True
+                return True
 
         async def __aenter__(self):
-            while not self._lock.acquire(blocking=False):
-                await asyncio.sleep(POLL_SECONDS)
+            ticket = object()
+            with self._guard:
+                self._tickets.append(ticket)
+            try:
+                while not self._take(ticket):
+                    await asyncio.sleep(POLL_SECONDS)
+            except BaseException:
+                with self._guard:
+                    self._tickets.remove(ticket)
+                raise
 
         async def __aexit__(self, *exc_info):
-            self._lock.release()
+            with self._guard:
+                self._held = False
 
 
     def source_digest(cls):

@@ -3,8 +3,9 @@
 ``CrossLoopLockTests`` need no OpenViking. ``RealTargetTests`` need the installed
 openviking: they drive the real ``PrivacySanitizer._matcher`` from two threads with a
 stubbed catalog, in the two shapes the stock lock fails, so they exercise the real lock
-use without a server. The stock-behaviour cases pin the bug itself, so a release that
-fixes it fails here and says the patch can go.
+use without a server. Each step waits on the state the next one needs, not on a delay.
+The stock-behaviour cases pin the bug itself, so a release that fixes it fails here and
+says the patch can go.
 """
 
 import sys
@@ -30,18 +31,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ov_sanitizer_lock_patch as sl
 
 HAVE_OPENVIKING = importlib.util.find_spec("openviking") is not None
-BUILD_SECONDS = 0.2
-# Loop B's only other wake-up in the first-contender case, well past a clean build.
-NEXT_WAKE_SECONDS = 1.5
+TICK_SECONDS = 0.001
 JOIN_SECONDS = 10
+# Lets a waiting loop reach its selector before the holder releases.
+SETTLE_SECONDS = 0.05
+# How long a stalled loop has to stay stalled for the stock pin.
+STALL_SECONDS = 0.3
 CTX = types.SimpleNamespace(account_id="a", user=types.SimpleNamespace(user_id="u"))
 
 
 class StubPrivacy:
-    """Counts builds, and how many ran at once across every loop."""
+    """Holds each build until ``gate`` opens; counts builds, and how many ran at once."""
 
     def __init__(self):
         self.guard = threading.Lock()
+        self.building = threading.Event()
+        self.gate = threading.Event()
         self.running = 0
         self.most_running = 0
         self.builds = 0
@@ -54,7 +59,9 @@ class StubPrivacy:
             self.builds += 1
             self.running += 1
             self.most_running = max(self.most_running, self.running)
-        await asyncio.sleep(BUILD_SECONDS)
+        self.building.set()
+        while not self.gate.is_set():
+            await asyncio.sleep(TICK_SECONDS)
         with self.guard:
             self.running -= 1
         return []
@@ -64,52 +71,70 @@ def on_thread(factory):
     """Run ``factory()`` on a new thread's own event loop."""
     box = {}
 
-    def run():
-        box["result"] = asyncio.run(factory())
+    async def main():
+        box["loop"] = asyncio.get_running_loop()
+        box["result"] = await factory()
 
-    thread = threading.Thread(target=run, daemon=True)
+    thread = threading.Thread(target=lambda: asyncio.run(main()), daemon=True)
     thread.start()
     return thread, box
 
 
-async def timed_matcher(sanitizer, delay):
-    await asyncio.sleep(delay)
-    started = time.monotonic()
+def wait_until(predicate):
+    deadline = time.monotonic() + JOIN_SECONDS
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timed out on {predicate}")
+        time.sleep(TICK_SECONDS)
+
+
+def waiting(lock):
+    """How many callers are queued, on this patch's lock or on ``asyncio.Lock``."""
+    return len(getattr(lock, "_tickets", None) or getattr(lock, "_waiters", None) or ())
+
+
+async def wait_for_event(event):
+    while not event.is_set():
+        await asyncio.sleep(TICK_SECONDS)
+
+
+async def matcher_error(sanitizer):
     try:
         await sanitizer._matcher(CTX)
     except RuntimeError as exc:
-        return str(exc), time.monotonic() - started
-    return None, time.monotonic() - started
+        return str(exc)
+    return None
 
 
-def bind_then_cross(sanitizer):
+def bind_then_cross(sanitizer, privacy):
     """A contended wait on loop A binds the lock, then loop B contends."""
+    lock = sanitizer._cache_lock
 
     async def loop_a():
-        return await asyncio.gather(
-            timed_matcher(sanitizer, 0), timed_matcher(sanitizer, 0.05)
-        )
+        holder = asyncio.create_task(matcher_error(sanitizer))
+        await wait_for_event(privacy.building)
+        return await asyncio.gather(holder, matcher_error(sanitizer))
 
     thread_a, box_a = on_thread(loop_a)
-    thread_b, box_b = on_thread(lambda: timed_matcher(sanitizer, 0.1))
+    wait_until(lambda: waiting(lock) == 1)
+    thread_b, box_b = on_thread(lambda: matcher_error(sanitizer))
+    wait_until(lambda: waiting(lock) == 2 or not thread_b.is_alive())
+    privacy.gate.set()
     thread_a.join(JOIN_SECONDS)
     thread_b.join(JOIN_SECONDS)
     return box_a["result"], box_b["result"]
 
 
-def first_contender_cross(sanitizer):
-    """Loop B contends first while loop A holds, so the lock binds to B."""
-
-    async def loop_b():
-        waiter = asyncio.create_task(timed_matcher(sanitizer, 0.05))
-        await asyncio.sleep(NEXT_WAKE_SECONDS)
-        return await waiter
-
-    thread_a, box_a = on_thread(lambda: timed_matcher(sanitizer, 0))
-    thread_b, box_b = on_thread(loop_b)
+def first_contender_cross(sanitizer, privacy):
+    """Loop B contends first while loop A holds, so the lock binds to B; A then releases."""
+    thread_a, _ = on_thread(lambda: matcher_error(sanitizer))
+    wait_until(privacy.building.is_set)
+    thread_b, box_b = on_thread(lambda: matcher_error(sanitizer))
+    wait_until(lambda: waiting(sanitizer._cache_lock) == 1)
+    time.sleep(SETTLE_SECONDS)
+    privacy.gate.set()
     thread_a.join(JOIN_SECONDS)
-    thread_b.join(JOIN_SECONDS)
-    return box_a["result"], box_b["result"]
+    return thread_b, box_b
 
 
 class CrossLoopLockTests(unittest.TestCase):
@@ -135,12 +160,13 @@ class CrossLoopLockTests(unittest.TestCase):
     def test_a_waiter_on_another_loop_enters_only_after_the_release(self):
         lock = sl.CrossLoopLock()
         entered = threading.Event()
+        release = threading.Event()
         order = []
 
         async def holder():
             async with lock:
                 entered.set()
-                await asyncio.sleep(0.1)
+                await wait_for_event(release)
                 order.append("released")
 
         async def waiter():
@@ -150,40 +176,89 @@ class CrossLoopLockTests(unittest.TestCase):
         thread_a, _ = on_thread(holder)
         self.assertTrue(entered.wait(JOIN_SECONDS))
         thread_b, _ = on_thread(waiter)
+        wait_until(lambda: waiting(lock) == 1)
+        self.assertEqual(order, [])
+        release.set()
         thread_a.join(JOIN_SECONDS)
         thread_b.join(JOIN_SECONDS)
         self.assertEqual(order, ["released", "entered"])
 
-    def test_a_waiter_leaves_its_loop_free(self):
+    def test_a_later_caller_does_not_overtake_a_waiter(self):
         lock = sl.CrossLoopLock()
+        order = []
+
+        async def caller(name):
+            async with lock:
+                order.append(name)
+
+        async def main():
+            await lock.__aenter__()
+            waiter = asyncio.create_task(caller("waiter"))
+            await asyncio.sleep(0)
+            await lock.__aexit__(None, None, None)
+            await caller("later")
+            await waiter
+
+        asyncio.run(main())
+        self.assertEqual(order, ["waiter", "later"])
+
+    def test_waiters_on_different_loops_enter_in_arrival_order(self):
+        lock = sl.CrossLoopLock()
+        order = []
         entered = threading.Event()
+        release = threading.Event()
 
         async def holder():
             async with lock:
                 entered.set()
-                await asyncio.sleep(0.2)
+                await wait_for_event(release)
+
+        async def waiter(name):
+            async with lock:
+                order.append(name)
+
+        thread_a, _ = on_thread(holder)
+        self.assertTrue(entered.wait(JOIN_SECONDS))
+        thread_b, _ = on_thread(lambda: waiter("first"))
+        wait_until(lambda: waiting(lock) == 1)
+        thread_c, _ = on_thread(lambda: waiter("second"))
+        wait_until(lambda: waiting(lock) == 2)
+        release.set()
+        for thread in (thread_a, thread_b, thread_c):
+            thread.join(JOIN_SECONDS)
+        self.assertEqual(order, ["first", "second"])
+
+    def test_a_waiter_leaves_its_loop_free(self):
+        lock = sl.CrossLoopLock()
+        entered = threading.Event()
+        release = threading.Event()
+        ticks = 0
+
+        async def holder():
+            async with lock:
+                entered.set()
+                await wait_for_event(release)
 
         async def waiter():
-            ticks = 0
-
             async def tick():
                 nonlocal ticks
                 while True:
                     ticks += 1
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(TICK_SECONDS)
 
             ticker = asyncio.create_task(tick())
             async with lock:
                 pass
             ticker.cancel()
-            return ticks
 
         thread_a, _ = on_thread(holder)
         self.assertTrue(entered.wait(JOIN_SECONDS))
-        thread_b, box_b = on_thread(waiter)
+        thread_b, _ = on_thread(waiter)
+        wait_until(lambda: ticks > 3)
+        release.set()
         thread_a.join(JOIN_SECONDS)
         thread_b.join(JOIN_SECONDS)
-        self.assertGreater(box_b["result"], 3)
+        self.assertFalse(thread_b.is_alive())
 
     def test_an_error_inside_releases_the_lock(self):
         lock = sl.CrossLoopLock()
@@ -192,7 +267,7 @@ class CrossLoopLockTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 async with lock:
                     raise ValueError("boom")
-            async with asyncio.timeout(1):
+            async with asyncio.timeout(JOIN_SECONDS):
                 async with lock:
                     return "reacquired"
 
@@ -204,28 +279,54 @@ class CrossLoopLockTests(unittest.TestCase):
         async def main():
             async with lock:
                 waiter = asyncio.create_task(lock.__aenter__())
-                await asyncio.sleep(0.03)
+                await asyncio.sleep(0)
                 waiter.cancel()
                 await asyncio.gather(waiter, return_exceptions=True)
-            async with asyncio.timeout(1):
+            async with asyncio.timeout(JOIN_SECONDS):
                 async with lock:
                     return "reacquired"
 
         self.assertEqual(asyncio.run(main()), "reacquired")
 
+    def test_a_cancelled_waiter_leaves_the_queue_behind_it_moving(self):
+        lock = sl.CrossLoopLock()
+        order = []
+
+        async def waiter(name):
+            async with lock:
+                order.append(name)
+
+        async def main():
+            await lock.__aenter__()
+            first = asyncio.create_task(waiter("first"))
+            await asyncio.sleep(0)
+            second = asyncio.create_task(waiter("second"))
+            await asyncio.sleep(0)
+            first.cancel()
+            await asyncio.gather(first, return_exceptions=True)
+            await lock.__aexit__(None, None, None)
+            async with asyncio.timeout(JOIN_SECONDS):
+                await second
+
+        asyncio.run(main())
+        self.assertEqual(order, ["second"])
+
     def test_a_cancelled_holder_releases_the_lock(self):
         lock = sl.CrossLoopLock()
 
-        async def holder():
-            async with lock:
-                await asyncio.sleep(10)
-
         async def main():
+            entered = asyncio.Event()
+
+            async def holder():
+                async with lock:
+                    entered.set()
+                    await asyncio.Event().wait()
+
             task = asyncio.create_task(holder())
-            await asyncio.sleep(0.01)
+            await entered.wait()
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-            async with asyncio.timeout(1):
+            async with asyncio.timeout(JOIN_SECONDS):
                 async with lock:
                     return "reacquired"
 
@@ -293,11 +394,11 @@ class RealTargetTests(unittest.TestCase):
             self.assertTrue(sl.apply(self.module))
             return cls(privacy)
 
-    def stock(self):
+    def stock(self, privacy):
         # The suite's sitecustomize tests may already have wrapped the class.
         cls = self.module.PrivacySanitizer
         sanitizer = cls.__new__(cls)
-        inspect.unwrap(cls.__init__)(sanitizer, StubPrivacy())
+        inspect.unwrap(cls.__init__)(sanitizer, privacy)
         return sanitizer
 
     def test_guard_matches_the_installed_source(self):
@@ -306,28 +407,33 @@ class RealTargetTests(unittest.TestCase):
         )
 
     def test_stock_lock_raises_across_loops(self):
-        _, (error, _took) = bind_then_cross(self.stock())
+        privacy = StubPrivacy()
+        _, error = bind_then_cross(self.stock(privacy), privacy)
         self.assertIn("bound to a different event loop", error or "")
 
     def test_stock_lock_stalls_a_first_contender(self):
-        _, (error, took) = first_contender_cross(self.stock())
-        self.assertIsNone(error)
-        self.assertGreater(took, NEXT_WAKE_SECONDS - 0.2)
+        privacy = StubPrivacy()
+        thread_b, box_b = first_contender_cross(self.stock(privacy), privacy)
+        thread_b.join(STALL_SECONDS)
+        self.assertTrue(thread_b.is_alive(), "the release woke the other loop")
+        box_b["loop"].call_soon_threadsafe(lambda: None)
+        thread_b.join(JOIN_SECONDS)
+        self.assertFalse(thread_b.is_alive())
+        self.assertIsNone(box_b["result"])
 
     def test_patched_lock_does_not_raise_across_loops(self):
         privacy = StubPrivacy()
-        (first, second), (error, took) = bind_then_cross(self.patched(privacy))
-        self.assertIsNone(first[0])
-        self.assertIsNone(second[0])
-        self.assertIsNone(error)
-        self.assertLess(took, NEXT_WAKE_SECONDS)
+        loop_a_errors, loop_b_error = bind_then_cross(self.patched(privacy), privacy)
+        self.assertEqual(loop_a_errors, [None, None])
+        self.assertIsNone(loop_b_error)
         self.assertEqual(privacy.builds, 1)
 
     def test_patched_lock_does_not_stall_a_first_contender(self):
         privacy = StubPrivacy()
-        _, (error, took) = first_contender_cross(self.patched(privacy))
-        self.assertIsNone(error)
-        self.assertLess(took, NEXT_WAKE_SECONDS - 0.5)
+        thread_b, box_b = first_contender_cross(self.patched(privacy), privacy)
+        thread_b.join(JOIN_SECONDS)
+        self.assertFalse(thread_b.is_alive(), "the waiter never woke")
+        self.assertIsNone(box_b["result"])
         self.assertEqual(privacy.builds, 1)
 
     def test_patched_lock_runs_one_build_at_a_time_across_loops(self):
@@ -337,11 +443,11 @@ class RealTargetTests(unittest.TestCase):
             account_id="a", user=types.SimpleNamespace(user_id="v")
         )
 
-        async def build(ctx):
-            await sanitizer._matcher(ctx)
-
-        thread_a, _ = on_thread(lambda: build(CTX))
-        thread_b, _ = on_thread(lambda: build(other_user))
+        thread_a, _ = on_thread(lambda: sanitizer._matcher(CTX))
+        wait_until(privacy.building.is_set)
+        thread_b, _ = on_thread(lambda: sanitizer._matcher(other_user))
+        wait_until(lambda: waiting(sanitizer._cache_lock) == 1 or privacy.running == 2)
+        privacy.gate.set()
         thread_a.join(JOIN_SECONDS)
         thread_b.join(JOIN_SECONDS)
         self.assertEqual(privacy.builds, 2)
