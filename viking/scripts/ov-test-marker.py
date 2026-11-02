@@ -44,12 +44,15 @@ class MarkerError(Exception):
 
 
 def kubectl(*args):
-    proc = subprocess.run(
-        ["kubectl", "-n", NAMESPACE, f"--request-timeout={REQUEST_TIMEOUT}", *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["kubectl", "-n", NAMESPACE, f"--request-timeout={REQUEST_TIMEOUT}", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:  # kubectl missing or not executable
+        raise MarkerError(f"kubectl {args[0]}: {exc.strerror or exc}") from None
     if proc.returncode != 0:
         raise MarkerError(f"kubectl {args[0]}: {proc.stderr.strip()[:300]}")
     return proc.stdout
@@ -92,8 +95,24 @@ def age(since, now):
     return f"{hours}h{rest // 60:02d}m ago"
 
 
+def printable(text):
+    """Text safe to print as one line on any stdout: anyone with kubectl can
+    write the annotation, so a newline, control character or lone surrogate in
+    it is escaped, and so is anything the stdout encoding cannot carry."""
+    text = "".join(c if c.isprintable() else ascii(c)[1:-1] for c in text)
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        return text.encode(encoding, "backslashreplace").decode(encoding)
+    except LookupError:
+        return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
 def describe(mark, now=None):
-    """One line for a mark, as `show` and ov-test-drift.py print it."""
+    """One printable line for a mark, as `show` and ov-test-drift.py print it."""
+    return printable(_describe(mark, now))
+
+
+def _describe(mark, now):
     if mark is None:
         return "in use: not marked"
     if isinstance(mark, str):
@@ -112,13 +131,16 @@ def describe(mark, now=None):
 
 def host_name():
     if sys.platform == "darwin":
-        proc = subprocess.run(
-            ["scutil", "--get", "ComputerName"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
+        try:
+            proc = subprocess.run(
+                ["scutil", "--get", "ComputerName"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            proc = None
+        if proc and proc.returncode == 0 and proc.stdout.strip():
             return proc.stdout.strip()
     return platform.node().split(".")[0] or "unknown"
 

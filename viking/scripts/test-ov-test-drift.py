@@ -78,11 +78,12 @@ class DriftTests(unittest.TestCase):
     def write(self, name, obj):
         (self.dir / f"{name}.json").write_text(json.dumps(obj), encoding="utf-8")
 
-    def run_script(self, *args):
+    def run_script(self, *args, **extra_env):
         env = {
             **os.environ,
             "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
             "STUB_DIR": str(self.dir),
+            **extra_env,
         }
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
@@ -298,6 +299,24 @@ class DriftTests(unittest.TestCase):
             r"^in use: BUG-1282, session f4978b92, host pop, "
             r"since 2026-11-01T00:42:00Z \(\d+h\d\dm ago\)$",
         )
+
+    def test_unprintable_mark_keeps_the_exit_and_one_line(self):
+        hostile = {
+            "item": "X\ud800",
+            "session": "s\nin use: not marked",
+            "host": "Nathan’s Mac",
+            "since": "2026-11-01T00:42:00Z",
+        }
+        self.write("deploy", deployment(hostile))
+        for encoding in ("utf-8", "ascii"):
+            with self.subTest(encoding=encoding):
+                proc = self.run_script(PYTHONIOENCODING=encoding)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                lines = proc.stdout.splitlines()
+                self.assertEqual(len(lines), 2, proc.stdout)
+                self.assertIn("X\\ud800", lines[1])
+                self.assertIn("s\\nin use: not marked", lines[1])
 
     def test_unreadable_mark_keeps_the_drift_exit(self):
         (self.dir / "deploy.fail").write_text("forbidden\n", encoding="utf-8")

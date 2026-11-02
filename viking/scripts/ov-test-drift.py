@@ -56,15 +56,24 @@ def load_marker():
     return module
 
 
-def marker_line():
-    """Who has marked ov-test as in use. A failure here never changes the exit
-    code, which reports drift only."""
+def print_marker():
+    """Print who has marked ov-test as in use. Nothing here, reading or
+    printing, may change the exit code, which reports drift only."""
     try:
         marker = load_marker()
-        mark, _ = marker.read_deployment()
-        return marker.describe(mark)
     except Exception as exc:  # noqa: BLE001 — a missing mark must not hide drift
-        return f"in use: unknown ({str(exc)[:200] or type(exc).__name__})"
+        line = f"in use: unknown ({type(exc).__name__})"
+    else:
+        try:
+            mark, _ = marker.read_deployment()
+            line = marker.describe(mark)
+        except Exception as exc:  # noqa: BLE001
+            reason = str(exc)[:200] or type(exc).__name__
+            line = marker.printable(f"in use: unknown ({reason})")
+    try:
+        print(line)
+    except Exception:  # noqa: BLE001 — e.g. an encoding error on a closed pipe
+        pass
 
 
 def rendered_data(checker, root):
@@ -190,12 +199,12 @@ def main(argv=None):
     source = args.root / kdir
     if not rows:
         print(f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)")
-        print(marker_line())
+        print_marker()
         return 0
     print(f"live {CONFIGMAP} differs from the render of {source}:")
     print("\n".join(rows))
     print("(+ lines an apply would add, - lines it would remove)")
-    print(marker_line())
+    print_marker()
     return EXIT_DRIFT
 
 

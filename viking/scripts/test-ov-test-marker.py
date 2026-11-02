@@ -208,6 +208,47 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
+    def test_kubectl_missing_exits_two(self):
+        env_path = str(self.dir / "empty")
+        os.mkdir(env_path)
+        for args in (["show"], ["set", "--item", "X"], ["clear"]):
+            with self.subTest(args=args):
+                proc = subprocess.run(
+                    [sys.executable, str(SCRIPT), *args],
+                    capture_output=True,
+                    text=True,
+                    env={
+                        **os.environ,
+                        "PATH": env_path,
+                        "CLAUDE_CODE_SESSION_ID": "me",
+                    },
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 2, proc.stderr)
+                self.assertIn("ov-test-marker: kubectl get:", proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+
+    def test_show_escapes_an_unprintable_mark(self):
+        self.serve(deployment({**OTHER, "item": "X\ud800", "note": "a\nb"}))
+        for encoding in ("utf-8", "ascii"):
+            with self.subTest(encoding=encoding):
+                env = {
+                    **os.environ,
+                    "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+                    "STUB_DIR": str(self.dir),
+                    "PYTHONIOENCODING": encoding,
+                }
+                proc = subprocess.run(
+                    [sys.executable, str(SCRIPT), "show"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(len(proc.stdout.splitlines()), 1, proc.stdout)
+                self.assertIn("X\\ud800", proc.stdout)
+
     def test_set_without_a_session_is_a_usage_error(self):
         proc = self.run_script("set", "--item", "X", session=None)
         self.assertEqual(proc.returncode, 2)
