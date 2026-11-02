@@ -17,7 +17,7 @@ Traefik IngressRoutes. In the Notes column below, `CF` = Cloudflare-tunnel-only,
 | `nathanwhyte.dev` / `www.nathanwhyte.dev` | portfolio                   | —                                               | CF                                                                                                                                                                                                                                                                                                          |
 | `risk.nathanwhyte.dev` / `equalriskportfolio.com` / `www.equalriskportfolio.com` | `rails.equal-risk:3000`    | Rails application                              | Dedicated Cloudflare `eqrsk` tunnel; all three hostnames share one ingress rule. Provider routing is recorded in [`cloudflare/namespace-tunnels/eqrsk-routing.yaml`](../cloudflare/namespace-tunnels/eqrsk-routing.yaml) |
 
-> `lamp.nathanwhyte.dev`/`mem0.nathanwhyte.dev`/`api-mem0.nathanwhyte.dev` removed 2026-07-02 — headlamp and the mem0 stack were torn down live (see IMPR-1028). `hermes.nathanwhyte.dev` removed 2026-07-16 — Hermes was retired (see `hermes/RETIRED.md`). `uploads.nathanwhyte.dev` (Garage S3, tunnel route and LAN ingress) removed 2026-11-02 — Garage is cluster-only (see IMPR-1457).
+> `lamp.nathanwhyte.dev`/`mem0.nathanwhyte.dev`/`api-mem0.nathanwhyte.dev` removed 2026-07-02 — headlamp and the mem0 stack were torn down live (see IMPR-1028). `hermes.nathanwhyte.dev` removed 2026-07-16 — Hermes was retired (see `hermes/RETIRED.md`). `uploads.nathanwhyte.dev` (Garage S3, tunnel route and LAN ingress) removed 2026-11-02, along with its public DNS record — Garage is cluster-only (see IMPR-1457).
 
 ## LAN / Tailnet-only admin UIs (IMPR-1029)
 

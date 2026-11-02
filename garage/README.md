@@ -11,7 +11,7 @@ S3-compatible object storage running on the K3s cluster. Based on [Garage](https
 | Deploy | Helm via `garage/deploy-garage.sh` using `garage/garage-values.yaml` |
 | Storage | 3× data (50Gi, `longhorn-garage-data`) + 3× meta (5Gi, `longhorn-nvme`) Longhorn volumes |
 | Layout | 3-zone replication (one zone per node), `replication_factor = 3` |
-| Key consumers | OpenViking AGFS (`agfs.backend: s3` → bucket `openviking-agfs`), the k3s datastore backup CronJob (bucket `k3s-backups`). Buckets `credit-coach-dev`/`-prod` and `filestore` also exist; their current consumers are unconfirmed. The equal-risk Postgres backup goes to R2, not Garage |
+| Key consumers | OpenViking AGFS (`agfs.backend: s3` → bucket `openviking-agfs`), the k3s datastore backup CronJob (bucket `k3s-backups`). Buckets `credit-coach-dev`/`-prod` also exist; their current consumers are unconfirmed. The unused `filestore` bucket was deleted 2026-11-02. The equal-risk Postgres backup goes to R2, not Garage |
 
 The admin API token lives in the `garage-admin-token` Secret (key `admin-token`), injected as `GARAGE_ADMIN_TOKEN` through `environment` in `garage-values.yaml`; `garage.toml` carries none. To rotate it: `kubectl -n garage create secret generic garage-admin-token --from-literal=admin-token="$(openssl rand -base64 32)" --dry-run=client -o yaml | kubectl apply -f -`, then restart the pods one at a time (each restart can fail an in-flight S3 write, since there is no readiness probe). Prometheus scrapes `/metrics` on `:3903` without a token; no `metrics_token` is set.
 
