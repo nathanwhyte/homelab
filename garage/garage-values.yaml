@@ -156,18 +156,12 @@ service:
 # Admin API is handled via headless service automatically
 
 # Ingress configuration
+# 2026-11-02 (IMPR-1457): disabled. Garage is cluster-only; the former
+# uploads.nathanwhyte.dev ingress and tunnel route were removed.
 ingress:
   s3:
     api:
-      enabled: true
-      className: "traefik"
-      labels:
-        traefik.ingress.kubernetes.io/router.entrypoints: web
-      hosts:
-        - host: uploads.nathanwhyte.dev
-          paths:
-            - path: /
-              pathType: Prefix
+      enabled: false
 
 # Resource limits and requests (added: was unbounded)
 # 2026-07-06 (IMPR-1038): 64Mi/256Mi -> 128Mi/1Gi. LMDB block-manager init on the

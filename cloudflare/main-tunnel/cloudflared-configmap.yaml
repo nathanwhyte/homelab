@@ -14,8 +14,8 @@ data:
       # Tailscale/LAN-only via Traefik, not tunneled publicly.
       # headlamp torn down 2026-07-02 (namespace deleted); lamp.nathanwhyte.dev
       # DNS record removal is a Cloudflare-dashboard action.
-      - hostname: uploads.nathanwhyte.dev
-        service: http://garage.garage.svc.cluster.local:3900
+      # uploads.nathanwhyte.dev (Garage S3) removed 2026-11-02 (IMPR-1457):
+      # Garage is cluster-only; its DNS record is a Cloudflare-dashboard removal.
       - hostname: logs.nathanwhyte.dev
         service: http://kube-prometheus-stack-grafana.grafana.svc.cluster.local:3000
       # longhorn.nathanwhyte.dev removed 2026-07-02 (IMPR-1029): admin UI is

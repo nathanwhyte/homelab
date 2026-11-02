@@ -94,8 +94,7 @@ kubectl apply -f "$GARAGE_DIR/manager/garage-manager-config.yaml"
 kubectl apply -f "$GARAGE_DIR/manager/garage-manager.yaml"
 
 echo -e "\nDone! Visit:"
-echo "  S3 API: https://uploads.nathanwhyte.dev"
-echo "  Garage uses S3-compatible API"
+echo "  S3 API (cluster-only): http://garage.garage.svc.cluster.local:3900"
 
 echo -e "\nCheck status:"
 echo "  kubectl get pods -n $NAMESPACE"
