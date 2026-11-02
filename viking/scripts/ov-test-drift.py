@@ -10,7 +10,9 @@ the patch under test.
 Read-only: it runs `kubectl kustomize` and `kubectl get`, and prints line counts,
 never ConfigMap contents. It renders the checkout it sits in, so run it from an
 up-to-date main/ to compare with main, or pass --root. It compares the ConfigMap
-only: a pod keeps the patches it loaded until it restarts.
+only: a pod keeps the patches it loaded until it restarts. After the comparison
+it prints the in-use mark ov-test-marker.py keeps, so a canary plan can see who
+else is experimenting on the stack.
 
 Exit 0: no drift. Exit 1: drift. Exit 2: could not compare.
 Usage: uv run --no-project --with pyyaml python viking/scripts/ov-test-drift.py
@@ -43,6 +45,26 @@ def load_checker():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_marker():
+    """ov-test-marker.py, the one definition of the in-use mark."""
+    path = Path(__file__).resolve().parent / "ov-test-marker.py"
+    spec = importlib.util.spec_from_file_location("_ov_test_marker", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def marker_line():
+    """Who has marked ov-test as in use. A failure here never changes the exit
+    code, which reports drift only."""
+    try:
+        marker = load_marker()
+        mark, _ = marker.read_deployment()
+        return marker.describe(mark)
+    except Exception as exc:  # noqa: BLE001 — a missing mark must not hide drift
+        return f"in use: unknown ({str(exc)[:200] or type(exc).__name__})"
 
 
 def rendered_data(checker, root):
@@ -168,10 +190,12 @@ def main(argv=None):
     source = args.root / kdir
     if not rows:
         print(f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)")
+        print(marker_line())
         return 0
     print(f"live {CONFIGMAP} differs from the render of {source}:")
     print("\n".join(rows))
     print("(+ lines an apply would add, - lines it would remove)")
+    print(marker_line())
     return EXIT_DRIFT
 
 

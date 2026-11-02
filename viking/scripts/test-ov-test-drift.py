@@ -24,8 +24,9 @@ import unittest
 SCRIPT = Path(__file__).resolve().parent / "ov-test-drift.py"
 STUB = """#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_DIR/calls"
-case "$1" in
-  kustomize) name=render ;;
+case "$*" in
+  kustomize*) name=render ;;
+  *" get deployment "*) name=deploy ;;
   *) name=live ;;
 esac
 if [ -f "$STUB_DIR/$name.fail" ]; then
@@ -34,6 +35,7 @@ if [ -f "$STUB_DIR/$name.fail" ]; then
 fi
 cat "$STUB_DIR/$name.json"
 """
+MARK_KEY = "homelab.nathanwhyte.dev/ov-test-in-use"
 SITE = "line 1\nline 2\n"
 PATCH = "a\nb\nc\n"
 
@@ -50,6 +52,13 @@ def configmap(data, name="ov-nav-patch", namespace="viking", binary=None):
     return obj
 
 
+def deployment(mark=None):
+    meta = {"name": "openviking-test", "namespace": "viking", "resourceVersion": "7"}
+    if mark is not None:
+        meta["annotations"] = {MARK_KEY: json.dumps(mark)}
+    return {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": meta}
+
+
 class DriftTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -64,6 +73,7 @@ class DriftTests(unittest.TestCase):
         self.write(
             "live", configmap({"sitecustomize.py": SITE, "ov_x_patch.py": PATCH})
         )
+        self.write("deploy", deployment())
 
     def write(self, name, obj):
         (self.dir / f"{name}.json").write_text(json.dumps(obj), encoding="utf-8")
@@ -248,12 +258,52 @@ class DriftTests(unittest.TestCase):
     def test_runs_only_read_commands(self):
         self.run_script()
         calls = (self.dir / "calls").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         self.assertTrue(calls[0].startswith("kustomize "), calls)
         self.assertRegex(
             calls[1],
             r"^-n viking --request-timeout=\d+s get configmap ov-nav-patch -o json$",
         )
+        self.assertRegex(
+            calls[2],
+            r"^-n viking --request-timeout=\d+s get deployment openviking-test -o json$",
+        )
+
+    def test_unmarked_stack_says_so(self):
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[-1], "in use: not marked")
+
+    def test_marked_stack_names_item_and_session(self):
+        self.write(
+            "render",
+            configmap({"sitecustomize.py": SITE, "ov_x_patch.py": "a\nB\nc\n"}),
+        )
+        self.write(
+            "deploy",
+            deployment(
+                {
+                    "item": "BUG-1282",
+                    "session": "f4978b92",
+                    "host": "pop",
+                    "since": "2026-11-01T00:42:00Z",
+                }
+            ),
+        )
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        last = proc.stdout.splitlines()[-1]
+        self.assertRegex(
+            last,
+            r"^in use: BUG-1282, session f4978b92, host pop, "
+            r"since 2026-11-01T00:42:00Z \(\d+h\d\dm ago\)$",
+        )
+
+    def test_unreadable_mark_keeps_the_drift_exit(self):
+        (self.dir / "deploy.fail").write_text("forbidden\n", encoding="utf-8")
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("in use: unknown (kubectl get: forbidden)", proc.stdout)
 
 
 if __name__ == "__main__":
