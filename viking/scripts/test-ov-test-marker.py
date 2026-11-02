@@ -249,6 +249,81 @@ class MarkerTests(unittest.TestCase):
                 self.assertEqual(len(proc.stdout.splitlines()), 1, proc.stdout)
                 self.assertIn("X\\ud800", proc.stdout)
 
+    def test_non_utf8_kubectl_stderr_exits_two(self):
+        (self.dir / "annotate.fail").write_bytes(b"credential helper failed: \xff\n")
+        self.serve(deployment({**OTHER, "session": "me-123"}))
+        for args in (["set", "--item", "X"], ["clear"]):
+            with self.subTest(args=args):
+                proc = self.run_script(*args)
+                self.assertEqual(proc.returncode, 2, proc.stderr)
+                self.assertIn("credential helper failed", proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+
+    def run_with_failing_decoder(self, *args):
+        """The script with json.loads raising RecursionError on the mark, as
+        system Python 3.9 does on 1,500 nested arrays."""
+        wrapper = (
+            "import json, runpy, sys\n"
+            "real = json.loads\n"
+            "def loads(s, *a, **k):\n"
+            "    if isinstance(s, str) and s.startswith('[[['):\n"
+            "        raise RecursionError('maximum recursion depth exceeded')\n"
+            "    return real(s, *a, **k)\n"
+            "json.loads = loads\n"
+            f"sys.argv = [{str(SCRIPT)!r}, *sys.argv[1:]]\n"
+            f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')\n"
+        )
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+            "CLAUDE_CODE_SESSION_ID": "me-123",
+        }
+        return subprocess.run(
+            [sys.executable, "-c", wrapper, *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+    def test_undecodable_mark_is_unreadable_and_force_clears(self):
+        self.serve(deployment(raw="[" * 1500 + "]" * 1500))
+        proc = self.run_with_failing_decoder("show")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("unreadable mark", proc.stdout)
+        proc = self.run_with_failing_decoder("clear")
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+        self.assertEqual(self.annotate_calls(), [])
+        proc = self.run_with_failing_decoder("clear", "--force")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len(self.annotate_calls()), 1)
+
+    def test_unexpected_failure_exits_two_without_traceback(self):
+        wrapper = (
+            "import runpy, sys\n"
+            f"sys.argv = [{str(SCRIPT)!r}, 'show']\n"
+            f"ns = runpy.run_path({str(SCRIPT)!r})\n"
+            "def boom(_args): raise KeyError('x')\n"
+            "ns['cmd_show'].__globals__['cmd_show'] = boom\n"
+            "sys.exit(ns['main']())\n"
+        )
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        proc = subprocess.run(
+            [sys.executable, "-c", wrapper],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("failed (KeyError", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
     def test_set_without_a_session_is_a_usage_error(self):
         proc = self.run_script("set", "--item", "X", session=None)
         self.assertEqual(proc.returncode, 2)

@@ -19,8 +19,9 @@ of viking/manifests/test keeps it, since the manifest never declared it.
 and pass the Deployment's resourceVersion so a concurrent change fails instead
 of being overwritten. The session defaults to $CLAUDE_CODE_SESSION_ID.
 
-Exit 0: done (or, for show, read). Exit 2: kubectl failed or a concurrent
-change. Exit 3: refused, the mark belongs to another session.
+Exit 0: done (or, for show, read). Exit 2: kubectl failed, a concurrent
+change, or any other failure. Exit 3: refused, the mark belongs to another
+session.
 """
 
 import argparse
@@ -48,7 +49,8 @@ def kubectl(*args):
         proc = subprocess.run(
             ["kubectl", "-n", NAMESPACE, f"--request-timeout={REQUEST_TIMEOUT}", *args],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
     except OSError as exc:  # kubectl missing or not executable
@@ -74,13 +76,16 @@ def read_deployment():
 
 
 def parse(raw):
+    """The mark as a dict, or the raw text when it is anything else. Total: any
+    failure, a RecursionError on deep JSON included, reads as unreadable, so
+    `clear --force` can always remove it."""
     if raw is None:
         return None
     try:
         value = json.loads(raw)
-    except ValueError:
-        return raw
-    return value if isinstance(value, dict) else raw
+    except Exception:  # noqa: BLE001
+        return str(raw)
+    return value if isinstance(value, dict) else str(raw)
 
 
 def age(since, now):
@@ -219,11 +224,18 @@ def main(argv=None):
             p.add_argument("--item", required=True)
             p.add_argument("--note")
     args = parser.parse_args(argv)
+    # The exit codes are the contract, so nothing may escape as a traceback's 1.
     try:
         return args.run(args)
     except MarkerError as exc:
-        print(f"ov-test-marker: {exc}", file=sys.stderr)
-        return EXIT_KUBECTL
+        message = f"ov-test-marker: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        message = f"ov-test-marker: failed ({type(exc).__name__}: {str(exc)[:200]})"
+    try:
+        print(printable(message), file=sys.stderr)
+    except Exception:  # noqa: BLE001
+        pass
+    return EXIT_KUBECTL
 
 
 if __name__ == "__main__":
