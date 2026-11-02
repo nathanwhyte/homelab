@@ -197,7 +197,15 @@ affinity:
         topologyKey: kubernetes.io/hostname
 
 # Additional environment variables
-environment: {}
+# 2026-11-02 (IMPR-1457): the admin API token comes from the garage-admin-token
+# Secret (created by hand, see garage/README.md). GARAGE_ADMIN_TOKEN overrides
+# admin.admin_token in garage.toml, which no longer carries one.
+environment:
+  - name: GARAGE_ADMIN_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: garage-admin-token
+        key: admin-token
 
 # Extra volumes
 extraVolumes: {}
