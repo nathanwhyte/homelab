@@ -203,7 +203,13 @@ repos:
         language: python
         additional_dependencies: [pyyaml==6.0.2]
         pass_filenames: false
-        files: ^viking/scripts/((test-)?ov-test-drift|check-nav-patch-files)\.py$
+        files: ^viking/scripts/((test-)?ov-test-(drift|marker)|check-nav-patch-files)\.py$
+      - id: ov-test-marker-tests
+        name: ov-test-marker tests
+        entry: python3 viking/scripts/test-ov-test-marker.py
+        language: python
+        pass_filenames: false
+        files: ^viking/scripts/(test-)?ov-test-marker\.py$
       # IMPR-1413: the nav-patch suite. Uses the `openviking` uv tool's Python when
       # it exists, mapping its `0.5.1.1` to the image's `v0.5.1.1`; without
       # openviking, or with a uv tool on another release, the real-module cases

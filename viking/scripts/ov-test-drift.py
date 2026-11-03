@@ -10,9 +10,12 @@ the patch under test.
 Read-only: it runs `kubectl kustomize` and `kubectl get`, and prints line counts,
 never ConfigMap contents. It renders the checkout it sits in, so run it from an
 up-to-date main/ to compare with main, or pass --root. It compares the ConfigMap
-only: a pod keeps the patches it loaded until it restarts.
+only: a pod keeps the patches it loaded until it restarts. After the comparison
+it prints the in-use mark ov-test-marker.py keeps, so a canary plan can see who
+else is experimenting on the stack.
 
-Exit 0: no drift. Exit 1: drift. Exit 2: could not compare.
+Exit 0: no drift. Exit 1: drift. Exit 2: could not compare. A closed stdout
+or stderr loses the text and never changes the exit code.
 Usage: uv run --no-project --with pyyaml python viking/scripts/ov-test-drift.py
 """
 
@@ -21,6 +24,7 @@ import base64
 import difflib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -43,6 +47,88 @@ def load_checker():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_marker():
+    """ov-test-marker.py, the one definition of the in-use mark."""
+    path = Path(__file__).resolve().parent / "ov-test-marker.py"
+    spec = importlib.util.spec_from_file_location("_ov_test_marker", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def marker_line():
+    """Who has marked ov-test as in use, as one printable line. Nothing here
+    may raise, since the exit code reports drift only."""
+    try:
+        marker = load_marker()
+    except Exception as exc:  # noqa: BLE001 — a missing mark must not hide drift
+        return f"in use: unknown ({type(exc).__name__})"
+    try:
+        mark, _ = marker.read_deployment()
+        return marker.describe(mark)
+    except Exception as exc:  # noqa: BLE001
+        reason = str(exc)[:200] or type(exc).__name__
+        try:
+            return marker.printable(f"in use: unknown ({reason})")
+        except Exception:  # noqa: BLE001
+            return f"in use: unknown ({type(exc).__name__})"
+
+
+LOST = set()  # names of the streams whose reader has gone
+
+
+def open_streams():
+    """Give a descriptor closed before start (sys.stdout or sys.stderr None) a
+    /dev/null stream, so that nothing, argparse included, falls back from a
+    missing stderr to stdout."""
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            LOST.add(name)
+            try:
+                setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            except OSError:
+                pass
+
+
+def escaped(text, out):
+    """Text that `out`'s encoding can carry, so that a path or key it cannot
+    encode is escaped rather than taken for a lost stream."""
+    encoding = getattr(out, "encoding", None) or "utf-8"
+    try:
+        return text.encode(encoding, "backslashreplace").decode(encoding)
+    except Exception:  # noqa: BLE001 — unknown, or raises whatever the handler (undefined, idna)
+        return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
+def emit(lines, stream="stdout"):
+    """Print lines and flush them now. A closed or broken stream loses the text
+    and nothing else; a lost report is noted on stderr when stderr works."""
+    out = getattr(sys, stream, None)
+    lost = stream in LOST or out is None  # never print(file=None): that is stdout
+    if not lost:
+        try:
+            for line in lines:
+                print(escaped(line, out), file=out)
+            out.flush()
+        except (OSError, ValueError):
+            LOST.add(stream)
+            lost = True
+    if lost and stream == "stdout":
+        emit(["ov-test-drift: stdout closed, report lost"], "stderr")
+
+
+def finish(code):
+    """Exit with `code` and nothing else. Both streams are flushed here, where
+    a failure loses only their text, and os._exit skips the interpreter's
+    flush at exit, the one place a stream could still turn the code into 120."""
+    for name in ("stdout", "stderr"):
+        try:
+            getattr(sys, name).flush()  # None (AttributeError) is caught too
+        except Exception:  # noqa: BLE001
+            pass
+    os._exit(code)
 
 
 def rendered_data(checker, root):
@@ -158,22 +244,30 @@ def main(argv=None):
         live = live_data(checker.NAMESPACE)
         rows = compare(rendered, live)
     except (CompareError, SystemExit) as exc:  # SystemExit: no PyYAML
-        print(f"ov-test-drift: could not compare: {exc}", file=sys.stderr)
+        emit([f"ov-test-drift: could not compare: {exc}"], "stderr")
         return EXIT_UNKNOWN
     except Exception as exc:  # noqa: BLE001 — the type alone, for the same reason
-        print(
-            f"ov-test-drift: could not compare: {type(exc).__name__}", file=sys.stderr
-        )
+        emit([f"ov-test-drift: could not compare: {type(exc).__name__}"], "stderr")
         return EXIT_UNKNOWN
     source = args.root / kdir
     if not rows:
-        print(f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)")
-        return 0
-    print(f"live {CONFIGMAP} differs from the render of {source}:")
-    print("\n".join(rows))
-    print("(+ lines an apply would add, - lines it would remove)")
-    return EXIT_DRIFT
+        report = [f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)"]
+    else:
+        report = [
+            f"live {CONFIGMAP} differs from the render of {source}:",
+            *rows,
+            "(+ lines an apply would add, - lines it would remove)",
+        ]
+    emit([*report, marker_line()])
+    return EXIT_DRIFT if rows else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    open_streams()
+    try:
+        exit_code = main()
+    except SystemExit as exc:  # argparse: 0 for --help, 2 for a usage error
+        exit_code = 0 if exc.code in (None, 0) else EXIT_UNKNOWN
+    except Exception:  # noqa: BLE001 — main() maps failures itself; a backstop
+        exit_code = EXIT_UNKNOWN
+    finish(exit_code)

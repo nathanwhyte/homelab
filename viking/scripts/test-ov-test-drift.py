@@ -24,8 +24,9 @@ import unittest
 SCRIPT = Path(__file__).resolve().parent / "ov-test-drift.py"
 STUB = """#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_DIR/calls"
-case "$1" in
-  kustomize) name=render ;;
+case "$*" in
+  kustomize*) name=render ;;
+  *" get deployment "*) name=deploy ;;
   *) name=live ;;
 esac
 if [ -f "$STUB_DIR/$name.fail" ]; then
@@ -34,6 +35,7 @@ if [ -f "$STUB_DIR/$name.fail" ]; then
 fi
 cat "$STUB_DIR/$name.json"
 """
+MARK_KEY = "homelab.nathanwhyte.dev/ov-test-in-use"
 SITE = "line 1\nline 2\n"
 PATCH = "a\nb\nc\n"
 
@@ -50,6 +52,13 @@ def configmap(data, name="ov-nav-patch", namespace="viking", binary=None):
     return obj
 
 
+def deployment(mark=None):
+    meta = {"name": "openviking-test", "namespace": "viking", "resourceVersion": "7"}
+    if mark is not None:
+        meta["annotations"] = {MARK_KEY: json.dumps(mark)}
+    return {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": meta}
+
+
 class DriftTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -64,15 +73,17 @@ class DriftTests(unittest.TestCase):
         self.write(
             "live", configmap({"sitecustomize.py": SITE, "ov_x_patch.py": PATCH})
         )
+        self.write("deploy", deployment())
 
     def write(self, name, obj):
         (self.dir / f"{name}.json").write_text(json.dumps(obj), encoding="utf-8")
 
-    def run_script(self, *args):
+    def run_script(self, *args, **extra_env):
         env = {
             **os.environ,
             "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
             "STUB_DIR": str(self.dir),
+            **extra_env,
         }
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
@@ -248,12 +259,204 @@ class DriftTests(unittest.TestCase):
     def test_runs_only_read_commands(self):
         self.run_script()
         calls = (self.dir / "calls").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         self.assertTrue(calls[0].startswith("kustomize "), calls)
         self.assertRegex(
             calls[1],
             r"^-n viking --request-timeout=\d+s get configmap ov-nav-patch -o json$",
         )
+        self.assertRegex(
+            calls[2],
+            r"^-n viking --request-timeout=\d+s get deployment openviking-test -o json$",
+        )
+
+    def test_unmarked_stack_says_so(self):
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[-1], "in use: not marked")
+
+    def test_marked_stack_names_item_and_session(self):
+        self.write(
+            "render",
+            configmap({"sitecustomize.py": SITE, "ov_x_patch.py": "a\nB\nc\n"}),
+        )
+        self.write(
+            "deploy",
+            deployment(
+                {
+                    "item": "BUG-1282",
+                    "session": "f4978b92",
+                    "host": "pop",
+                    "since": "2026-11-01T00:42:00Z",
+                }
+            ),
+        )
+        proc = self.run_script(TZ="America/Chicago")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        last = proc.stdout.splitlines()[-1]
+        self.assertRegex(
+            last,
+            r"^in use: BUG-1282, session f4978b92, host pop, "
+            r"since 2026-10-31 19:42 CDT \(\d+h\d\dm ago\)$",
+        )
+
+    def test_unprintable_mark_keeps_the_exit_and_one_line(self):
+        hostile = {
+            "item": "X\ud800",
+            "session": "s\nin use: not marked",
+            "host": "Nathan’s Mac",
+            "since": "2026-11-01T00:42:00Z",
+        }
+        self.write("deploy", deployment(hostile))
+        for encoding in ("utf-8", "ascii"):
+            with self.subTest(encoding=encoding):
+                proc = self.run_script(PYTHONIOENCODING=encoding)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                lines = proc.stdout.splitlines()
+                self.assertEqual(len(lines), 2, proc.stdout)
+                self.assertIn("X\\ud800", lines[1])
+                self.assertIn("s\\nin use: not marked", lines[1])
+
+    def run_with_closed(self, stream):
+        """The script with its stdout or stderr a pipe nobody reads, as when the
+        consumer (`| head`, a closed terminal) has gone."""
+        read_end, write_end = os.pipe()
+        os.close(read_end)
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        streams = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        streams[stream] = write_end
+        try:
+            return subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                text=True,
+                env=env,
+                check=False,
+                **streams,
+            )
+        finally:
+            os.close(write_end)
+
+    def test_closed_stdout_keeps_the_exit_code(self):
+        proc = self.run_with_closed("stdout")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.write("live", configmap({"sitecustomize.py": SITE}))
+        proc = self.run_with_closed("stdout")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_closed_stderr_keeps_the_exit_code(self):
+        (self.dir / "live.fail").write_text("connection refused\n", encoding="utf-8")
+        proc = self.run_with_closed("stderr")
+        self.assertEqual(proc.returncode, 2)
+
+    def run_streams(self, stdout="pipe", stderr="pipe"):
+        """The script with each of stdout and stderr a captured pipe ("pipe"), a
+        pipe nobody reads ("broken"), or a descriptor closed before the
+        interpreter starts ("closed")."""
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        streams, ends, shut = {}, [], []
+        for name, fd, mode in (("stdout", 1, stdout), ("stderr", 2, stderr)):
+            if mode == "pipe":
+                streams[name] = subprocess.PIPE
+            elif mode == "broken":
+                read_end, write_end = os.pipe()
+                os.close(read_end)
+                ends.append(write_end)
+                streams[name] = write_end
+            else:
+                streams[name] = subprocess.DEVNULL
+                shut.append(fd)
+
+        def close_fds():
+            for fd in shut:
+                os.close(fd)
+
+        try:
+            return subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                text=True,
+                env=env,
+                check=False,
+                preexec_fn=close_fds if shut else None,
+                **streams,
+            )
+        finally:
+            for end in ends:
+                os.close(end)
+
+    def test_no_stream_state_changes_the_exit_code(self):
+        modes = ("pipe", "broken", "closed")
+        for name, code in (("match", 0), ("drift", 1), ("could not compare", 2)):
+            if name == "drift":
+                self.write("live", configmap({"sitecustomize.py": SITE}))
+            if name == "could not compare":
+                (self.dir / "live.fail").write_text("refused\n", encoding="utf-8")
+            for out in modes:
+                for err in modes:
+                    with self.subTest(case=name, stdout=out, stderr=err):
+                        proc = self.run_streams(stdout=out, stderr=err)
+                        self.assertEqual(proc.returncode, code)
+                        if out == "pipe" and code == 2:
+                            self.assertEqual(proc.stdout, "")
+
+    def test_stdout_closed_at_start_is_noted(self):
+        self.write("live", configmap({"sitecustomize.py": SITE}))
+        proc = self.run_streams(stdout="closed")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("stdout closed, report lost", proc.stderr)
+
+    def test_stderr_closed_and_unopenable_null_keeps_stdout_clean(self):
+        (self.dir / "live.fail").write_text("refused\n", encoding="utf-8")
+        wrapper = (
+            "import builtins, os, runpy, sys\n"
+            "real = builtins.open\n"
+            "def no_null(path, *a, **k):\n"
+            "    if path == os.devnull: raise OSError('no /dev/null')\n"
+            "    return real(path, *a, **k)\n"
+            "builtins.open = no_null\n"
+            "sys.stderr = None\n"
+            f"sys.argv = [{str(SCRIPT)!r}]\n"
+            f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')\n"
+        )
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        proc = subprocess.run(
+            [sys.executable, "-c", wrapper],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, "")
+
+    def test_unencodable_root_is_escaped_not_lost(self):
+        root = self.dir / "rööt"
+        root.mkdir()
+        self.write("live", configmap({"sitecustomize.py": SITE}))
+        proc = self.run_script("--root", str(root), PYTHONIOENCODING="ascii")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("r\\xf6\\xf6t", proc.stdout)
+        self.assertIn("in use: not marked", proc.stdout)
+
+    def test_unreadable_mark_keeps_the_drift_exit(self):
+        (self.dir / "deploy.fail").write_text("forbidden\n", encoding="utf-8")
+        proc = self.run_script()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("in use: unknown (kubectl get: forbidden)", proc.stdout)
 
 
 if __name__ == "__main__":
