@@ -409,6 +409,40 @@ class DriftTests(unittest.TestCase):
                         if out == "pipe" and code == 2:
                             self.assertEqual(proc.stdout, "")
 
+    def test_stdout_closed_at_start_is_noted(self):
+        self.write("live", configmap({"sitecustomize.py": SITE}))
+        proc = self.run_streams(stdout="closed")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("stdout closed, report lost", proc.stderr)
+
+    def test_stderr_closed_and_unopenable_null_keeps_stdout_clean(self):
+        (self.dir / "live.fail").write_text("refused\n", encoding="utf-8")
+        wrapper = (
+            "import builtins, os, runpy, sys\n"
+            "real = builtins.open\n"
+            "def no_null(path, *a, **k):\n"
+            "    if path == os.devnull: raise OSError('no /dev/null')\n"
+            "    return real(path, *a, **k)\n"
+            "builtins.open = no_null\n"
+            "sys.stderr = None\n"
+            f"sys.argv = [{str(SCRIPT)!r}]\n"
+            f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')\n"
+        )
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        proc = subprocess.run(
+            [sys.executable, "-c", wrapper],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, "")
+
     def test_unencodable_root_is_escaped_not_lost(self):
         root = self.dir / "rööt"
         root.mkdir()

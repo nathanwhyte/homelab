@@ -76,12 +76,16 @@ def marker_line():
             return f"in use: unknown ({type(exc).__name__})"
 
 
+LOST = set()  # names of the streams whose reader has gone
+
+
 def open_streams():
     """Give a descriptor closed before start (sys.stdout or sys.stderr None) a
     /dev/null stream, so that nothing, argparse included, falls back from a
     missing stderr to stdout."""
     for name in ("stdout", "stderr"):
         if getattr(sys, name, None) is None:
+            LOST.add(name)
             try:
                 setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
             except OSError:
@@ -94,7 +98,7 @@ def escaped(text, out):
     encoding = getattr(out, "encoding", None) or "utf-8"
     try:
         return text.encode(encoding, "backslashreplace").decode(encoding)
-    except LookupError:
+    except Exception:  # noqa: BLE001 — unknown, or raises whatever the handler (undefined, idna)
         return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
@@ -102,13 +106,17 @@ def emit(lines, stream="stdout"):
     """Print lines and flush them now. A closed or broken stream loses the text
     and nothing else; a lost report is noted on stderr when stderr works."""
     out = getattr(sys, stream, None)
-    try:
-        for line in lines:
-            print(escaped(line, out), file=out)
-        out.flush()
-    except (OSError, ValueError, AttributeError):  # AttributeError: stream is None
-        if stream == "stdout":
-            emit(["ov-test-drift: stdout closed, report lost"], "stderr")
+    lost = stream in LOST or out is None  # never print(file=None): that is stdout
+    if not lost:
+        try:
+            for line in lines:
+                print(escaped(line, out), file=out)
+            out.flush()
+        except (OSError, ValueError):
+            LOST.add(stream)
+            lost = True
+    if lost and stream == "stdout":
+        emit(["ov-test-drift: stdout closed, report lost"], "stderr")
 
 
 def finish(code):

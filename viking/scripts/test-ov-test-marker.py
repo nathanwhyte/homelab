@@ -443,6 +443,30 @@ class MarkerTests(unittest.TestCase):
                                 self.assertNotIn("refused", proc.stdout)
                                 self.assertNotIn("usage", proc.stdout)
 
+    def test_a_codec_that_always_raises_keeps_the_exit_code(self):
+        for codec in ("undefined", "idna"):
+            for served, args, code in (
+                (deployment(), ["show"], 0),
+                (deployment(), ["set", "--item", "X" * 70], 0),
+                (deployment(OTHER), ["set", "--item", "X"], 3),
+            ):
+                with self.subTest(codec=codec, args=args):
+                    self.serve(served)
+                    env = {
+                        **os.environ,
+                        "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+                        "STUB_DIR": str(self.dir),
+                        "CLAUDE_CODE_SESSION_ID": "me-123",
+                        "PYTHONIOENCODING": codec,
+                    }
+                    proc = subprocess.run(
+                        [sys.executable, str(SCRIPT), *args],
+                        capture_output=True,
+                        env=env,
+                        check=False,
+                    )
+                    self.assertEqual(proc.returncode, code, proc.stderr)
+
     def test_show_prints_the_start_in_local_time(self):
         self.serve(deployment(OTHER))
         proc = self.run_script("show")

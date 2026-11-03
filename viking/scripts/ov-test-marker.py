@@ -153,7 +153,7 @@ def printable(text):
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     try:
         return text.encode(encoding, "backslashreplace").decode(encoding)
-    except LookupError:
+    except Exception:  # noqa: BLE001 — unknown, or raises whatever the handler (undefined, idna)
         return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
