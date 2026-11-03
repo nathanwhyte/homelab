@@ -14,7 +14,8 @@ only: a pod keeps the patches it loaded until it restarts. After the comparison
 it prints the in-use mark ov-test-marker.py keeps, so a canary plan can see who
 else is experimenting on the stack.
 
-Exit 0: no drift. Exit 1: drift. Exit 2: could not compare.
+Exit 0: no drift. Exit 1: drift. Exit 2: could not compare. A closed stdout
+or stderr loses the text and never changes the exit code.
 Usage: uv run --no-project --with pyyaml python viking/scripts/ov-test-drift.py
 """
 
@@ -23,6 +24,7 @@ import base64
 import difflib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -56,24 +58,40 @@ def load_marker():
     return module
 
 
-def print_marker():
-    """Print who has marked ov-test as in use. Nothing here, reading or
-    printing, may change the exit code, which reports drift only."""
+def marker_line():
+    """Who has marked ov-test as in use, as one printable line. Nothing here
+    may raise, since the exit code reports drift only."""
     try:
         marker = load_marker()
     except Exception as exc:  # noqa: BLE001 — a missing mark must not hide drift
-        line = f"in use: unknown ({type(exc).__name__})"
-    else:
-        try:
-            mark, _ = marker.read_deployment()
-            line = marker.describe(mark)
-        except Exception as exc:  # noqa: BLE001
-            reason = str(exc)[:200] or type(exc).__name__
-            line = marker.printable(f"in use: unknown ({reason})")
+        return f"in use: unknown ({type(exc).__name__})"
     try:
-        print(line)
-    except Exception:  # noqa: BLE001 — e.g. an encoding error on a closed pipe
-        pass
+        mark, _ = marker.read_deployment()
+        return marker.describe(mark)
+    except Exception as exc:  # noqa: BLE001
+        reason = str(exc)[:200] or type(exc).__name__
+        try:
+            return marker.printable(f"in use: unknown ({reason})")
+        except Exception:  # noqa: BLE001
+            return f"in use: unknown ({type(exc).__name__})"
+
+
+def emit(lines, stream="stdout"):
+    """Print lines and flush them now, so that a closed or broken stream fails
+    here, where it loses only the text, and not in the interpreter's flush at
+    exit, which would replace the exit code with 120."""
+    out = getattr(sys, stream)
+    try:
+        for line in lines:
+            print(line, file=out)
+        out.flush()
+    except (OSError, ValueError, AttributeError):  # AttributeError: stream is None
+        try:  # Python's BrokenPipeError recipe: the flush at exit goes nowhere
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, out.fileno())
+            os.close(devnull)
+        except (OSError, ValueError, AttributeError):
+            pass
 
 
 def rendered_data(checker, root):
@@ -189,23 +207,22 @@ def main(argv=None):
         live = live_data(checker.NAMESPACE)
         rows = compare(rendered, live)
     except (CompareError, SystemExit) as exc:  # SystemExit: no PyYAML
-        print(f"ov-test-drift: could not compare: {exc}", file=sys.stderr)
+        emit([f"ov-test-drift: could not compare: {exc}"], "stderr")
         return EXIT_UNKNOWN
     except Exception as exc:  # noqa: BLE001 — the type alone, for the same reason
-        print(
-            f"ov-test-drift: could not compare: {type(exc).__name__}", file=sys.stderr
-        )
+        emit([f"ov-test-drift: could not compare: {type(exc).__name__}"], "stderr")
         return EXIT_UNKNOWN
     source = args.root / kdir
     if not rows:
-        print(f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)")
-        print_marker()
-        return 0
-    print(f"live {CONFIGMAP} differs from the render of {source}:")
-    print("\n".join(rows))
-    print("(+ lines an apply would add, - lines it would remove)")
-    print_marker()
-    return EXIT_DRIFT
+        report = [f"live {CONFIGMAP} matches the render of {source} ({len(live)} keys)"]
+    else:
+        report = [
+            f"live {CONFIGMAP} differs from the render of {source}:",
+            *rows,
+            "(+ lines an apply would add, - lines it would remove)",
+        ]
+    emit([*report, marker_line()])
+    return EXIT_DRIFT if rows else 0
 
 
 if __name__ == "__main__":

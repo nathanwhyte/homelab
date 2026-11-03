@@ -324,6 +324,65 @@ class MarkerTests(unittest.TestCase):
         self.assertIn("failed (KeyError", proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
+    def run_with_closed(self, stream, *args, unbuffered=False):
+        """The script with its stdout or stderr a pipe nobody reads, as when the
+        consumer (`| head`, a closed terminal) has gone."""
+        read_end, write_end = os.pipe()
+        os.close(read_end)
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+            "CLAUDE_CODE_SESSION_ID": "me-123",
+        }
+        env.pop("PYTHONUNBUFFERED", None)
+        if unbuffered:
+            env["PYTHONUNBUFFERED"] = "1"
+        streams = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        streams[stream] = write_end
+        try:
+            return subprocess.run(
+                [sys.executable, str(SCRIPT), *args],
+                text=True,
+                env=env,
+                check=False,
+                **streams,
+            )
+        finally:
+            os.close(write_end)
+
+    def test_closed_stdout_keeps_the_exit_code(self):
+        mine = {**OTHER, "session": "me-123"}
+        cases = (
+            (deployment(), ["show"], 0),
+            (deployment(), ["set", "--item", "X"], 1),
+            (deployment(mine), ["clear"], 1),
+        )
+        for unbuffered in (False, True):
+            for served, args, writes in cases:
+                with self.subTest(args=args, unbuffered=unbuffered):
+                    self.serve(served)
+                    before = len(self.annotate_calls())
+                    proc = self.run_with_closed("stdout", *args, unbuffered=unbuffered)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertNotIn("Traceback", proc.stderr)
+                    self.assertIn("output lost", proc.stderr)
+                    self.assertEqual(len(self.annotate_calls()) - before, writes)
+
+    def test_closed_stderr_keeps_the_exit_code(self):
+        self.serve(deployment(OTHER))
+        for unbuffered in (False, True):
+            with self.subTest(unbuffered=unbuffered):
+                proc = self.run_with_closed(
+                    "stderr", "set", "--item", "X", unbuffered=unbuffered
+                )
+                self.assertEqual(proc.returncode, 3)
+                (self.dir / "get.fail").write_text("forbidden\n", encoding="utf-8")
+                proc = self.run_with_closed("stderr", "show", unbuffered=unbuffered)
+                self.assertEqual(proc.returncode, 2)
+                (self.dir / "get.fail").unlink()
+        self.assertEqual(self.annotate_calls(), [])
+
     def test_set_without_a_session_is_a_usage_error(self):
         proc = self.run_script("set", "--item", "X", session=None)
         self.assertEqual(proc.returncode, 2)

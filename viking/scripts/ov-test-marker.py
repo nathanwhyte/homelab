@@ -21,7 +21,8 @@ of being overwritten. The session defaults to $CLAUDE_CODE_SESSION_ID.
 
 Exit 0: done (or, for show, read). Exit 2: kubectl failed, a concurrent
 change, or any other failure. Exit 3: refused, the mark belongs to another
-session.
+session. The exit code reports the cluster action alone: a closed stdout or
+stderr loses that stream's text, noted on stderr when stderr still works.
 """
 
 import argparse
@@ -42,6 +43,29 @@ EXIT_REFUSED = 3
 
 class MarkerError(Exception):
     """kubectl failed, or returned something that is not the Deployment."""
+
+
+LOST = set()  # names of the streams whose reader has gone
+
+
+def emit(text, stream="stdout"):
+    """Print a line and flush it now, so that a closed or broken stream fails
+    here, where it loses only the text, and not in the interpreter's flush at
+    exit, which would replace the exit code with 120."""
+    if stream in LOST:
+        return
+    out = getattr(sys, stream)
+    try:
+        print(text, file=out)
+        out.flush()
+    except (OSError, ValueError, AttributeError):  # AttributeError: stream is None
+        LOST.add(stream)
+        try:  # Python's BrokenPipeError recipe: the flush at exit goes nowhere
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, out.fileno())
+            os.close(devnull)
+        except (OSError, ValueError, AttributeError):
+            pass
 
 
 def kubectl(*args):
@@ -158,14 +182,14 @@ def held_by_other(mark, session):
 
 def cmd_show(_args):
     mark, _ = read_deployment()
-    print(describe(mark))
+    emit(describe(mark))
     return 0
 
 
 def cmd_set(args):
     mark, version = read_deployment()
     if held_by_other(mark, args.session) and not args.force:
-        print(f"refused, {describe(mark)}; pass --force to take it", file=sys.stderr)
+        emit(f"refused, {describe(mark)}; pass --force to take it", "stderr")
         return EXIT_REFUSED
     since = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(mark, dict) and mark.get("session") == args.session:
@@ -187,17 +211,17 @@ def cmd_set(args):
         "--overwrite",
         f"{ANNOTATION}={payload}",
     )
-    print(describe(value))
+    emit(describe(value))
     return 0
 
 
 def cmd_clear(args):
     mark, version = read_deployment()
     if mark is None:
-        print("in use: not marked (nothing to clear)")
+        emit("in use: not marked (nothing to clear)")
         return 0
     if held_by_other(mark, args.session) and not args.force:
-        print(f"refused, {describe(mark)}; pass --force to clear it", file=sys.stderr)
+        emit(f"refused, {describe(mark)}; pass --force to clear it", "stderr")
         return EXIT_REFUSED
     kubectl(
         "annotate",
@@ -206,7 +230,7 @@ def cmd_clear(args):
         f"--resource-version={version}",
         f"{ANNOTATION}-",
     )
-    print("in use: cleared")
+    emit("in use: cleared")
     return 0
 
 
@@ -226,16 +250,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     # The exit codes are the contract, so nothing may escape as a traceback's 1.
     try:
-        return args.run(args)
+        code = args.run(args)
     except MarkerError as exc:
-        message = f"ov-test-marker: {exc}"
+        code, message = EXIT_KUBECTL, f"ov-test-marker: {exc}"
     except Exception as exc:  # noqa: BLE001
+        code = EXIT_KUBECTL
         message = f"ov-test-marker: failed ({type(exc).__name__}: {str(exc)[:200]})"
-    try:
-        print(printable(message), file=sys.stderr)
-    except Exception:  # noqa: BLE001
-        pass
-    return EXIT_KUBECTL
+    else:
+        message = None
+    if message is not None:
+        emit(printable(message), "stderr")
+    if "stdout" in LOST:
+        emit("ov-test-marker: stdout closed, output lost", "stderr")
+    return code
 
 
 if __name__ == "__main__":

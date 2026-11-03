@@ -318,6 +318,43 @@ class DriftTests(unittest.TestCase):
                 self.assertIn("X\\ud800", lines[1])
                 self.assertIn("s\\nin use: not marked", lines[1])
 
+    def run_with_closed(self, stream):
+        """The script with its stdout or stderr a pipe nobody reads, as when the
+        consumer (`| head`, a closed terminal) has gone."""
+        read_end, write_end = os.pipe()
+        os.close(read_end)
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        streams = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
+        streams[stream] = write_end
+        try:
+            return subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                text=True,
+                env=env,
+                check=False,
+                **streams,
+            )
+        finally:
+            os.close(write_end)
+
+    def test_closed_stdout_keeps_the_exit_code(self):
+        proc = self.run_with_closed("stdout")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.write("live", configmap({"sitecustomize.py": SITE}))
+        proc = self.run_with_closed("stdout")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_closed_stderr_keeps_the_exit_code(self):
+        (self.dir / "live.fail").write_text("connection refused\n", encoding="utf-8")
+        proc = self.run_with_closed("stderr")
+        self.assertEqual(proc.returncode, 2)
+
     def test_unreadable_mark_keeps_the_drift_exit(self):
         (self.dir / "deploy.fail").write_text("forbidden\n", encoding="utf-8")
         proc = self.run_script()
