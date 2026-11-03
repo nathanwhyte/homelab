@@ -19,8 +19,8 @@ garage:
   # Block size (1MB default, can be increased for better performance)
   blockSize: "1048576"
 
-  # Replication mode (3 replicas for quorum)
-  replicationMode: "3"
+  # Replication factor 3 comes from the chart default (garage.replicationFactor).
+  # The former `replicationMode` key here was never read by the chart (IMPR-1457).
 
   # Compression level (1 is default, higher = more CPU, less storage)
   compressionLevel: "1"
@@ -103,8 +103,10 @@ deployment:
 # Container image
 image:
   repository: dxflrs/amd64_garage
-  # Leave empty to use chart's default tag (recommended)
-  tag: ""
+  # 2026-11-03 (IMPR-1457): pinned to the chart's appVersion (chart 0.10.4), so a
+  # chart re-clone at another tag cannot silently change the running Garage.
+  # v2.5.0 is one-way: an upgraded node must not be downgraded to an older v2.x.
+  tag: "v2.5.0"
   pullPolicy: IfNotPresent
 
 # Init container image
@@ -175,8 +177,19 @@ resources:
     memory: 1Gi
 
 # Health probes
+# 2026-11-03 (IMPR-1457): readiness on the admin API's unauthenticated /health,
+# which returns 200 only while the node sees write quorum. It keeps the S3
+# Service off a pod that has not rejoined, and makes a StatefulSet rollout wait
+# for each pod to rejoin before rolling the next. No liveness probe: a quorum
+# loss would fail it on every pod at once and restart the whole cluster.
 livenessProbe: {}
-readinessProbe: {}
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3903
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
 
 # Node selector (for pod placement)
 nodeSelector: {}
