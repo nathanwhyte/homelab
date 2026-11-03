@@ -48,24 +48,45 @@ class MarkerError(Exception):
 LOST = set()  # names of the streams whose reader has gone
 
 
+def open_streams():
+    """Give a descriptor closed before start (sys.stdout or sys.stderr None) a
+    /dev/null stream, so that nothing, argparse included, falls back from a
+    missing stderr to stdout."""
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            LOST.add(name)
+            try:
+                setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            except OSError:
+                pass
+
+
 def emit(text, stream="stdout"):
-    """Print a line and flush it now, so that a closed or broken stream fails
-    here, where it loses only the text, and not in the interpreter's flush at
-    exit, which would replace the exit code with 120."""
+    """Print a line and flush it now; a closed or broken stream loses the
+    text and nothing else."""
     if stream in LOST:
         return
-    out = getattr(sys, stream)
+    out = getattr(sys, stream, None)
+    if out is None:  # open_streams() did not run (imported) or could not open
+        LOST.add(stream)
+        return
     try:
         print(text, file=out)
         out.flush()
-    except (OSError, ValueError, AttributeError):  # AttributeError: stream is None
+    except (OSError, ValueError):
         LOST.add(stream)
-        try:  # Python's BrokenPipeError recipe: the flush at exit goes nowhere
-            devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, out.fileno())
-            os.close(devnull)
-        except (OSError, ValueError, AttributeError):
+
+
+def finish(code):
+    """Exit with `code` and nothing else. Both streams are flushed here, where
+    a failure loses only their text, and os._exit skips the interpreter's
+    flush at exit, the one place a stream could still turn the code into 120."""
+    for name in ("stdout", "stderr"):
+        try:
+            getattr(sys, name).flush()  # None (AttributeError) is caught too
+        except Exception:  # noqa: BLE001
             pass
+    os._exit(code)
 
 
 def kubectl(*args):
@@ -151,11 +172,23 @@ def _describe(mark, now):
         str(mark.get("item", "?")),
         f"session {mark.get('session', '?')}",
         f"host {mark.get('host', '?')}",
-        f"since {mark.get('since', '?')} ({age(mark.get('since'), now)})",
+        f"since {local_time(mark.get('since', '?'))} ({age(mark.get('since'), now)})",
     ]
     if mark.get("note"):
         parts.append(f"note {mark['note']!r}")
     return "in use: " + ", ".join(parts)
+
+
+def local_time(since):
+    """The stored UTC start as local time with its zone, for a person to read,
+    or the stored text when it is not an ISO timestamp with an offset."""
+    try:
+        start = dt.datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if start.tzinfo is None:
+            return str(since)
+        return start.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    except (AttributeError, TypeError, ValueError, OverflowError, OSError):
+        return str(since)
 
 
 def host_name():
@@ -266,4 +299,11 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    open_streams()
+    try:
+        exit_code = main()
+    except SystemExit as exc:  # argparse: 0 for --help, 2 for a usage error
+        exit_code = 0 if exc.code in (None, 0) else EXIT_KUBECTL
+    except Exception:  # noqa: BLE001 — main() maps failures itself; a backstop
+        exit_code = EXIT_KUBECTL
+    finish(exit_code)

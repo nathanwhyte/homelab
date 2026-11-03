@@ -76,22 +76,51 @@ def marker_line():
             return f"in use: unknown ({type(exc).__name__})"
 
 
+def open_streams():
+    """Give a descriptor closed before start (sys.stdout or sys.stderr None) a
+    /dev/null stream, so that nothing, argparse included, falls back from a
+    missing stderr to stdout."""
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            try:
+                setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            except OSError:
+                pass
+
+
+def escaped(text, out):
+    """Text that `out`'s encoding can carry, so that a path or key it cannot
+    encode is escaped rather than taken for a lost stream."""
+    encoding = getattr(out, "encoding", None) or "utf-8"
+    try:
+        return text.encode(encoding, "backslashreplace").decode(encoding)
+    except LookupError:
+        return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
 def emit(lines, stream="stdout"):
-    """Print lines and flush them now, so that a closed or broken stream fails
-    here, where it loses only the text, and not in the interpreter's flush at
-    exit, which would replace the exit code with 120."""
-    out = getattr(sys, stream)
+    """Print lines and flush them now. A closed or broken stream loses the text
+    and nothing else; a lost report is noted on stderr when stderr works."""
+    out = getattr(sys, stream, None)
     try:
         for line in lines:
-            print(line, file=out)
+            print(escaped(line, out), file=out)
         out.flush()
     except (OSError, ValueError, AttributeError):  # AttributeError: stream is None
-        try:  # Python's BrokenPipeError recipe: the flush at exit goes nowhere
-            devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, out.fileno())
-            os.close(devnull)
-        except (OSError, ValueError, AttributeError):
+        if stream == "stdout":
+            emit(["ov-test-drift: stdout closed, report lost"], "stderr")
+
+
+def finish(code):
+    """Exit with `code` and nothing else. Both streams are flushed here, where
+    a failure loses only their text, and os._exit skips the interpreter's
+    flush at exit, the one place a stream could still turn the code into 120."""
+    for name in ("stdout", "stderr"):
+        try:
+            getattr(sys, name).flush()  # None (AttributeError) is caught too
+        except Exception:  # noqa: BLE001
             pass
+    os._exit(code)
 
 
 def rendered_data(checker, root):
@@ -226,4 +255,11 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    open_streams()
+    try:
+        exit_code = main()
+    except SystemExit as exc:  # argparse: 0 for --help, 2 for a usage error
+        exit_code = 0 if exc.code in (None, 0) else EXIT_UNKNOWN
+    except Exception:  # noqa: BLE001 — main() maps failures itself; a backstop
+        exit_code = EXIT_UNKNOWN
+    finish(exit_code)

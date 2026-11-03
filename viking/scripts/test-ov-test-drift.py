@@ -291,13 +291,13 @@ class DriftTests(unittest.TestCase):
                 }
             ),
         )
-        proc = self.run_script()
+        proc = self.run_script(TZ="America/Chicago")
         self.assertEqual(proc.returncode, 1, proc.stderr)
         last = proc.stdout.splitlines()[-1]
         self.assertRegex(
             last,
             r"^in use: BUG-1282, session f4978b92, host pop, "
-            r"since 2026-11-01T00:42:00Z \(\d+h\d\dm ago\)$",
+            r"since 2026-10-31 19:42 CDT \(\d+h\d\dm ago\)$",
         )
 
     def test_unprintable_mark_keeps_the_exit_and_one_line(self):
@@ -354,6 +354,69 @@ class DriftTests(unittest.TestCase):
         (self.dir / "live.fail").write_text("connection refused\n", encoding="utf-8")
         proc = self.run_with_closed("stderr")
         self.assertEqual(proc.returncode, 2)
+
+    def run_streams(self, stdout="pipe", stderr="pipe"):
+        """The script with each of stdout and stderr a captured pipe ("pipe"), a
+        pipe nobody reads ("broken"), or a descriptor closed before the
+        interpreter starts ("closed")."""
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+        }
+        streams, ends, shut = {}, [], []
+        for name, fd, mode in (("stdout", 1, stdout), ("stderr", 2, stderr)):
+            if mode == "pipe":
+                streams[name] = subprocess.PIPE
+            elif mode == "broken":
+                read_end, write_end = os.pipe()
+                os.close(read_end)
+                ends.append(write_end)
+                streams[name] = write_end
+            else:
+                streams[name] = subprocess.DEVNULL
+                shut.append(fd)
+
+        def close_fds():
+            for fd in shut:
+                os.close(fd)
+
+        try:
+            return subprocess.run(
+                [sys.executable, str(SCRIPT)],
+                text=True,
+                env=env,
+                check=False,
+                preexec_fn=close_fds if shut else None,
+                **streams,
+            )
+        finally:
+            for end in ends:
+                os.close(end)
+
+    def test_no_stream_state_changes_the_exit_code(self):
+        modes = ("pipe", "broken", "closed")
+        for name, code in (("match", 0), ("drift", 1), ("could not compare", 2)):
+            if name == "drift":
+                self.write("live", configmap({"sitecustomize.py": SITE}))
+            if name == "could not compare":
+                (self.dir / "live.fail").write_text("refused\n", encoding="utf-8")
+            for out in modes:
+                for err in modes:
+                    with self.subTest(case=name, stdout=out, stderr=err):
+                        proc = self.run_streams(stdout=out, stderr=err)
+                        self.assertEqual(proc.returncode, code)
+                        if out == "pipe" and code == 2:
+                            self.assertEqual(proc.stdout, "")
+
+    def test_unencodable_root_is_escaped_not_lost(self):
+        root = self.dir / "rööt"
+        root.mkdir()
+        self.write("live", configmap({"sitecustomize.py": SITE}))
+        proc = self.run_script("--root", str(root), PYTHONIOENCODING="ascii")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("r\\xf6\\xf6t", proc.stdout)
+        self.assertIn("in use: not marked", proc.stdout)
 
     def test_unreadable_mark_keeps_the_drift_exit(self):
         (self.dir / "deploy.fail").write_text("forbidden\n", encoding="utf-8")

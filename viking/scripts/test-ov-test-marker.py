@@ -69,6 +69,7 @@ class MarkerTests(unittest.TestCase):
             **os.environ,
             "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
             "STUB_DIR": str(self.dir),
+            "TZ": "America/Chicago",
         }
         env.pop("CLAUDE_CODE_SESSION_ID", None)
         if session:
@@ -368,6 +369,85 @@ class MarkerTests(unittest.TestCase):
                     self.assertNotIn("Traceback", proc.stderr)
                     self.assertIn("output lost", proc.stderr)
                     self.assertEqual(len(self.annotate_calls()) - before, writes)
+
+    def run_streams(self, *args, stdout="pipe", stderr="pipe", unbuffered=False):
+        """The script with each of stdout and stderr a captured pipe ("pipe"), a
+        pipe nobody reads ("broken"), or a descriptor closed before the
+        interpreter starts ("closed")."""
+        env = {
+            **os.environ,
+            "PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}",
+            "STUB_DIR": str(self.dir),
+            "CLAUDE_CODE_SESSION_ID": "me-123",
+        }
+        env.pop("PYTHONUNBUFFERED", None)
+        if unbuffered:
+            env["PYTHONUNBUFFERED"] = "1"
+        streams, ends, shut = {}, [], []
+        for name, fd, mode in (("stdout", 1, stdout), ("stderr", 2, stderr)):
+            if mode == "pipe":
+                streams[name] = subprocess.PIPE
+            elif mode == "broken":
+                read_end, write_end = os.pipe()
+                os.close(read_end)
+                ends.append(write_end)
+                streams[name] = write_end
+            else:
+                streams[name] = subprocess.DEVNULL
+                shut.append(fd)
+
+        def close_fds():
+            for fd in shut:
+                os.close(fd)
+
+        try:
+            return subprocess.run(
+                [sys.executable, str(SCRIPT), *args],
+                text=True,
+                env=env,
+                check=False,
+                preexec_fn=close_fds if shut else None,
+                **streams,
+            )
+        finally:
+            for end in ends:
+                os.close(end)
+
+    def test_no_stream_state_changes_the_exit_code(self):
+        modes = ("pipe", "broken", "closed")
+        cases = (
+            ("get fails", deployment(), True, ["show"], 2),
+            ("refused", deployment(OTHER), False, ["set", "--item", "X"], 3),
+            ("set", deployment(), False, ["set", "--item", "X"], 0),
+            ("usage error", deployment(), False, ["bogus"], 2),
+        )
+        for name, served, fail, args, code in cases:
+            self.serve(served)
+            failing = self.dir / "get.fail"
+            if fail:
+                failing.write_text("forbidden\n", encoding="utf-8")
+            elif failing.exists():
+                failing.unlink()
+            for out in modes:
+                for err in modes:
+                    for unbuffered in (False, True):
+                        with self.subTest(
+                            case=name, stdout=out, stderr=err, unbuffered=unbuffered
+                        ):
+                            proc = self.run_streams(
+                                *args, stdout=out, stderr=err, unbuffered=unbuffered
+                            )
+                            self.assertEqual(proc.returncode, code)
+                            if out == "pipe":  # stderr text never lands on stdout
+                                self.assertNotIn("forbidden", proc.stdout)
+                                self.assertNotIn("refused", proc.stdout)
+                                self.assertNotIn("usage", proc.stdout)
+
+    def test_show_prints_the_start_in_local_time(self):
+        self.serve(deployment(OTHER))
+        proc = self.run_script("show")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("since 2026-10-31 19:42 CDT (", proc.stdout)
 
     def test_closed_stderr_keeps_the_exit_code(self):
         self.serve(deployment(OTHER))
