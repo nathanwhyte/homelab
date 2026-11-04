@@ -173,10 +173,12 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
             f"The chart renders {len(matches)} StatefulSet(s) named {statefulset}; "
             "expected exactly one to hold"
         )
-    strategy = matches[0].get("spec", {}).get("updateStrategy") or {}
-    if strategy.get("type", "RollingUpdate") != "RollingUpdate" or (
-        "partition" in (strategy.get("rollingUpdate") or {})
-    ):
+    # An allowlist of exact shapes, never a search for bad ones: any other
+    # value, a null included (a strategic merge deletes the live field), could
+    # replace the hold.
+    spec = matches[0].get("spec") or {}
+    strategy = spec.get("updateStrategy", {})
+    if strategy not in ({}, {"type": "RollingUpdate"}):
         raise ValueError(
             f"The chart renders updateStrategy {json.dumps(strategy)} for "
             f"statefulset/{statefulset}, which would replace the partition hold; "

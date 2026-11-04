@@ -524,12 +524,22 @@ class RenderedHoldTests(unittest.TestCase):
         secret = {"kind": "Secret", "metadata": {"name": "s"}}
         self.check(secret, self.sts())
         self.check(self.sts({"type": "RollingUpdate"}))
+        self.check(self.sts({}))
+
+    def test_null_update_strategy_is_refused(self):
+        sts = {"kind": "StatefulSet", "metadata": {"name": "sts"}}
+        sts["spec"] = {"updateStrategy": None}
+        with self.assertRaisesRegex(ValueError, "replace the partition hold"):
+            self.check(sts)
 
     def test_rendered_partition_or_on_delete_is_refused(self):
         for strategy in (
             {"type": "RollingUpdate", "rollingUpdate": {"partition": 0}},
             {"rollingUpdate": {"partition": 3}},
             {"type": "OnDelete"},
+            {"type": "RollingUpdate", "rollingUpdate": None},
+            {"rollingUpdate": {"maxUnavailable": 1}},
+            {"type": None},
         ):
             with self.subTest(strategy=strategy):
                 with self.assertRaisesRegex(ValueError, "replace the partition hold"):
@@ -651,6 +661,28 @@ class RollTests(unittest.TestCase):
         self.assertGreater(cluster.gate_calls, 3)
         self.assertEqual(cluster.events[0], "patch 2")
         self.assertEqual(cluster.events[-1], "replaced 0")
+
+    def test_failed_gate_exec_is_retried_until_the_deadline(self):
+        # A failed exec (a pod still starting) counts as not yet healthy.
+        class ExecFails(FakeCluster):
+            fails_left = 4
+
+            def kube(self, args, timeout=None):
+                if args[0] == "exec" and self.fails_left:
+                    self.fails_left -= 1
+                    raise subprocess.CalledProcessError(1, ["kubectl", "exec"])
+                return super().kube(args, timeout)
+
+        cluster = ExecFails(linger=1)
+        cluster.roller().run()
+        self.assertEqual(cluster.fails_left, 0)
+        self.assertEqual(cluster.partition, 0)
+
+        cluster = ExecFails(linger=1)
+        cluster.fails_left = 10**6
+        with self.assertRaises(roll.RollTimeout):
+            cluster.roller(timeout=10).run()
+        self.assertEqual(cluster.events, ["patch 2", "replaced 2"])
 
     def test_lagging_controller_status_does_not_pass_the_old_pod(self):
         # A stale status names rev-1, the old pod's revision; it must not pass.

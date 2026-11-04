@@ -115,6 +115,8 @@ class Roller:
                     ["exec", f"{self.name}-{ordinal}", "-c", container, "--"] + command
                 )
             except subprocess.CalledProcessError:
+                # A pod still starting fails the exec; that is "not healthy
+                # yet", retried until the deadline, not a reason to stop.
                 return False
             if healthy_nodes(status) != expected:
                 return False

@@ -40,8 +40,10 @@ whose release owns a StatefulSet, `helm-deploy.py RELEASE NS CHART --upgrade-cha
    the one this upgrade would apply, rendered in upgrade context
    (`.Release.IsUpgrade`, `lookup`), unlike `helm template`. The manifest is
    parsed by `kubectl create --dry-run=client -o json` and never printed. It
-   refuses when the named StatefulSet is missing or sets its own update strategy
-   (a `partition`, or `OnDelete`);
+   refuses when the named StatefulSet is missing, or its `updateStrategy` is
+   anything but absent, `{}` or exactly `{type: RollingUpdate}`: a partition,
+   `OnDelete`, another `rollingUpdate` field, or a null (which a merge would
+   apply as a delete);
 3. runs `helm diff` (needs the diff plugin). Both preflights run in every mode,
    `--diff` included;
 4. with `--dry-run` or `--diff` stops here, having run only read-only commands;
@@ -69,10 +71,11 @@ terminates, which ended the first wait of the 2026-11-03 Garage roll early; the
 old pod carries the old revision, so it never passes, and a pod already on the
 update revision (an unchanged template) passes without a replacement. With the
 gate options it also requires every pod's `CMD` output to list N nodes under
-HEALTHY NODES. Every kubectl call is bounded: by 60 seconds, and inside a wait
-also by the time left. On a timeout or a kubectl failure it stops, leaves the
-partition where it is, and prints the resume command before it queries the
-partition to report it; rerunning
+HEALTHY NODES; a gate exec that fails (a pod still starting) counts as not yet
+healthy and is retried until the deadline. Every kubectl call is bounded: by 60
+seconds, and inside a wait also by the time left. On a timeout, or a failure of
+any other kubectl call, it stops, leaves the partition where it is, and prints
+the resume command before it queries the partition to report it; rerunning
 first re-verifies the ordinal the partition already released, ordinal 0 when it
 is 0. `garage/deploy-garage.sh --upgrade-chart` runs both steps, with
 `/garage status` and 3 nodes as the gate, and does not re-apply the StorageClass
