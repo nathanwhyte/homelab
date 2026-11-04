@@ -299,8 +299,9 @@ data:
     Exit codes: 0 = a decision was made (restart, defer, held, none or blind, including
     every "could not tell" case); 1 = a restart was attempted and failed, or an
     unexpected error; 2 = blind (the ServiceAccount is refused by the Kubernetes API
-    - RBAC missing) or bad configuration. Non-zero fails the Job, which reaches
-    Slack through KubeJobFailed; a quiet "none" never does.
+    - RBAC missing) or bad configuration. Non-zero fails the Job. KubeJobFailed
+    clears when a later run succeeds, so a failed run is not guaranteed to reach
+    Slack; a quiet "none" never does.
     """
 
     from __future__ import annotations
