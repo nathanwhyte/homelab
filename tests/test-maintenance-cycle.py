@@ -303,6 +303,7 @@ class MaintenanceCycleTests(unittest.TestCase):
                 "deployment/viking/embedder-qwen-cuda": 2,
                 "deployment/omnipendium/omnipendium-db": 1,
                 "deployment/llama/cloud-llm-counter": 4,
+                "deployment/grafana/kube-prometheus-stack-grafana": 1,
                 "deployment/viking/openviking": 5,
                 "deployment/viking/ov-vectordb": 2,
             },
