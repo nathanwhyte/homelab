@@ -299,9 +299,11 @@ data:
     Exit codes: 0 = a decision was made (restart, defer, held, none or blind, including
     every "could not tell" case); 1 = a restart was attempted and failed, or an
     unexpected error; 2 = blind (the ServiceAccount is refused by the Kubernetes API
-    - RBAC missing) or bad configuration. Non-zero fails the Job, which fires
-    OpenVikingLockWatchdogRunFailed while the failed Job is kept (KubeJobFailed
-    clears when a later run succeeds); a quiet "none" never does.
+    - RBAC missing) or bad configuration. Non-zero fails the Job. A failed Job
+    that the ov-lock-watchdog CronJob owns fires OpenVikingLockWatchdogRunFailed
+    while it is kept, whereas KubeJobFailed clears when a later run of the CronJob
+    succeeds. A hand-copied probe Job has no CronJob owner and does not fire it. A
+    quiet "none" never fires anything.
     """
 
     from __future__ import annotations
