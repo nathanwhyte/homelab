@@ -633,12 +633,13 @@ class TestRun(unittest.TestCase):
         self.assertIn("ABORTED before restart: the lock was not refreshed", out)
         self.assertNotIn("DRY-RUN would restart", out)
 
-    def test_the_cronjob_ships_in_shadow_mode(self):
+    def test_the_cronjob_ships_in_apply_mode(self):
+        # Enabled 2026-11-04 after BUG-1282's production would-restart check.
         path = os.path.join(_DIR, "..", "manifests", "ov-lock-watchdog-cronjob.yaml")
         with open(path) as fh:
             lines = [line.strip() for line in fh]
         at = lines.index("- /scripts/ov-lock-watchdog.py")
-        self.assertEqual(lines[at + 1], "- --dry-run")
+        self.assertNotEqual(lines[at + 1], "- --dry-run")
 
     def test_long_lock_in_cooldown_logs_held_without_patching(self):
         cluster = FakeCluster(deploy_state=deploy(restarted_ago=1800.0))
@@ -724,7 +725,9 @@ class TestRun(unittest.TestCase):
         self.assertIn("FAILED", out)
 
     def test_a_refused_patch_is_blind_and_exits_2(self):
-        # Claude R5: the alarm that reaches a person, on a path no soak runs.
+        # Claude R5: a refused PATCH logs FAILED and exits 2 (a failed Job), on
+        # a path no soak runs. Whether an alert then fires is the alert's
+        # business, not proven here.
         cluster = FakeCluster()
         cluster.restart_error = wd.K8sError("HTTP 403 on PATCH", blind=True)
         code, out = self.go(cluster, metrics_text(work=0))

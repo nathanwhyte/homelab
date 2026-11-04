@@ -13,7 +13,8 @@
 #
 # To run the watchdog against it, use a one-off Job copied from the
 # ov-lock-watchdog CronJob, since only that ServiceAccount reads the Deployment
-# gate, with --dry-run kept, WATCHDOG_HOLD_SECONDS=900 and
+# gate, with --dry-run added (the CronJob runs without it since 2026-11-04,
+# so a copy would PATCH the prod Deployment), WATCHDOG_HOLD_SECONDS=900 and
 # WATCHDOG_EXPORTER_URL=http://<ov-test pod IP>:9210/metrics: the ov-test Service
 # has no 9210. The gate still reads deploy/openviking. Labels start at key age
 # 900 s, so owner_held_seconds reaches 900 at about 1800 s plus a poll: hold the
