@@ -554,9 +554,14 @@ class RenderedHoldTests(unittest.TestCase):
 
     def test_strategy_change_between_deployed_and_target_is_refused(self):
         # Helm would send the difference, a null among them, over the hold.
+        # sts(None) renders no updateStrategy key; sts({}) renders an empty one.
+        # Helm sends a key the deployed manifest had and the target lacks as a
+        # null, so absent and {} must not compare equal.
         for old, new in (
             ({"type": "RollingUpdate"}, None),
             (None, {"type": "RollingUpdate"}),
+            ({}, None),
+            (None, {}),
         ):
             with self.subTest(old=old, new=new):
                 with self.assertRaisesRegex(ValueError, "changes statefulset/sts"):

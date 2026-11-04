@@ -178,6 +178,9 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
         )
 
 
+ABSENT = "absent"  # what manifest_strategy returns for no updateStrategy key
+
+
 def manifest_strategy(manifest, statefulset, source):
     """The named StatefulSet's updateStrategy in a rendered manifest, refusing
     any shape that could replace a live partition."""
@@ -207,9 +210,12 @@ def manifest_strategy(manifest, statefulset, source):
     # An allowlist of exact shapes, never a search for bad ones: any other
     # value, a null included (a strategic merge deletes the live field), could
     # replace the hold.
+    # Absence stays distinct from `{}`: Helm sends a key the deployed manifest
+    # had and the target lacks as a null, whatever its value, so the caller's
+    # equality check must see the difference.
     spec = matches[0].get("spec") or {}
-    strategy = spec.get("updateStrategy", {})
-    if strategy not in ({}, {"type": "RollingUpdate"}):
+    strategy = spec.get("updateStrategy", ABSENT)
+    if strategy != ABSENT and strategy not in ({}, {"type": "RollingUpdate"}):
         raise ValueError(
             f"The {source} updateStrategy {json.dumps(strategy)} for "
             f"statefulset/{statefulset}, which would replace the partition hold; "
@@ -233,8 +239,10 @@ def upgrade_with_hold(
     The hold is a `kubectl patch` of updateStrategy.rollingUpdate.partition to
     the replica count, applied before `helm upgrade`. Helm's three-way merge only
     sends fields that differ between the old and new chart manifests, so a
-    partition set on the live object survives the upgrade as long as neither
-    manifest sets it; that is verified after the upgrade. A post-renderer would
+    partition set on the live object survives the upgrade as long as both
+    manifests leave the strategy alone in the same way, which
+    check_rendered_hold enforces beforehand; the hold is also verified after the
+    upgrade. A post-renderer would
     be atomic but needs YAML editing, and this helper is standard-library only.
     """
     replicas = int(kubectl_scalar(namespace, statefulset, ".spec.replicas"))

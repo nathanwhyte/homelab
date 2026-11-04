@@ -45,7 +45,9 @@ whose release owns a StatefulSet, `helm-deploy.py RELEASE NS CHART --upgrade-cha
    renders its `updateStrategy` as anything but absent, `{}` or exactly
    `{type: RollingUpdate}` (a partition, `OnDelete`, another `rollingUpdate`
    field, or a null, which a merge would apply as a delete), or when the two
-   differ, since Helm would send that change over the hold;
+   differ, since Helm would send that change over the hold. An absent strategy
+   and `{}` count as different: Helm sends a key the old manifest had and the
+   new one lacks as a delete, whatever its value;
 3. runs `helm diff` (needs the diff plugin). Both preflights run in every mode,
    `--diff` included;
 4. with `--dry-run` or `--diff` stops here, having run only read-only commands;
