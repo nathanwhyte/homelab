@@ -19,10 +19,72 @@ Rendered output is suppressed because chart NOTES and ConfigMaps may contain
 credentials. Configure the required Helm repositories before simulation.
 Harbor's `--diff` also exits before applies and propagates plugin errors.
 
-Garage uses a local chart. Set `GARAGE_CHART_DIR` to its directory if the nested
-Garage checkout is absent. The helper rejects a local chart whose version differs
-from the deployed version; Helm's `--version` cannot select different local files.
-Matching version metadata alone does not prove identical chart contents.
+Garage uses a local chart: a gitignored clone of the Garage repo at `garage/garage/`,
+pinned by `GARAGE_CHART_REF` in `garage/deploy-garage.sh`. The script clones that
+tag when the clone is missing and refuses (naming both refs and the fix) when
+`git describe --tags --exact-match` differs, on deploy and dry run. Set
+`GARAGE_CHART_DIR` to use a chart of your own; that skips the pin. The helper
+rejects a local chart whose version differs from the deployed version; Helm's
+`--version` cannot select different local files. Matching version metadata alone
+does not prove identical chart contents.
+
+## Chart upgrade for a StatefulSet (`--upgrade-chart`)
+
+Without the flag a chart version change is refused, as above. For a local chart
+whose release owns a StatefulSet, `helm-deploy.py RELEASE NS CHART --upgrade-chart
+--hold-statefulset NAME [--dry-run | --diff] [-f values]` instead:
+
+1. reads the replica count and prints the plan (`hold at 3 ... release 2, 1, 0`);
+2. runs the upgrade's server dry run (`helm upgrade --dry-run=server
+   --hide-secret --output json`) and checks the manifest it returns, which is
+   the one this upgrade would apply, rendered in upgrade context
+   (`.Release.IsUpgrade`, `lookup`), unlike `helm template`. The manifest is
+   parsed by `kubectl create --dry-run=client -o json` and never printed. It
+   reads the deployed release's manifest (`helm get manifest`) the same way. It
+   refuses when either lacks exactly one StatefulSet of that name, when either
+   renders its `updateStrategy` as anything but absent, `{}` or exactly
+   `{type: RollingUpdate}` (a partition, `OnDelete`, another `rollingUpdate`
+   field, or a null, which a merge would apply as a delete), or when the two
+   differ, since Helm would send that change over the hold. An absent strategy
+   and `{}` count as different: Helm sends a key the old manifest had and the
+   new one lacks as a delete, whatever its value;
+3. runs `helm diff` (needs the diff plugin). Both preflights run in every mode,
+   `--diff` included;
+4. with `--dry-run` or `--diff` stops here, having run only read-only commands;
+5. otherwise patches `updateStrategy.rollingUpdate.partition` to the replica
+   count, runs `helm upgrade --version <new>`, and checks the partition is still
+   held. A failed upgrade reports the partition it left. No pod rolls until the
+   roll step releases it.
+
+How the hold is applied: a `kubectl patch` before the upgrade, not a post-renderer.
+Helm's three-way merge sends only fields that differ between the old and new
+chart manifests (a field the old one set and the new one drops goes as a
+delete), so a partition set on the live object survives while neither manifest
+sets the strategy and both agree; step 2 refuses any other case before anything
+changes (the 2026-11-03 Garage upgrade to 0.10.4 held this way). A post-renderer
+would hold atomically but must edit rendered YAML, and this helper uses only the
+standard library. If the upgrade fails, the partition stays at the replica
+count, which is harmless because nothing rolls.
+
+`scripts/sts-partition-roll.py NS STATEFULSET [--gate-container C --gate-command
+CMD --expect-nodes N] [--timeout S] [--dry-run]` then releases one ordinal at a
+time, highest first. For each it lowers the partition and waits for the pod
+there to carry the update revision (`controller-revision-hash` equal to
+`.status.updateRevision`, read only once `.status.observedGeneration` has caught
+up) and be Ready. `kubectl wait` on Ready alone matches the old pod before it
+terminates, which ended the first wait of the 2026-11-03 Garage roll early; the
+old pod carries the old revision, so it never passes, and a pod already on the
+update revision (an unchanged template) passes without a replacement. With the
+gate options it also requires every pod's `CMD` output to list N nodes under
+HEALTHY NODES; a gate exec that fails (a pod still starting) counts as not yet
+healthy and is retried until the deadline. Every kubectl call is bounded: by 60
+seconds, and inside a wait also by the time left. On a timeout, or a failure of
+any other kubectl call, it stops, leaves the partition where it is, and prints
+the resume command before it queries the partition to report it; rerunning
+first re-verifies the ordinal the partition already released, ordinal 0 when it
+is 0. `garage/deploy-garage.sh --upgrade-chart` runs both steps, with
+`/garage status` and 3 nodes as the gate, and does not re-apply the StorageClass
+or the manager manifests.
 
 A chart argument is treated as local only when it is an absolute path or
 starts with `./` or `../`; such a path must exist or the helper exits
@@ -64,7 +126,11 @@ Run `python3 scripts/test-helm-deploy.py` for hermetic regression tests. They co
 lookup errors, version identity, prerelease versions, local-chart mismatches,
 first-install selection, dry-run and diff flags, and all seven script entry points
 from an unrelated working directory with a kubectl stub that rejects every call.
-These tests do not exercise real upgrades or establish application health.
+They also cover the Garage chart pin (stubbed git), the `--upgrade-chart` flow
+(no mutation on dry run, refusal without the flag) and the roll step against a
+fake StatefulSet (old pod lingering, lagging controller status, pods already
+current, health gate, timeout, a hung kubectl, resume including at partition 0). These tests
+do not exercise real upgrades or establish application health.
 
 ## Longhorn adoption on 2026-09-10 (IMPR-1094)
 

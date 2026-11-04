@@ -7,25 +7,65 @@ set -euo pipefail
 # reaching any of its work.
 GARAGE_DIR="${GARAGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NAMESPACE="garage"
-CHART_DIR="${GARAGE_CHART_DIR:-$GARAGE_DIR/garage/script/helm/garage}"
-HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deploy.py"
+# The chart is a gitignored clone of the Garage repo, pinned to the tag that
+# matches the deployed chart (0.10.4). Change the ref only in a chart upgrade.
+GARAGE_CHART_REF="v2.5.0"
+GARAGE_CHART_REPO="${GARAGE_CHART_REPO:-https://git.deuxfleurs.fr/Deuxfleurs/garage}"
+CLONE_DIR="$GARAGE_DIR/garage"
+CHART_DIR="${GARAGE_CHART_DIR:-$CLONE_DIR/script/helm/garage}"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts"
+HELM_DEPLOY="$SCRIPTS_DIR/helm-deploy.py"
+ROLL="$SCRIPTS_DIR/sts-partition-roll.py"
 
-case "${1:-}" in
---dry-run)
-	[[ $# -eq 1 ]] || exit 2
+# Clone at the pinned ref when missing; refuse when the clone sits on any other
+# tag. GARAGE_CHART_DIR points at a chart of the caller's own and skips the pin.
+ensure_chart_ref() {
+	[[ -z "${GARAGE_CHART_DIR:-}" ]] || return 0
+	if [[ ! -d "$CLONE_DIR" ]]; then
+		echo "Cloning Garage $GARAGE_CHART_REF into $CLONE_DIR..."
+		git clone --branch "$GARAGE_CHART_REF" "$GARAGE_CHART_REPO" "$CLONE_DIR" || exit 1
+	fi
+	local actual
+	actual="$(git -C "$CLONE_DIR" describe --tags --exact-match 2>/dev/null || echo "no tag")"
+	if [[ "$actual" != "$GARAGE_CHART_REF" ]]; then
+		echo "Garage chart clone is at $actual but this script pins $GARAGE_CHART_REF." >&2
+		echo "Fix: git -C $CLONE_DIR fetch origin tag $GARAGE_CHART_REF && git -C $CLONE_DIR checkout $GARAGE_CHART_REF" >&2
+		exit 1
+	fi
+}
+
+DRY_RUN=0
+UPGRADE=0
+for arg in "$@"; do
+	case "$arg" in
+	--dry-run) DRY_RUN=1 ;;
+	--upgrade-chart) UPGRADE=1 ;;
+	*)
+		echo "Usage: $0 [--upgrade-chart] [--dry-run]" >&2
+		exit 2
+		;;
+	esac
+done
+
+# --upgrade-chart: a deliberate chart version change. helm-deploy.py runs the
+# server dry run and diff, holds the StatefulSet at partition 3, and upgrades;
+# the roll step then releases one pod at a time. With --dry-run nothing changes.
+HELM_FLAGS=()
+if [[ $UPGRADE -eq 1 ]]; then
+	HELM_FLAGS=(--upgrade-chart --hold-statefulset garage)
+fi
+
+if [[ $DRY_RUN -eq 1 ]]; then
+	ensure_chart_ref
 	[[ -d "$CHART_DIR" ]] || {
 		echo "Helm chart not found at $CHART_DIR" >&2
 		exit 1
 	}
-	python3 "$HELM_DEPLOY" garage "$NAMESPACE" "$CHART_DIR" --dry-run -f "$GARAGE_DIR/garage-values.yaml"
+	python3 "$HELM_DEPLOY" garage "$NAMESPACE" "$CHART_DIR" --dry-run ${HELM_FLAGS[@]+"${HELM_FLAGS[@]}"} -f "$GARAGE_DIR/garage-values.yaml"
 	exit 0
-	;;
-"") [[ $# -eq 0 ]] || exit 2 ;;
-*)
-	echo "Usage: $0 [--dry-run]" >&2
-	exit 2
-	;;
-esac
+fi
+
+ensure_chart_ref
 
 if [ ! -x "$(command -v "kubectl")" ]; then
 	echo "kubectl not installed."
@@ -46,13 +86,25 @@ echo "Deploying Garage S3-compatible storage..."
 
 if [ ! -d "$CHART_DIR" ]; then
 	echo "Helm chart not found at $CHART_DIR"
-	echo "Clone the Garage repo: git clone https://git.deuxfleurs.fr/Deuxfleurs/garage $GARAGE_DIR/garage"
 	exit 1
 fi
 
 if [ ! -f "$GARAGE_DIR/garage-values.yaml" ]; then
 	echo "garage-values.yaml file not found!"
 	exit 1
+fi
+
+# A chart upgrade changes only the Helm release and the StatefulSet partition:
+# it runs before the StorageClass apply below, which a release that already
+# exists does not need.
+if [[ $UPGRADE -eq 1 ]]; then
+	python3 "$HELM_DEPLOY" garage "$NAMESPACE" "$CHART_DIR" ${HELM_FLAGS[@]+"${HELM_FLAGS[@]}"} \
+		-f "$GARAGE_DIR/garage-values.yaml"
+	# The health gate needs all 3 nodes HEALTHY on every pod before the next release.
+	python3 "$ROLL" "$NAMESPACE" garage \
+		--gate-container garage --gate-command "/garage status" --expect-nodes 3
+	echo -e "\nChart upgrade complete. Manager manifests were not re-applied."
+	exit 0
 fi
 
 # The StorageClass must exist BEFORE the Helm release: the data
