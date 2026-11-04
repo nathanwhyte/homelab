@@ -725,7 +725,9 @@ class TestRun(unittest.TestCase):
         self.assertIn("FAILED", out)
 
     def test_a_refused_patch_is_blind_and_exits_2(self):
-        # Claude R5: the alarm that reaches a person, on a path no soak runs.
+        # Claude R5: a refused PATCH logs FAILED and exits 2 (a failed Job), on
+        # a path no soak runs. Whether an alert then fires is the alert's
+        # business, not proven here.
         cluster = FakeCluster()
         cluster.restart_error = wd.K8sError("HTTP 403 on PATCH", blind=True)
         code, out = self.go(cluster, metrics_text(work=0))
