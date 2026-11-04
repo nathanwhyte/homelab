@@ -141,16 +141,18 @@ def json_objects(text):
 
 
 def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
-    """Run the upgrade's server dry run and refuse a manifest that sets the
-    StatefulSet's own update strategy.
+    """Refuse an upgrade whose three-way merge could touch the StatefulSet's
+    update strategy, and with it the partition hold.
 
-    Helm applies the rendered manifest, so a rendered partition (or an OnDelete
-    strategy) would replace the hold during the upgrade. The manifest checked is
-    the one this upgrade would apply: `helm upgrade --dry-run=server -o json`
-    renders in upgrade context (`.Release.IsUpgrade`, `lookup` against the live
-    cluster), unlike `helm template`. `--hide-secret` leaves Secrets out of it.
-    The manifest is parsed by kubectl's own YAML reader
-    (`create --dry-run=client -o json`), never here, and nothing is printed.
+    Helm patches the live object with the difference between the deployed
+    manifest and the target one, so both are read: the target from the
+    upgrade's own server dry run (`helm upgrade --dry-run=server -o json`,
+    rendered in upgrade context: `.Release.IsUpgrade`, `lookup`, unlike `helm
+    template`; `--hide-secret` leaves Secrets out), the deployed one from `helm
+    get manifest`. Each must render the strategy as absent, `{}` or exactly
+    `{type: RollingUpdate}`, and the two must be equal, so the merge sends no
+    strategy change at all. Both are parsed by kubectl's own YAML reader
+    (`create --dry-run=client -o json`), never here, and neither is printed.
     """
     release_json = output(
         helm_command("dry", release, chart, namespace, version, extra)
@@ -159,6 +161,26 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
     manifest = json.loads(release_json).get("manifest")
     if not isinstance(manifest, str) or not manifest.strip():
         raise ValueError("The upgrade dry run returned no manifest to check")
+    target = manifest_strategy(manifest, statefulset, "chart renders")
+    # Helm's three-way merge diffs the deployed manifest against the target: a
+    # strategy the deployed chart set and the new one drops is sent as a null,
+    # which deletes the live partition. So the deployed manifest is checked
+    # too, and the two must agree.
+    deployed = output(["helm", "get", "manifest", release, "--namespace", namespace])
+    if not deployed.strip():
+        raise ValueError(f"helm get manifest returned nothing for release {release}")
+    current = manifest_strategy(deployed, statefulset, "deployed release has")
+    if target != current:
+        raise ValueError(
+            f"The upgrade changes statefulset/{statefulset}'s updateStrategy from "
+            f"{json.dumps(current)} to {json.dumps(target)}, which Helm would "
+            "apply over the partition hold; upgrade it by hand"
+        )
+
+
+def manifest_strategy(manifest, statefulset, source):
+    """The named StatefulSet's updateStrategy in a rendered manifest, refusing
+    any shape that could replace a live partition."""
     converted = subprocess.run(
         ["kubectl", "create", "--dry-run=client", "-o", "json", "-f", "-"],
         input=manifest,
@@ -166,12 +188,11 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
         text=True,
     )
     if converted.returncode != 0:
-        # Only kubectl's first error line: enough to name the problem, short of
-        # echoing the manifest (which --hide-secret already stripped of Secrets).
+        # Only kubectl's first error line, cut short: enough to name the
+        # problem without echoing the manifest, which (for the deployed
+        # release) still holds rendered Secrets.
         lines = converted.stderr.strip().splitlines() or ["no error output"]
-        raise ValueError(
-            f"kubectl could not parse the upgrade's manifest: {lines[0][:300]}"
-        )
+        raise ValueError(f"kubectl could not parse the manifest: {lines[0][:300]}")
     matches = [
         item
         for item in json_objects(converted.stdout)
@@ -180,7 +201,7 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
     ]
     if len(matches) != 1:
         raise ValueError(
-            f"The chart renders {len(matches)} StatefulSet(s) named {statefulset}; "
+            f"The {source} {len(matches)} StatefulSet(s) named {statefulset}; "
             "expected exactly one to hold"
         )
     # An allowlist of exact shapes, never a search for bad ones: any other
@@ -190,10 +211,11 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
     strategy = spec.get("updateStrategy", {})
     if strategy not in ({}, {"type": "RollingUpdate"}):
         raise ValueError(
-            f"The chart renders updateStrategy {json.dumps(strategy)} for "
+            f"The {source} updateStrategy {json.dumps(strategy)} for "
             f"statefulset/{statefulset}, which would replace the partition hold; "
             "upgrade it by hand"
         )
+    return strategy
 
 
 def kubectl_scalar(namespace, statefulset, path):

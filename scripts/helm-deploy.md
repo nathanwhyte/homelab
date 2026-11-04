@@ -40,10 +40,12 @@ whose release owns a StatefulSet, `helm-deploy.py RELEASE NS CHART --upgrade-cha
    the one this upgrade would apply, rendered in upgrade context
    (`.Release.IsUpgrade`, `lookup`), unlike `helm template`. The manifest is
    parsed by `kubectl create --dry-run=client -o json` and never printed. It
-   refuses when the named StatefulSet is missing, or its `updateStrategy` is
-   anything but absent, `{}` or exactly `{type: RollingUpdate}`: a partition,
-   `OnDelete`, another `rollingUpdate` field, or a null (which a merge would
-   apply as a delete);
+   reads the deployed release's manifest (`helm get manifest`) the same way. It
+   refuses when either lacks exactly one StatefulSet of that name, when either
+   renders its `updateStrategy` as anything but absent, `{}` or exactly
+   `{type: RollingUpdate}` (a partition, `OnDelete`, another `rollingUpdate`
+   field, or a null, which a merge would apply as a delete), or when the two
+   differ, since Helm would send that change over the hold;
 3. runs `helm diff` (needs the diff plugin). Both preflights run in every mode,
    `--diff` included;
 4. with `--dry-run` or `--diff` stops here, having run only read-only commands;
@@ -54,8 +56,9 @@ whose release owns a StatefulSet, `helm-deploy.py RELEASE NS CHART --upgrade-cha
 
 How the hold is applied: a `kubectl patch` before the upgrade, not a post-renderer.
 Helm's three-way merge sends only fields that differ between the old and new
-chart manifests, so a partition set on the live object survives while neither
-manifest sets one; step 2 refuses a chart whose manifest does, before anything
+chart manifests (a field the old one set and the new one drops goes as a
+delete), so a partition set on the live object survives while neither manifest
+sets the strategy and both agree; step 2 refuses any other case before anything
 changes (the 2026-11-03 Garage upgrade to 0.10.4 held this way). A post-renderer
 would hold atomically but must edit rendered YAML, and this helper uses only the
 standard library. If the upgrade fails, the partition stays at the replica

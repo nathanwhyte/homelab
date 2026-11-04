@@ -516,27 +516,57 @@ class UpgradeChartTests(unittest.TestCase):
 
 
 class RenderedHoldTests(unittest.TestCase):
-    """check_rendered_hold reads the chart's own render, parsed by kubectl."""
+    """check_rendered_hold reads the upgrade's own render and the deployed
+    manifest, each parsed by kubectl."""
 
-    def check(self, *objects):
-        converted = "\n".join(json.dumps(o, indent=4) for o in objects)
+    def check(self, *objects, deployed=None):
+        # The deployed manifest renders the same objects unless a test says not.
+        deployed = objects if deployed is None else deployed
+        converted = {
+            "rendered: yaml": "\n".join(json.dumps(o, indent=4) for o in objects),
+            "deployed: yaml": "\n".join(json.dumps(o, indent=4) for o in deployed),
+        }
         release = json.dumps({"name": "r", "manifest": "rendered: yaml"})
+
+        def run(command, input, **kwargs):
+            return subprocess.CompletedProcess([], 0, stdout=converted[input])
+
         with (
-            patch.object(deploy, "output", return_value=release) as out,
             patch.object(
-                deploy.subprocess,
-                "run",
-                return_value=subprocess.CompletedProcess([], 0, stdout=converted),
-            ) as run,
+                deploy, "output", side_effect=[release, "deployed: yaml"]
+            ) as out,
+            patch.object(deploy.subprocess, "run", side_effect=run) as kube,
         ):
             deploy.check_rendered_hold("r", "./c", "ns", "1.0.0", ["-f", "v"], "sts")
-        # The manifest checked is the upgrade's own server dry run, not a template.
-        dry = out.call_args.args[0]
+        # The target is the upgrade's own server dry run, not a template; the
+        # deployed manifest is the release's own.
+        dry, current = (c.args[0] for c in out.call_args_list)
         self.assertEqual(dry[:2], ["helm", "upgrade"])
         for flag in ("--dry-run=server", "--hide-secret", "json", "v"):
             self.assertIn(flag, dry)
-        self.assertEqual(run.call_args.kwargs["input"], "rendered: yaml")
-        self.assertIn("--dry-run=client", run.call_args.args[0])
+        self.assertEqual(current, ["helm", "get", "manifest", "r", "--namespace", "ns"])
+        self.assertEqual(
+            [c.kwargs["input"] for c in kube.call_args_list],
+            ["rendered: yaml", "deployed: yaml"],
+        )
+        for call in kube.call_args_list:
+            self.assertIn("--dry-run=client", call.args[0])
+
+    def test_strategy_change_between_deployed_and_target_is_refused(self):
+        # Helm would send the difference, a null among them, over the hold.
+        for old, new in (
+            ({"type": "RollingUpdate"}, None),
+            (None, {"type": "RollingUpdate"}),
+        ):
+            with self.subTest(old=old, new=new):
+                with self.assertRaisesRegex(ValueError, "changes statefulset/sts"):
+                    self.check(self.sts(new), deployed=[self.sts(old)])
+        for strategy in ({"rollingUpdate": {"partition": 0}}, {"type": "OnDelete"}):
+            with self.subTest(deployed=strategy):
+                with self.assertRaisesRegex(ValueError, "deployed release has"):
+                    self.check(self.sts(), deployed=[self.sts(strategy)])
+        with self.assertRaisesRegex(ValueError, "deployed release has 0"):
+            self.check(self.sts(), deployed=[self.sts(name="other")])
 
     def test_dry_run_without_a_manifest_is_refused(self):
         with patch.object(deploy, "output", return_value=json.dumps({"name": "r"})):
@@ -588,9 +618,9 @@ class RenderedHoldTests(unittest.TestCase):
 
     def test_missing_or_duplicate_statefulset_is_refused(self):
         with self.assertRaisesRegex(ValueError, "renders 0 StatefulSet"):
-            self.check(self.sts(name="other"))
+            self.check(self.sts(name="other"), deployed=[self.sts()])
         with self.assertRaisesRegex(ValueError, "renders 2 StatefulSet"):
-            self.check(self.sts(), self.sts())
+            self.check(self.sts(), self.sts(), deployed=[self.sts()])
 
 
 class FakeCluster:
@@ -900,6 +930,8 @@ elif args[:2] == ['show', 'chart']:
     print('name: garage\nversion: 0.10.4')
 elif args[0] == 'upgrade' and '--dry-run=server' in args and 'json' in args:
     print(json.dumps(dict(name='garage', manifest='kind: StatefulSet\n')))
+elif args[:2] == ['get', 'manifest']:
+    print('kind: StatefulSet')
 elif args[:2] == ['diff', 'upgrade'] or (args[0] == 'upgrade' and '--dry-run=server' in args):
     pass
 elif os.environ.get('HELM_UPGRADE_FAILS') and args[0] == 'upgrade':
@@ -1019,6 +1051,7 @@ class GarageScriptTests(unittest.TestCase):
                         ["helm", "show"],
                         ["helm", "diff"],
                         ["helm", "template"],
+                        ["helm", "get"],
                     )
                     or "--dry-run=server" in command,
                     command,
