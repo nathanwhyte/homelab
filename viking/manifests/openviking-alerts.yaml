@@ -120,6 +120,32 @@ spec:
           annotations:
             summary: "OpenViking counts {{ $value }} held lock(s) but ov-exporter has listed none for 30m"
             description: "The server's openviking_lock_active stayed above 0 for 30m while the exporter's S3 listing found no live lock and its poll succeeded, so OpenVikingWedgedLockFile, ov-lock-watchdog and the sync's wedge check are all blind to whatever is held. Suspect a changed lock key layout or a lease whose object is gone. Compare GET /locks on port 9210 of the openviking Service with the bucket before trusting a watchdog decision=none (BUG-1282)."
+        # BUG-1282: a failed ov-lock-watchdog run (exit 1: the restart PATCH
+        # failed or an unexpected error; exit 2: ServiceAccount refused or bad
+        # config). KubeJobFailed clears once the next run 15 min later succeeds,
+        # and OpenVikingWedgedLockFile resets when the listing flaps, so neither
+        # reliably reports it. This fires while any failed Job of the CronJob
+        # still exists: up to ttlSecondsAfterFinished (48 h), and only the newest
+        # failedJobsHistoryLimit (5) are kept. One alert for the CronJob, not
+        # one per Job (the per-Job keying is what spammed in job-failure-alerts).
+        # A 409 lost race and every "could not tell" exit 0 and never fire it.
+        # Not covered: a flapping listing also resets the watchdog's own hold
+        # clocks, so it may never qualify to restart; nothing alerts on that.
+        - alert: OpenVikingLockWatchdogRunFailed
+          expr: |
+            count by (namespace, owner_name) (
+              (kube_job_failed{job="kube-state-metrics", namespace="viking", condition="true"} > 0)
+              * on (namespace, job_name) group_left (owner_name)
+              max by (namespace, job_name, owner_name) (
+                kube_job_owner{job="kube-state-metrics", namespace="viking", owner_kind="CronJob", owner_name="ov-lock-watchdog"}
+              )
+            )
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} failed ov-lock-watchdog run(s) in viking — an automatic OpenViking restart may have failed"
+            description: "A run of the ov-lock-watchdog CronJob failed: exit 1 means a restart of deploy/openviking was attempted and failed (or an unexpected error), exit 2 means the Kubernetes API refused its ServiceAccount or its config is bad. A wedged lock may still be held. Read the run with kubectl -n viking get jobs | grep ov-lock-watchdog, then kubectl -n viking logs job/<name>, or Loki {namespace=\"viking\"} |= \"ov-lock-watchdog: restart FAILED\". If a lock is still wedged, restart deploy/openviking by hand after the queue drains. This clears when the failed Jobs are gone (48 h TTL, newest 5 kept), not when a later run succeeds (BUG-1282)."
     # Exporter-sidecar rules (ov-exporter, port 9210). Kept during the Phase C
     # parity window; retire with the sidecar once the native rules have soaked.
     - name: openviking.rules

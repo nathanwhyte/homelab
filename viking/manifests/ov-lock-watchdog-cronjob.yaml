@@ -45,12 +45,10 @@
 # |= "ov-lock-watchdog: RESTARTED"), and stamps the Deployment with the
 # ov-lock-watchdog.nathanwhyte.dev/last-restart annotation. A failed restart
 # exits non-zero and marks the Job failed (exit codes: the script's
-# docstring). No alert is a guaranteed notice of a failed restart:
-# KubeJobFailed (grafana/manifests/job-failure-alerts.yaml) clears when a
-# later run of this CronJob succeeds, and OpenVikingWedgedLockFile clears
-# whenever the exporter's S3 listing comes back empty, even while the lease
-# is still held (openviking-alerts.yaml). After a wedge, read the Loki lines
-# above.
+# docstring). OpenVikingLockWatchdogRunFailed (openviking-alerts.yaml) fires
+# while any failed Job of this CronJob still exists, so it outlasts a later
+# successful run, unlike KubeJobFailed. A 409 lost race exits 0 and logs
+# `restart lost a race (409)` without firing it.
 #
 # Script is mounted from the ov-lock-watchdog ConfigMap; regenerate it with
 # viking/scripts/regen-lock-watchdog-configmap.sh after editing the .py and
@@ -72,7 +70,8 @@ spec:
   # Two overlapping runs could both decide to restart.
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
-  # A failed Job is the alarm and the record; keep several inspectable.
+  # A kept failed Job keeps OpenVikingLockWatchdogRunFailed firing and holds
+  # the run's logs; keep several inspectable.
   failedJobsHistoryLimit: 5
   startingDeadlineSeconds: 300
   jobTemplate:
