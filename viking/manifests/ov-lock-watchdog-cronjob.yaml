@@ -44,9 +44,14 @@
 # restart logs `ov-lock-watchdog: RESTARTED ...` (Loki: {namespace="viking"}
 # |= "ov-lock-watchdog: RESTARTED"), and stamps the Deployment with the
 # ov-lock-watchdog.nathanwhyte.dev/last-restart annotation. A failed restart
-# or a ServiceAccount the API refuses exits non-zero, which reaches Slack
-# through KubeJobFailed (grafana/manifests/job-failure-alerts.yaml). The
-# OpenVikingWedgedLockFile alert resolves on its own once OV restarts.
+# or a ServiceAccount the API refuses exits non-zero, which marks the Job
+# failed. KubeJobFailed (grafana/manifests/job-failure-alerts.yaml) fires only
+# if no later run succeeds within its 15 min `for`: the next run (15 min on)
+# retries the PATCH while the lock stays wedged, but a run that ends in
+# `none`, `defer` or `ABORTED` exits 0 and clears it. A failed restart is
+# therefore not guaranteed to reach Slack. The wedge itself stays visible:
+# OpenVikingWedgedLockFile keeps firing until OV restarts, then resolves on
+# its own.
 #
 # Script is mounted from the ov-lock-watchdog ConfigMap; regenerate it with
 # viking/scripts/regen-lock-watchdog-configmap.sh after editing the .py and
