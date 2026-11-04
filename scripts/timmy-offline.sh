@@ -101,14 +101,19 @@ QUIESCED_CRONJOBS=(
 
 # Workloads whose Longhorn volume lives only on timmy while the pod runs elsewhere,
 # plus garage-1 (on timmy) because Garage should stop as a unit, not one node at a time.
-# The last two are NOT pinned to timmy: the drain reschedules them onto manu/wemby,
-# where Longhorn happily attaches their timmy-only volume over iSCSI (seen 2026-09-02).
+# omnipendium-db, cloud-llm-counter and Grafana are NOT pinned to timmy: the drain
+# reschedules them onto manu/wemby, where Longhorn happily attaches their timmy-only
+# volume over iSCSI (seen 2026-09-02). Grafana joined on 2026-11-03: its RWO
+# grafana-storage claim (2026-10-28) has its only replica on timmy. Left out, `down`
+# refuses at wait_cross_node_detached (before the drain) when Grafana already runs
+# on manu/wemby, or at the post-drain check when the drain moves it there.
 # Format: kind/namespace/name
 PARKED=(
 	statefulset/garage/garage
 	deployment/viking/embedder-qwen-cuda
 	deployment/omnipendium/omnipendium-db
 	deployment/llama/cloud-llm-counter
+	deployment/grafana/kube-prometheus-stack-grafana
 )
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
