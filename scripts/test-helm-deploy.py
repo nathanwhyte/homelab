@@ -438,6 +438,33 @@ class UpgradeChartTests(unittest.TestCase):
                         + ["--hold-statefulset", "sts"]
                     )
 
+    def test_hold_option_is_given_once_with_a_value(self):
+        self.assertEqual(
+            deploy.take_option(
+                ["-f", "v", "--hold-statefulset=s"], "--hold-statefulset"
+            ),
+            ("s", ["-f", "v"]),
+        )
+        for args in (
+            ["--hold-statefulset", "a", "--hold-statefulset=b"],
+            ["--hold-statefulset="],
+            ["--hold-statefulset", ""],
+            ["--hold-statefulset"],
+        ):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                deploy.take_option(args, "--hold-statefulset")
+
+    def test_force_is_refused_on_the_upgrade_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for flag in ("--force", "--force-replace"):
+                with self.subTest(flag=flag), patch.object(deploy, "output") as out:
+                    with self.assertRaisesRegex(ValueError, "--force"):
+                        deploy.main(
+                            ["release", "ns", directory, "--upgrade-chart"]
+                            + ["--hold-statefulset", "sts", flag]
+                        )
+                    out.assert_not_called()
+
     def test_dry_run_issues_no_mutating_command(self):
         with tempfile.TemporaryDirectory() as directory:
             commands, stdout = self.run_main(
@@ -514,6 +541,20 @@ class RenderedHoldTests(unittest.TestCase):
     def test_dry_run_without_a_manifest_is_refused(self):
         with patch.object(deploy, "output", return_value=json.dumps({"name": "r"})):
             with self.assertRaisesRegex(ValueError, "no manifest"):
+                deploy.check_rendered_hold("r", "./c", "ns", "1.0.0", [], "sts")
+
+    def test_kubectl_parse_failure_names_kubectl_error(self):
+        release = json.dumps({"name": "r", "manifest": "rendered: yaml"})
+        failed = subprocess.CompletedProcess(
+            [], 1, stdout="", stderr='error: no matches for kind "Thing"\nmore\n'
+        )
+        with (
+            patch.object(deploy, "output", return_value=release),
+            patch.object(deploy.subprocess, "run", return_value=failed),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, 'could not parse.*no matches for kind "Thing"$'
+            ):
                 deploy.check_rendered_hold("r", "./c", "ns", "1.0.0", [], "sts")
 
     def sts(self, strategy=None, name="sts"):
@@ -767,6 +808,18 @@ class RollTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertLess(time.monotonic() - started, 15)
         self.assertIn("Resume with", stderr.getvalue())
+
+    def test_interrupt_prints_resume_and_partition(self):
+        with (
+            patch.object(roll.Roller, "run", side_effect=KeyboardInterrupt),
+            patch.object(roll.Roller, "partition", return_value=2),
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+        ):
+            code = roll.main(["garage", "garage"])
+        self.assertEqual(code, 1)
+        text = stderr.getvalue()
+        self.assertIn("interrupted", text)
+        self.assertLess(text.index("Resume with"), text.index("Partition left at 2"))
 
     def test_timeout_stops_and_leaves_the_partition(self):
         cluster = FakeCluster(stuck=2)

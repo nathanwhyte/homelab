@@ -214,9 +214,18 @@ def main(argv=None):
     roller = Roller(kube, args.statefulset, gate, args.timeout)
     try:
         roller.run(args.dry_run)
-    except (RollTimeout, subprocess.CalledProcessError, OSError, ValueError) as error:
+    except (
+        RollTimeout,
+        subprocess.CalledProcessError,
+        OSError,
+        ValueError,
+        KeyboardInterrupt,
+    ) as error:
         # The recovery instructions print first, so a hung API still leaves them.
-        kind = "" if isinstance(error, RollTimeout) else "kubectl failed: "
+        if isinstance(error, KeyboardInterrupt):
+            kind, error = "", "interrupted"
+        else:
+            kind = "" if isinstance(error, RollTimeout) else "kubectl failed: "
         resume = shlex.join(["python3", sys.argv[0]] + (argv or sys.argv[1:]))
         print(f"sts-partition-roll: {kind}{error}", file=sys.stderr)
         print(f"Resume with:\n  {resume}", file=sys.stderr, flush=True)

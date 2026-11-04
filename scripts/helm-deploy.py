@@ -5,8 +5,8 @@ Usage: helm-deploy.py RELEASE NAMESPACE CHART [--dry-run | --diff] [Helm value f
        helm-deploy.py RELEASE NAMESPACE LOCAL_CHART --upgrade-chart \\
            --hold-statefulset NAME [--dry-run | --diff] [Helm value flags...]
 Chart upgrades are separate, deliberate Helm operations: a chart version change
-is refused unless --upgrade-chart is given (local charts only). That mode runs a
-server dry run and a diff, prints the partition plan, patches the StatefulSet to
+is refused unless --upgrade-chart is given (local charts only). That mode prints
+the partition plan, runs a server dry run and a diff, patches the StatefulSet to
 hold every pod (partition = replicas), then upgrades. Requires Helm and Python 3.
 """
 
@@ -94,14 +94,18 @@ def take_option(args, name):
     rest, value, index = [], None, 0
     while index < len(args):
         arg = args[index]
-        if arg == name:
-            if index + 1 >= len(args):
-                raise ValueError(f"{name} needs a value")
-            value = args[index + 1]
-            index += 2
-            continue
-        if arg.startswith(name + "="):
-            value = arg[len(name) + 1 :]
+        if arg == name or arg.startswith(name + "="):
+            if value is not None:
+                raise ValueError(f"{name} given more than once")
+            if arg == name:
+                if index + 1 >= len(args):
+                    raise ValueError(f"{name} needs a value")
+                value = args[index + 1]
+                index += 1
+            else:
+                value = arg[len(name) + 1 :]
+            if not value:
+                raise ValueError(f"{name} needs a non-empty value")
         else:
             rest.append(arg)
         index += 1
@@ -160,11 +164,17 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
         input=manifest,
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout
+    )
+    if converted.returncode != 0:
+        # Only kubectl's first error line: enough to name the problem, short of
+        # echoing the manifest (which --hide-secret already stripped of Secrets).
+        lines = converted.stderr.strip().splitlines() or ["no error output"]
+        raise ValueError(
+            f"kubectl could not parse the upgrade's manifest: {lines[0][:300]}"
+        )
     matches = [
         item
-        for item in json_objects(converted)
+        for item in json_objects(converted.stdout)
         if item.get("kind") == "StatefulSet"
         and item.get("metadata", {}).get("name") == statefulset
     ]
@@ -306,6 +316,10 @@ def main(argv=None):
         raise ValueError(
             "Version, namespace, context and dry-run flags are owned by helm-deploy.py"
         )
+    # --force (and Helm 4's --force-replace) replaces objects instead of
+    # patching them, which would drop the live-only partition hold.
+    if upgrade and any(arg.startswith("--force") for arg in extra):
+        raise ValueError("--upgrade-chart cannot be combined with --force")
 
     local = is_local_chart_ref(chart)
     if upgrade and not local:
