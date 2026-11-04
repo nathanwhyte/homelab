@@ -1,6 +1,6 @@
 # Garage storage alerts (ERR-1011 follow-up, 2026-07-02).
 #
-# Garage runs replicationMode "3" with a write quorum of 2. When replicas drop
+# Garage runs replication factor 3 with a write quorum of 2. When replicas drop
 # below quorum, OpenViking resource pushes fail with an opaque
 # "[PROCESSING_ERROR] ... Could not reach quorum of 2" while OV /health stays
 # 200 — nothing alerted during the 2026-07-02 outage. These rules alert on
