@@ -2,7 +2,12 @@
 """Apply values using the installed chart version, with explicit first-install resolution.
 
 Usage: helm-deploy.py RELEASE NAMESPACE CHART [--dry-run | --diff] [Helm value flags...]
-Chart upgrades are separate, deliberate Helm operations. Requires Helm and Python 3.
+       helm-deploy.py RELEASE NAMESPACE LOCAL_CHART --upgrade-chart \\
+           --hold-statefulset NAME [--dry-run | --diff] [Helm value flags...]
+Chart upgrades are separate, deliberate Helm operations: a chart version change
+is refused unless --upgrade-chart is given (local charts only). That mode runs a
+server dry run and a diff, prints the partition plan, patches the StatefulSet to
+hold every pod (partition = replicas), then upgrades. Requires Helm and Python 3.
 """
 
 import json
@@ -84,6 +89,107 @@ def installed_version(release, namespace, chart_name):
     return match[1]
 
 
+def take_option(args, name):
+    """Remove `name VALUE` or `name=VALUE` from args; return (value, rest)."""
+    rest, value, index = [], None, 0
+    while index < len(args):
+        arg = args[index]
+        if arg == name:
+            if index + 1 >= len(args):
+                raise ValueError(f"{name} needs a value")
+            value = args[index + 1]
+            index += 2
+            continue
+        if arg.startswith(name + "="):
+            value = arg[len(name) + 1 :]
+        else:
+            rest.append(arg)
+        index += 1
+    return value, rest
+
+
+def helm_command(kind, release, chart, namespace, version, extra):
+    command = (
+        ["helm", "diff", "upgrade"]
+        if kind == "diff"
+        else ["helm", "upgrade", "--install"]
+    )
+    command += [release, chart, "--namespace", namespace, "--version", version]
+    command += extra
+    if kind == "dry":
+        command += ["--dry-run=server", "--hide-secret"]
+    if kind == "diff":
+        command += ["--suppress-secrets"]
+    return command
+
+
+def kubectl_scalar(namespace, statefulset, path):
+    return output(
+        ["kubectl", "-n", namespace, "get", "statefulset", statefulset]
+        + ["-o", "jsonpath={" + path + "}"]
+    ).strip()
+
+
+def upgrade_with_hold(
+    release, namespace, chart, statefulset, version, deployed, extra, dry_run, diff
+):
+    """Chart upgrade for a StatefulSet: preflight, then hold every pod, then upgrade.
+
+    The hold is a `kubectl patch` of updateStrategy.rollingUpdate.partition to
+    the replica count, applied before `helm upgrade`. Helm's three-way merge only
+    sends fields that differ between the old and new chart manifests, so a
+    partition set on the live object survives the upgrade as long as neither
+    manifest sets it; that is verified after the upgrade. A post-renderer would
+    be atomic but needs YAML editing, and this helper is standard-library only.
+    """
+    replicas = int(kubectl_scalar(namespace, statefulset, ".spec.replicas"))
+    ordinals = ", ".join(str(n) for n in range(replicas - 1, -1, -1))
+    print(
+        f"{namespace}/{release}: chart upgrade {deployed} -> {version}; "
+        f"statefulset/{statefulset} has {replicas} replicas",
+        flush=True,
+    )
+    print(
+        f"{namespace}/{release}: partition plan: hold at {replicas} during the "
+        f"upgrade (no pod rolls), then release {ordinals} one at a time",
+        flush=True,
+    )
+    for kind in ("diff",) if diff else ("dry", "diff"):
+        command = helm_command(kind, release, chart, namespace, version, extra)
+        subprocess.run(
+            command, check=True, stdout=subprocess.DEVNULL if kind == "dry" else None
+        )
+    if dry_run or diff:
+        print(
+            f"{namespace}/{release}: upgrade preflight passed; nothing was changed",
+            flush=True,
+        )
+        return
+    patch = {"spec": {"updateStrategy": {"type": "RollingUpdate"}}}
+    patch["spec"]["updateStrategy"]["rollingUpdate"] = {"partition": replicas}
+    subprocess.run(
+        ["kubectl", "-n", namespace, "patch", "statefulset", statefulset]
+        + ["--type", "merge", "-p", json.dumps(patch)],
+        check=True,
+    )
+    subprocess.run(
+        helm_command("upgrade", release, chart, namespace, version, extra), check=True
+    )
+    held = kubectl_scalar(
+        namespace, statefulset, ".spec.updateStrategy.rollingUpdate.partition"
+    )
+    if held != str(replicas):
+        raise ValueError(
+            f"Upgrade replaced the partition hold (now {held or 'unset'}, expected "
+            f"{replicas}); check which pods rolled before continuing"
+        )
+    print(
+        f"{namespace}/{release}: upgraded to {version}; statefulset/{statefulset} "
+        f"held at partition {replicas}. Release pods with sts-partition-roll.py",
+        flush=True,
+    )
+
+
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) < 3:
@@ -94,7 +200,13 @@ def main(argv=None):
     diff = "--diff" in extra
     if dry_run and diff:
         raise ValueError("Choose --dry-run or --diff")
-    extra = [arg for arg in extra if arg not in ("--dry-run", "--diff")]
+    upgrade = "--upgrade-chart" in extra
+    extra = [
+        arg for arg in extra if arg not in ("--dry-run", "--diff", "--upgrade-chart")
+    ]
+    hold, extra = take_option(extra, "--hold-statefulset")
+    if upgrade != (hold is not None):
+        raise ValueError("--upgrade-chart and --hold-statefulset go together")
     # Callers supply values and deployment options, never a competing identity
     # or a flag that turns a requested simulation back into a mutation.
     forbidden = (
@@ -114,6 +226,8 @@ def main(argv=None):
         )
 
     local = is_local_chart_ref(chart)
+    if upgrade and not local:
+        raise ValueError("--upgrade-chart needs a local chart path")
     if local and not Path(chart).exists():
         raise ValueError(f"Local chart path does not exist: {chart}")
     metadata = output(["helm", "show", "chart", chart]) if local else None
@@ -132,23 +246,25 @@ def main(argv=None):
     if metadata_scalar(metadata, "name", r"[a-z0-9][a-z0-9.-]*") != chart_name:
         raise ValueError("Resolved chart name mismatch")
     resolved = metadata_scalar(metadata, "version", VERSION)
-    if version is not None and resolved != version:
+    if upgrade and version is None:
+        raise ValueError("--upgrade-chart needs a deployed release; nothing to upgrade")
+    if version is not None and resolved != version and not upgrade:
         raise ValueError(
             f"Chart version mismatch: deployed {version}, supplied {resolved}"
         )
-    version = resolved
+    deployed, version = version, resolved
+    if upgrade:
+        upgrade_with_hold(
+            release, namespace, chart, hold, version, deployed, extra, dry_run, diff
+        )
+        return
     print(
         f"{namespace}/{release}: {'first install resolved to' if first_install else 'reusing deployed'} chart {chart_name} {version}",
         flush=True,
     )
 
-    command = ["helm", "diff", "upgrade"] if diff else ["helm", "upgrade", "--install"]
-    command += [release, chart, "--namespace", namespace, "--version", version]
-    command += extra
-    if dry_run:
-        command += ["--dry-run=server", "--hide-secret"]
-    if diff:
-        command += ["--suppress-secrets"]
+    kind = "diff" if diff else "dry" if dry_run else "upgrade"
+    command = helm_command(kind, release, chart, namespace, version, extra)
     # Rendered ConfigMaps and chart NOTES can contain credentials too. Do not
     # emit any successful simulation's manifest output, even with hide-secret.
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL if dry_run else None)
