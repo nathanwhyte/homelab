@@ -608,6 +608,13 @@ class RenderedHoldTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "replace the partition hold"):
             self.check(sts)
 
+    def test_string_strategy_is_not_mistaken_for_absent(self):
+        # No rendered value may collide with the "no updateStrategy" marker.
+        with self.assertRaisesRegex(ValueError, "replace the partition hold"):
+            self.check(self.sts("absent"))
+        with self.assertRaisesRegex(ValueError, "from absent to {}"):
+            self.check(self.sts({}), deployed=[self.sts()])
+
     def test_rendered_partition_or_on_delete_is_refused(self):
         for strategy in (
             {"type": "RollingUpdate", "rollingUpdate": {"partition": 0}},

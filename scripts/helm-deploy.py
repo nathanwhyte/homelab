@@ -173,12 +173,18 @@ def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
     if target != current:
         raise ValueError(
             f"The upgrade changes statefulset/{statefulset}'s updateStrategy from "
-            f"{json.dumps(current)} to {json.dumps(target)}, which Helm would "
+            f"{describe(current)} to {describe(target)}, which Helm would "
             "apply over the partition hold; upgrade it by hand"
         )
 
 
-ABSENT = "absent"  # what manifest_strategy returns for no updateStrategy key
+# What manifest_strategy returns for no updateStrategy key: an object no
+# parsed JSON value can equal.
+ABSENT = object()
+
+
+def describe(strategy):
+    return "absent" if strategy is ABSENT else json.dumps(strategy)
 
 
 def manifest_strategy(manifest, statefulset, source):
@@ -215,7 +221,7 @@ def manifest_strategy(manifest, statefulset, source):
     # equality check must see the difference.
     spec = matches[0].get("spec") or {}
     strategy = spec.get("updateStrategy", ABSENT)
-    if strategy != ABSENT and strategy not in ({}, {"type": "RollingUpdate"}):
+    if strategy is not ABSENT and strategy not in ({}, {"type": "RollingUpdate"}):
         raise ValueError(
             f"The {source} updateStrategy {json.dumps(strategy)} for "
             f"statefulset/{statefulset}, which would replace the partition hold; "
