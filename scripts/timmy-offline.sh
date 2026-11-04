@@ -104,8 +104,9 @@ QUIESCED_CRONJOBS=(
 # omnipendium-db, cloud-llm-counter and Grafana are NOT pinned to timmy: the drain
 # reschedules them onto manu/wemby, where Longhorn happily attaches their timmy-only
 # volume over iSCSI (seen 2026-09-02). Grafana joined on 2026-11-03: its RWO
-# grafana-storage claim (2026-10-28) has its only replica on timmy, and without it
-# here `down` drains and then refuses at the post-drain check.
+# grafana-storage claim (2026-10-28) has its only replica on timmy. Left out, `down`
+# refuses at wait_cross_node_detached (before the drain) when Grafana already runs
+# on manu/wemby, or at the post-drain check when the drain moves it there.
 # Format: kind/namespace/name
 PARKED=(
 	statefulset/garage/garage
