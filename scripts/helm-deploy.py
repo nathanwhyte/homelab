@@ -137,18 +137,24 @@ def json_objects(text):
 
 
 def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
-    """Refuse a chart whose rendered StatefulSet sets its own update strategy.
+    """Run the upgrade's server dry run and refuse a manifest that sets the
+    StatefulSet's own update strategy.
 
     Helm applies the rendered manifest, so a rendered partition (or an OnDelete
-    strategy) would replace the hold during the upgrade. The manifest is parsed
-    by kubectl's own YAML reader (`create --dry-run=client -o json`), never here,
-    and nothing is printed, since the render includes Secrets.
+    strategy) would replace the hold during the upgrade. The manifest checked is
+    the one this upgrade would apply: `helm upgrade --dry-run=server -o json`
+    renders in upgrade context (`.Release.IsUpgrade`, `lookup` against the live
+    cluster), unlike `helm template`. `--hide-secret` leaves Secrets out of it.
+    The manifest is parsed by kubectl's own YAML reader
+    (`create --dry-run=client -o json`), never here, and nothing is printed.
     """
-    manifest = output(
-        ["helm", "template", release, chart, "--namespace", namespace]
-        + ["--version", version]
-        + extra
+    release_json = output(
+        helm_command("dry", release, chart, namespace, version, extra)
+        + ["--output", "json"]
     )
+    manifest = json.loads(release_json).get("manifest")
+    if not isinstance(manifest, str) or not manifest.strip():
+        raise ValueError("The upgrade dry run returned no manifest to check")
     converted = subprocess.run(
         ["kubectl", "create", "--dry-run=client", "-o", "json", "-f", "-"],
         input=manifest,
@@ -209,14 +215,13 @@ def upgrade_with_hold(
         f"upgrade (no pod rolls), then release {ordinals} one at a time",
         flush=True,
     )
-    # Every preflight runs in every mode, --diff included: the rendered-hold
-    # check, the server dry run and the diff are all reads.
+    # Both preflights run in every mode, --diff included, and both are reads:
+    # the server dry run (which also yields the manifest the hold check reads)
+    # and the diff.
     check_rendered_hold(release, chart, namespace, version, extra, statefulset)
-    for kind in ("dry", "diff"):
-        command = helm_command(kind, release, chart, namespace, version, extra)
-        subprocess.run(
-            command, check=True, stdout=subprocess.DEVNULL if kind == "dry" else None
-        )
+    subprocess.run(
+        helm_command("diff", release, chart, namespace, version, extra), check=True
+    )
     if dry_run or diff:
         print(
             f"{namespace}/{release}: upgrade preflight passed; nothing was changed",

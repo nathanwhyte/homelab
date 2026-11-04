@@ -376,9 +376,9 @@ class UpgradeChartTests(unittest.TestCase):
                 ["name: my-chart\nversion: 2.0.0\n", self.rows(), "3"],
                 directory,
             )
-        self.assertIn("--dry-run=server", commands[0])
-        self.assertEqual(commands[1][:3], ["helm", "diff", "upgrade"])
-        self.assertEqual(len(commands), 2)
+        # The server dry run happens inside the (mocked) hold check.
+        self.assertEqual(self.runs_before_hold_check, 0)
+        self.assertEqual([c[:3] for c in commands], [["helm", "diff", "upgrade"]])
         self.assertIn("nothing was changed", stdout)
 
     def test_failed_upgrade_reports_the_partition(self):
@@ -445,12 +445,9 @@ class UpgradeChartTests(unittest.TestCase):
                 ["name: my-chart\nversion: 2.0.0\n", self.rows(), "3"],
                 directory,
             )
-        self.assertEqual(
-            [c[:3] for c in commands],
-            [["helm", "upgrade", "--install"], ["helm", "diff", "upgrade"]],
-        )
-        self.assertIn("--dry-run=server", commands[0])
-        self.assertIn("--suppress-secrets", commands[1])
+        self.assertEqual(self.runs_before_hold_check, 0)
+        self.assertEqual([c[:3] for c in commands], [["helm", "diff", "upgrade"]])
+        self.assertIn("--suppress-secrets", commands[0])
         for command in commands:
             self.assertNotIn("patch", command)
             self.assertNotEqual(command[0], "kubectl")
@@ -475,10 +472,11 @@ class UpgradeChartTests(unittest.TestCase):
             else "upgrade"
             for c in commands
         ]
-        self.assertEqual(kinds, ["dry", "diff", "patch", "upgrade"])
-        self.assertIn('"partition": 3', commands[2][-1])
-        self.assertEqual(commands[3][commands[3].index("--version") + 1], "2.0.0")
-        self.assertIn("v.yaml", commands[3])
+        self.assertEqual(self.runs_before_hold_check, 0)
+        self.assertEqual(kinds, ["diff", "patch", "upgrade"])
+        self.assertIn('"partition": 3', commands[1][-1])
+        self.assertEqual(commands[2][commands[2].index("--version") + 1], "2.0.0")
+        self.assertIn("v.yaml", commands[2])
 
     def test_lost_hold_is_reported(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -495,8 +493,9 @@ class RenderedHoldTests(unittest.TestCase):
 
     def check(self, *objects):
         converted = "\n".join(json.dumps(o, indent=4) for o in objects)
+        release = json.dumps({"name": "r", "manifest": "rendered: yaml"})
         with (
-            patch.object(deploy, "output", return_value="rendered: yaml") as out,
+            patch.object(deploy, "output", return_value=release) as out,
             patch.object(
                 deploy.subprocess,
                 "run",
@@ -504,9 +503,18 @@ class RenderedHoldTests(unittest.TestCase):
             ) as run,
         ):
             deploy.check_rendered_hold("r", "./c", "ns", "1.0.0", ["-f", "v"], "sts")
-        self.assertEqual(out.call_args.args[0][:2], ["helm", "template"])
+        # The manifest checked is the upgrade's own server dry run, not a template.
+        dry = out.call_args.args[0]
+        self.assertEqual(dry[:2], ["helm", "upgrade"])
+        for flag in ("--dry-run=server", "--hide-secret", "json", "v"):
+            self.assertIn(flag, dry)
         self.assertEqual(run.call_args.kwargs["input"], "rendered: yaml")
         self.assertIn("--dry-run=client", run.call_args.args[0])
+
+    def test_dry_run_without_a_manifest_is_refused(self):
+        with patch.object(deploy, "output", return_value=json.dumps({"name": "r"})):
+            with self.assertRaisesRegex(ValueError, "no manifest"):
+                deploy.check_rendered_hold("r", "./c", "ns", "1.0.0", [], "sts")
 
     def sts(self, strategy=None, name="sts"):
         spec = {} if strategy is None else {"updateStrategy": strategy}
@@ -667,6 +675,48 @@ class RollTests(unittest.TestCase):
             cluster.roller(timeout=5).run()
         self.assertEqual(cluster.events, [])
 
+    def test_every_kubectl_call_is_bounded(self):
+        cluster = FakeCluster(linger=1)
+        limits = []
+        kube = cluster.kube
+
+        def recording(args, timeout=None):
+            limits.append(timeout)
+            return kube(args, timeout)
+
+        cluster.kube = recording
+        cluster.roller().run()
+        self.assertTrue(limits)
+        self.assertTrue(all(t is not None and t <= roll.CALL_TIMEOUT for t in limits))
+
+    def test_resume_prints_before_a_hung_partition_query(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, directory, True)
+        kubectl = directory / "kubectl"
+        kubectl.write_text(STUB_HUNG_GATE_KUBECTL)
+        kubectl.chmod(0o755)
+        path = os.environ["PATH"]
+        os.environ["PATH"] = f"{directory}{os.pathsep}{path}"
+        os.environ["HANG_AFTER_EXEC"] = str(directory / "exec-ran")
+        self.addCleanup(os.environ.__setitem__, "PATH", path)
+        self.addCleanup(os.environ.pop, "HANG_AFTER_EXEC", None)
+        started = time.monotonic()
+        with (
+            patch.object(roll, "CALL_TIMEOUT", 2),
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            code = roll.main(
+                ["garage", "garage", "--timeout", "2", "--gate-container", "garage"]
+                + ["--gate-command", "/garage status", "--expect-nodes", "3"]
+            )
+        self.assertEqual(code, 1)
+        self.assertLess(time.monotonic() - started, 20)
+        text = stderr.getvalue()
+        self.assertLess(
+            text.index("Resume with"), text.index("Partition left at unknown")
+        )
+
     def test_hung_kubectl_is_a_timeout(self):
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(__import__("shutil").rmtree, directory, True)
@@ -713,8 +763,13 @@ class RollTests(unittest.TestCase):
 
 
 STUB_HUNG_GATE_KUBECTL = r"""#!/usr/bin/env python3
-import json, sys, time
+import json, os, sys, time
 args = sys.argv[3:]  # after `-n <namespace>`
+marker = os.environ.get('HANG_AFTER_EXEC')
+if args[:2] == ['get', 'statefulset'] and marker and os.path.exists(marker):
+    time.sleep(60)  # the API hangs once the gate has hung
+if args[0] == 'exec' and marker:
+    open(marker, 'w').close()
 if args[:2] == ['get', 'statefulset']:
     print(json.dumps(dict(
         metadata=dict(generation=1),
@@ -758,8 +813,8 @@ if args[0] == 'list':
     print(json.dumps([dict(name='garage', namespace='garage', status='deployed', chart='garage-' + os.environ['DEPLOYED'])]))
 elif args[:2] == ['show', 'chart']:
     print('name: garage\nversion: 0.10.4')
-elif args[0] == 'template':
-    print('kind: StatefulSet')
+elif args[0] == 'upgrade' and '--dry-run=server' in args and 'json' in args:
+    print(json.dumps(dict(name='garage', manifest='kind: StatefulSet\n')))
 elif args[:2] == ['diff', 'upgrade'] or (args[0] == 'upgrade' and '--dry-run=server' in args):
     pass
 elif os.environ.get('HELM_UPGRADE_FAILS') and args[0] == 'upgrade':

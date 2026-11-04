@@ -16,7 +16,7 @@ the gate options it then requires every pod's `CMD` output to list N nodes under
 HEALTHY NODES before the next ordinal is released.
 
 On a timeout it stops, leaves the partition where it is and prints the command
-to resume. Every kubectl call is bounded by the time left, so a hung call is a
+to resume. Every kubectl call is bounded (60 s, and inside a wait the time left), so a hung call is a
 timeout too. Rerunning is safe: it first re-verifies the ordinal the partition
 already released (ordinal 0 when the partition is 0), then continues.
 Requires kubectl and Python 3.
@@ -28,6 +28,9 @@ import shlex
 import subprocess
 import sys
 import time
+
+
+CALL_TIMEOUT = 60  # seconds; no single kubectl call may run longer
 
 
 class RollTimeout(Exception):
@@ -74,12 +77,13 @@ class Roller:
         self.deadline = None
 
     def kube(self, args):
-        remaining = None
+        """Every kubectl call is bounded: by CALL_TIMEOUT, and inside a wait
+        also by the time left (at least a second, so the poll at the deadline
+        can still run and the wait loop reports which stage timed out)."""
+        limit = CALL_TIMEOUT
         if self.deadline is not None:
-            # At least a second, so the poll at the deadline can still run and
-            # the wait loop reports which stage timed out.
-            remaining = max(self.deadline - self.clock(), 1)
-        return self._kube(args, remaining)
+            limit = min(limit, max(self.deadline - self.clock(), 1))
+        return self._kube(args, limit)
 
     def statefulset(self):
         return json.loads(self.kube(["get", "statefulset", self.name, "-o", "json"]))
@@ -202,23 +206,23 @@ def main(argv=None):
             )
         except subprocess.TimeoutExpired:
             raise RollTimeout(
-                f"kubectl {shlex.join(command)} ran past the rollout deadline"
+                f"kubectl {shlex.join(command)} ran past its {timeout}s limit"
             ) from None
 
     roller = Roller(kube, args.statefulset, gate, args.timeout)
     try:
         roller.run(args.dry_run)
-    except RollTimeout as error:
-        try:
-            held = roller.partition()
-        except (subprocess.CalledProcessError, ValueError):
-            held = "unknown"
+    except (RollTimeout, subprocess.CalledProcessError, OSError, ValueError) as error:
+        # The recovery instructions print first, so a hung API still leaves them.
+        kind = "" if isinstance(error, RollTimeout) else "kubectl failed: "
         resume = shlex.join(["python3", sys.argv[0]] + (argv or sys.argv[1:]))
-        print(f"sts-partition-roll: {error}", file=sys.stderr)
-        print(f"Partition left at {held}. Resume with:\n  {resume}", file=sys.stderr)
-        return 1
-    except (subprocess.CalledProcessError, OSError, ValueError) as error:
-        print(f"sts-partition-roll: kubectl failed: {error}", file=sys.stderr)
+        print(f"sts-partition-roll: {kind}{error}", file=sys.stderr)
+        print(f"Resume with:\n  {resume}", file=sys.stderr, flush=True)
+        try:
+            held = roller.partition()  # bounded by CALL_TIMEOUT
+        except (RollTimeout, subprocess.CalledProcessError, OSError, ValueError):
+            held = "unknown"
+        print(f"Partition left at {held}.", file=sys.stderr)
         return 1
     return 0
 
