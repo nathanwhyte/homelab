@@ -35,30 +35,42 @@ whose release owns a StatefulSet, `helm-deploy.py RELEASE NS CHART --upgrade-cha
 --hold-statefulset NAME [--dry-run | --diff] [-f values]` instead:
 
 1. reads the replica count and prints the plan (`hold at 3 ... release 2, 1, 0`);
-2. runs the server dry run and `helm diff` (needs the diff plugin);
-3. with `--dry-run` or `--diff` stops here, having run only read-only commands;
-4. otherwise patches `updateStrategy.rollingUpdate.partition` to the replica
+2. renders the chart (`helm template`, parsed by `kubectl create --dry-run=client
+   -o json`, nothing printed) and refuses when the named StatefulSet is missing
+   or renders its own update strategy (a `partition`, or `OnDelete`);
+3. runs the server dry run and `helm diff` (needs the diff plugin), in every
+   mode, `--diff` included;
+4. with `--dry-run` or `--diff` stops here, having run only read-only commands;
+5. otherwise patches `updateStrategy.rollingUpdate.partition` to the replica
    count, runs `helm upgrade --version <new>`, and checks the partition is still
-   held. No pod rolls until the roll step releases it.
+   held. A failed upgrade reports the partition it left. No pod rolls until the
+   roll step releases it.
 
 How the hold is applied: a `kubectl patch` before the upgrade, not a post-renderer.
 Helm's three-way merge sends only fields that differ between the old and new
 chart manifests, so a partition set on the live object survives while neither
-manifest sets one. The post-upgrade check catches a chart that does. A
-post-renderer would hold atomically but must edit rendered YAML, and this helper
-uses only the standard library. The cost: if the upgrade fails, the partition
-stays at the replica count, which is harmless because nothing rolls.
+manifest sets one; step 2 refuses a chart whose manifest does, before anything
+changes (the 2026-11-03 Garage upgrade to 0.10.4 held this way). A post-renderer
+would hold atomically but must edit rendered YAML, and this helper uses only the
+standard library. If the upgrade fails, the partition stays at the replica
+count, which is harmless because nothing rolls.
 
 `scripts/sts-partition-roll.py NS STATEFULSET [--gate-container C --gate-command
 CMD --expect-nodes N] [--timeout S] [--dry-run]` then releases one ordinal at a
-time, highest first. For each it records the pod UID, lowers the partition, and
-waits for a pod with a different UID that is Ready (`kubectl wait` on Ready
-alone matches the old pod before it terminates, which ended the first wait of the
-2026-11-03 Garage roll early). With the gate options it also requires every
-pod's `CMD` output to list N nodes under HEALTHY NODES. On a timeout it stops,
-leaves the partition where it is, and prints the resume command; rerunning first
-re-verifies the ordinal already released. `garage/deploy-garage.sh
---upgrade-chart` runs both steps, with `/garage status` and 3 nodes as the gate.
+time, highest first. For each it lowers the partition and waits for the pod
+there to carry the update revision (`controller-revision-hash` equal to
+`.status.updateRevision`, read only once `.status.observedGeneration` has caught
+up) and be Ready. `kubectl wait` on Ready alone matches the old pod before it
+terminates, which ended the first wait of the 2026-11-03 Garage roll early; the
+old pod carries the old revision, so it never passes, and a pod already on the
+update revision (an unchanged template) passes without a replacement. With the
+gate options it also requires every pod's `CMD` output to list N nodes under
+HEALTHY NODES. Every kubectl call is bounded by the time left. On a timeout it
+stops, leaves the partition where it is, and prints the resume command; rerunning
+first re-verifies the ordinal the partition already released, ordinal 0 when it
+is 0. `garage/deploy-garage.sh --upgrade-chart` runs both steps, with
+`/garage status` and 3 nodes as the gate, and does not re-apply the StorageClass
+or the manager manifests.
 
 A chart argument is treated as local only when it is an absolute path or
 starts with `./` or `../`; such a path must exist or the helper exits
@@ -102,7 +114,8 @@ first-install selection, dry-run and diff flags, and all seven script entry poin
 from an unrelated working directory with a kubectl stub that rejects every call.
 They also cover the Garage chart pin (stubbed git), the `--upgrade-chart` flow
 (no mutation on dry run, refusal without the flag) and the roll step against a
-fake StatefulSet (old UID lingering, health gate, timeout, resume). These tests
+fake StatefulSet (old pod lingering, lagging controller status, pods already
+current, health gate, timeout, a hung kubectl, resume including at partition 0). These tests
 do not exercise real upgrades or establish application health.
 
 ## Longhorn adoption on 2026-09-10 (IMPR-1094)

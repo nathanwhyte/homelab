@@ -94,6 +94,19 @@ if [ ! -f "$GARAGE_DIR/garage-values.yaml" ]; then
 	exit 1
 fi
 
+# A chart upgrade changes only the Helm release and the StatefulSet partition:
+# it runs before the StorageClass apply below, which a release that already
+# exists does not need.
+if [[ $UPGRADE -eq 1 ]]; then
+	python3 "$HELM_DEPLOY" garage "$NAMESPACE" "$CHART_DIR" ${HELM_FLAGS[@]+"${HELM_FLAGS[@]}"} \
+		-f "$GARAGE_DIR/garage-values.yaml"
+	# The health gate needs all 3 nodes HEALTHY on every pod before the next release.
+	python3 "$ROLL" "$NAMESPACE" garage \
+		--gate-container garage --gate-command "/garage status" --expect-nodes 3
+	echo -e "\nChart upgrade complete. Manager manifests were not re-applied."
+	exit 0
+fi
+
 # The StorageClass must exist BEFORE the Helm release: the data
 # volumeClaimTemplate requests `longhorn-garage-data`, and a PVC naming a class
 # that does not exist stays Pending indefinitely rather than failing loudly.
@@ -104,16 +117,6 @@ fi
 
 echo -e "\nApplying longhorn-garage-data StorageClass..."
 kubectl apply -f "$GARAGE_DIR/storageclass-longhorn-garage-data.yaml"
-
-if [[ $UPGRADE -eq 1 ]]; then
-	python3 "$HELM_DEPLOY" garage "$NAMESPACE" "$CHART_DIR" ${HELM_FLAGS[@]+"${HELM_FLAGS[@]}"} \
-		-f "$GARAGE_DIR/garage-values.yaml"
-	# The health gate needs all 3 nodes HEALTHY on every pod before the next release.
-	python3 "$ROLL" "$NAMESPACE" garage \
-		--gate-container garage --gate-command "/garage status" --expect-nodes 3
-	echo -e "\nChart upgrade complete. Manager manifests were not re-applied."
-	exit 0
-fi
 
 python3 "$HELM_DEPLOY" garage "$NAMESPACE" \
 	"$CHART_DIR" \

@@ -29,12 +29,12 @@ A chart version change is refused by default. To upgrade, change
 `GARAGE_CHART_REF` and check out that tag in the clone, then:
 
 ```bash
-garage/deploy-garage.sh --upgrade-chart --dry-run   # server dry run + diff + plan; changes nothing
+garage/deploy-garage.sh --upgrade-chart --dry-run   # plan, render check, server dry run + diff; changes nothing
 garage/deploy-garage.sh --upgrade-chart             # hold at partition 3, upgrade, roll 2, 1, 0
 ```
 
-The roll waits, per ordinal, for a new pod UID, Ready, and `/garage status` on
-every pod showing all 3 nodes under HEALTHY NODES. On a timeout it stops with
+The roll waits, per ordinal, for the pod to be on the new revision and Ready, and
+for `/garage status` on every pod to show all 3 nodes under HEALTHY NODES. On a timeout it stops with
 the partition where it is and prints the command to resume. Design notes:
 `scripts/helm-deploy.md`.
 

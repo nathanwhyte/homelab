@@ -5,14 +5,20 @@ Usage: sts-partition-roll.py NAMESPACE STATEFULSET [--dry-run] [--timeout SECOND
            [--gate-container NAME --gate-command CMD --expect-nodes N]
 
 Run after `helm-deploy.py --upgrade-chart` has left the StatefulSet at
-partition == replicas. For each ordinal it records the pod's UID, lowers the
-partition to that ordinal, and waits for a pod with a DIFFERENT UID that is
+partition == replicas. For each ordinal it lowers the partition to that ordinal
+and waits until the pod there is on the StatefulSet's update revision (its
+`controller-revision-hash` label equals `.status.updateRevision`, read only once
+`.status.observedGeneration` has caught up with `.metadata.generation`) and
 Ready. A bare Ready wait matches the old pod before it terminates and returns
-early. With the gate options it then requires every pod's `CMD` output to list
-N nodes under HEALTHY NODES before the next ordinal is released.
+early; the old pod carries the old revision, so it never passes. A pod already on
+the update revision (an unchanged template) passes without being replaced. With
+the gate options it then requires every pod's `CMD` output to list N nodes under
+HEALTHY NODES before the next ordinal is released.
 
 On a timeout it stops, leaves the partition where it is and prints the command
-to resume. Rerunning is safe: it first re-verifies the ordinal already released.
+to resume. Every kubectl call is bounded by the time left, so a hung call is a
+timeout too. Rerunning is safe: it first re-verifies the ordinal the partition
+already released (ordinal 0 when the partition is 0), then continues.
 Requires kubectl and Python 3.
 """
 
@@ -59,11 +65,21 @@ class Roller:
         clock=time.monotonic,
         log=print,
     ):
-        # kube(args) runs `kubectl -n <namespace> *args` and returns stdout.
+        # kube(args, timeout) runs `kubectl -n <namespace> *args` and returns
+        # stdout, raising RollTimeout when it runs past `timeout` seconds.
         # gate is (container, command_words, expected_nodes) or None.
-        self.kube, self.name, self.gate = kube, name, gate
+        self._kube, self.name, self.gate = kube, name, gate
         self.timeout, self.interval = timeout, interval
         self.sleep, self.clock, self.log = sleep, clock, log
+        self.deadline = None
+
+    def kube(self, args):
+        remaining = None
+        if self.deadline is not None:
+            # At least a second, so the poll at the deadline can still run and
+            # the wait loop reports which stage timed out.
+            remaining = max(self.deadline - self.clock(), 1)
+        return self._kube(args, remaining)
 
     def statefulset(self):
         return json.loads(self.kube(["get", "statefulset", self.name, "-o", "json"]))
@@ -100,49 +116,57 @@ class Roller:
                 return False
         return True
 
-    def wait_released(self, ordinal, old_uid, replicas):
-        deadline = self.clock() + self.timeout
-        stage = "a new pod"
-        while True:
-            pod = self.pod(ordinal)
-            if pod is None or pod["metadata"]["uid"] == old_uid:
-                stage = f"a new pod (still uid {old_uid})"
-            elif not pod_ready(pod):
-                stage = "the new pod to be Ready"
-            elif not self.gate_open(replicas):
-                stage = "all nodes HEALTHY on every pod"
-            else:
-                return
-            if self.clock() >= deadline:
-                raise RollTimeout(
-                    f"{self.name}-{ordinal}: timed out waiting for {stage}"
-                )
-            self.sleep(self.interval)
+    def update_revision(self):
+        """The update revision, or None while the controller has not observed
+        the latest spec (its updateRevision may still name the old revision)."""
+        sts = self.statefulset()
+        status = sts.get("status", {})
+        generation = sts.get("metadata", {}).get("generation")
+        observed = status.get("observedGeneration")
+        if generation is not None and (observed is None or observed < generation):
+            return None
+        return status.get("updateRevision")
+
+    def wait_released(self, ordinal, replicas):
+        self.deadline = self.clock() + self.timeout
+        try:
+            while True:
+                revision = self.update_revision()
+                pod = self.pod(ordinal)
+                labels = (pod or {}).get("metadata", {}).get("labels", {})
+                if revision is None:
+                    stage = "the controller to observe the latest spec"
+                elif pod is None or labels.get("controller-revision-hash") != revision:
+                    uid = (pod or {}).get("metadata", {}).get("uid")
+                    stage = f"a pod on revision {revision} (still uid {uid})"
+                elif not pod_ready(pod):
+                    stage = "the updated pod to be Ready"
+                elif not self.gate_open(replicas):
+                    stage = "all nodes HEALTHY on every pod"
+                else:
+                    return
+                if self.clock() >= self.deadline:
+                    raise RollTimeout(
+                        f"{self.name}-{ordinal}: timed out waiting for {stage}"
+                    )
+                self.sleep(self.interval)
+        finally:
+            self.deadline = None
 
     def run(self, dry_run=False):
         sts = self.statefulset()
         replicas = sts["spec"]["replicas"]
-        partition = self.partition()
-        if partition == 0:
-            self.log(f"{self.name}: partition is 0; nothing is held")
-            return
-        plan = list(range(min(partition, replicas) - 1, -1, -1))
+        partition = min(self.partition(), replicas)
+        plan = list(range(partition - 1, -1, -1))
         self.log(f"{self.name}: partition {partition} of {replicas}; release {plan}")
         if dry_run:
             self.log("dry run: nothing was changed")
             return
         if partition < replicas:
-            # A previous run released this ordinal and stopped waiting for it.
-            pod = self.pod(partition)
-            current = pod is not None and (
-                pod["metadata"].get("labels", {}).get("controller-revision-hash")
-                == sts["status"].get("updateRevision")
-            )
-            old_uid = (
-                None if current else (pod or {"metadata": {}})["metadata"].get("uid")
-            )
-            self.log(f"{self.name}: re-verifying released ordinal {partition}")
-            self.wait_released(partition, old_uid, replicas)
+            # The partition already released this ordinal (ordinal 0 when it is
+            # 0): a previous run may have stopped before the pod was verified.
+            self.log(f"{self.name}: verifying released ordinal {partition}")
+            self.wait_released(partition, replicas)
         for ordinal in plan:
             pod = self.pod(ordinal)
             old_uid = pod["metadata"]["uid"] if pod else None
@@ -150,8 +174,8 @@ class Roller:
                 f"{self.name}: releasing {self.name}-{ordinal} (old uid {old_uid})"
             )
             self.set_partition(ordinal)
-            self.wait_released(ordinal, old_uid, replicas)
-            self.log(f"{self.name}-{ordinal}: new pod Ready and cluster healthy")
+            self.wait_released(ordinal, replicas)
+            self.log(f"{self.name}-{ordinal}: updated pod Ready and cluster healthy")
         self.log(f"{self.name}: all ordinals released")
 
 
@@ -171,10 +195,15 @@ def main(argv=None):
             parser.error("--gate-command needs --gate-container and --expect-nodes")
         gate = (args.gate_container, shlex.split(args.gate_command), args.expect_nodes)
 
-    def kube(command):
-        return subprocess.check_output(
-            ["kubectl", "-n", args.namespace] + command, text=True
-        )
+    def kube(command, timeout=None):
+        try:
+            return subprocess.check_output(
+                ["kubectl", "-n", args.namespace] + command, text=True, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            raise RollTimeout(
+                f"kubectl {shlex.join(command)} ran past the rollout deadline"
+            ) from None
 
     roller = Roller(kube, args.statefulset, gate, args.timeout)
     try:

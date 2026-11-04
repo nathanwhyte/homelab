@@ -123,6 +123,61 @@ def helm_command(kind, release, chart, namespace, version, extra):
     return command
 
 
+def json_objects(text):
+    """The objects in `kubectl … -o json` output, which concatenates one JSON
+    object per input document instead of returning a list."""
+    decoder, index, objects = json.JSONDecoder(), 0, []
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            return objects
+        value, index = decoder.raw_decode(text, index)
+        objects.append(value)
+
+
+def check_rendered_hold(release, chart, namespace, version, extra, statefulset):
+    """Refuse a chart whose rendered StatefulSet sets its own update strategy.
+
+    Helm applies the rendered manifest, so a rendered partition (or an OnDelete
+    strategy) would replace the hold during the upgrade. The manifest is parsed
+    by kubectl's own YAML reader (`create --dry-run=client -o json`), never here,
+    and nothing is printed, since the render includes Secrets.
+    """
+    manifest = output(
+        ["helm", "template", release, chart, "--namespace", namespace]
+        + ["--version", version]
+        + extra
+    )
+    converted = subprocess.run(
+        ["kubectl", "create", "--dry-run=client", "-o", "json", "-f", "-"],
+        input=manifest,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    matches = [
+        item
+        for item in json_objects(converted)
+        if item.get("kind") == "StatefulSet"
+        and item.get("metadata", {}).get("name") == statefulset
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"The chart renders {len(matches)} StatefulSet(s) named {statefulset}; "
+            "expected exactly one to hold"
+        )
+    strategy = matches[0].get("spec", {}).get("updateStrategy") or {}
+    if strategy.get("type", "RollingUpdate") != "RollingUpdate" or (
+        "partition" in (strategy.get("rollingUpdate") or {})
+    ):
+        raise ValueError(
+            f"The chart renders updateStrategy {json.dumps(strategy)} for "
+            f"statefulset/{statefulset}, which would replace the partition hold; "
+            "upgrade it by hand"
+        )
+
+
 def kubectl_scalar(namespace, statefulset, path):
     return output(
         ["kubectl", "-n", namespace, "get", "statefulset", statefulset]
@@ -154,7 +209,10 @@ def upgrade_with_hold(
         f"upgrade (no pod rolls), then release {ordinals} one at a time",
         flush=True,
     )
-    for kind in ("diff",) if diff else ("dry", "diff"):
+    # Every preflight runs in every mode, --diff included: the rendered-hold
+    # check, the server dry run and the diff are all reads.
+    check_rendered_hold(release, chart, namespace, version, extra, statefulset)
+    for kind in ("dry", "diff"):
         command = helm_command(kind, release, chart, namespace, version, extra)
         subprocess.run(
             command, check=True, stdout=subprocess.DEVNULL if kind == "dry" else None
@@ -172,9 +230,26 @@ def upgrade_with_hold(
         + ["--type", "merge", "-p", json.dumps(patch)],
         check=True,
     )
-    subprocess.run(
-        helm_command("upgrade", release, chart, namespace, version, extra), check=True
-    )
+    try:
+        subprocess.run(
+            helm_command("upgrade", release, chart, namespace, version, extra),
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        # A failed upgrade must still leave the hold; say so either way.
+        try:
+            held = kubectl_scalar(
+                namespace, statefulset, ".spec.updateStrategy.rollingUpdate.partition"
+            )
+        except subprocess.CalledProcessError:
+            held = "unreadable"
+        print(
+            f"{namespace}/{release}: helm upgrade failed; statefulset/{statefulset} "
+            f"partition is {held or 'unset'} (hold {replicas})",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise
     held = kubectl_scalar(
         namespace, statefulset, ".spec.updateStrategy.rollingUpdate.partition"
     )

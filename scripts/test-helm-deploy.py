@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -341,14 +342,63 @@ class UpgradeChartTests(unittest.TestCase):
             ]
         )
 
-    def run_main(self, flags, outputs, directory):
+    def run_main(self, flags, outputs, directory, run_effect=None):
+        self.runs_before_hold_check = None
+
+        def hold_check(*args):
+            self.runs_before_hold_check = len(run.call_args_list)
+
         with (
             patch.object(deploy, "output", side_effect=outputs),
-            patch.object(deploy.subprocess, "run") as run,
+            patch.object(deploy.subprocess, "run", side_effect=run_effect) as run,
+            patch.object(deploy, "check_rendered_hold", side_effect=hold_check),
             contextlib.redirect_stdout(io.StringIO()) as stdout,
         ):
-            deploy.main(["release", "ns", directory] + flags)
-        return [call.args[0] for call in run.call_args_list], stdout.getvalue()
+            try:
+                deploy.main(["release", "ns", directory] + flags)
+            finally:
+                self.commands = [call.args[0] for call in run.call_args_list]
+        return self.commands, stdout.getvalue()
+
+    def test_hold_check_runs_before_any_other_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_main(
+                ["--upgrade-chart", "--hold-statefulset", "sts"],
+                ["name: my-chart\nversion: 2.0.0\n", self.rows(), "3", "3"],
+                directory,
+            )
+        self.assertEqual(self.runs_before_hold_check, 0)
+
+    def test_diff_mode_runs_both_preflights(self):
+        with tempfile.TemporaryDirectory() as directory:
+            commands, stdout = self.run_main(
+                ["--upgrade-chart", "--hold-statefulset", "sts", "--diff"],
+                ["name: my-chart\nversion: 2.0.0\n", self.rows(), "3"],
+                directory,
+            )
+        self.assertIn("--dry-run=server", commands[0])
+        self.assertEqual(commands[1][:3], ["helm", "diff", "upgrade"])
+        self.assertEqual(len(commands), 2)
+        self.assertIn("nothing was changed", stdout)
+
+    def test_failed_upgrade_reports_the_partition(self):
+        def effect(command, **kwargs):
+            if command[:2] == ["helm", "upgrade"] and "--dry-run=server" not in command:
+                raise subprocess.CalledProcessError(1, command)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                contextlib.redirect_stderr(io.StringIO()) as stderr,
+                self.assertRaises(subprocess.CalledProcessError),
+            ):
+                self.run_main(
+                    ["--upgrade-chart", "--hold-statefulset", "sts"],
+                    ["name: my-chart\nversion: 2.0.0\n", self.rows(), "3", "3"],
+                    directory,
+                    run_effect=effect,
+                )
+        self.assertIn("helm upgrade failed", stderr.getvalue())
+        self.assertIn("partition is 3 (hold 3)", stderr.getvalue())
 
     def test_without_flag_a_version_change_is_still_refused(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -440,16 +490,65 @@ class UpgradeChartTests(unittest.TestCase):
                 )
 
 
+class RenderedHoldTests(unittest.TestCase):
+    """check_rendered_hold reads the chart's own render, parsed by kubectl."""
+
+    def check(self, *objects):
+        converted = "\n".join(json.dumps(o, indent=4) for o in objects)
+        with (
+            patch.object(deploy, "output", return_value="rendered: yaml") as out,
+            patch.object(
+                deploy.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, stdout=converted),
+            ) as run,
+        ):
+            deploy.check_rendered_hold("r", "./c", "ns", "1.0.0", ["-f", "v"], "sts")
+        self.assertEqual(out.call_args.args[0][:2], ["helm", "template"])
+        self.assertEqual(run.call_args.kwargs["input"], "rendered: yaml")
+        self.assertIn("--dry-run=client", run.call_args.args[0])
+
+    def sts(self, strategy=None, name="sts"):
+        spec = {} if strategy is None else {"updateStrategy": strategy}
+        return {"kind": "StatefulSet", "metadata": {"name": name}, "spec": spec}
+
+    def test_no_strategy_or_plain_rolling_update_passes(self):
+        secret = {"kind": "Secret", "metadata": {"name": "s"}}
+        self.check(secret, self.sts())
+        self.check(self.sts({"type": "RollingUpdate"}))
+
+    def test_rendered_partition_or_on_delete_is_refused(self):
+        for strategy in (
+            {"type": "RollingUpdate", "rollingUpdate": {"partition": 0}},
+            {"rollingUpdate": {"partition": 3}},
+            {"type": "OnDelete"},
+        ):
+            with self.subTest(strategy=strategy):
+                with self.assertRaisesRegex(ValueError, "replace the partition hold"):
+                    self.check(self.sts(strategy))
+
+    def test_missing_or_duplicate_statefulset_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "renders 0 StatefulSet"):
+            self.check(self.sts(name="other"))
+        with self.assertRaisesRegex(ValueError, "renders 2 StatefulSet"):
+            self.check(self.sts(), self.sts())
+
+
 class FakeCluster:
     """A 3-pod StatefulSet. Lowering the partition makes the released pod linger
     (old UID, still Ready) for `linger` polls, then come back with a new UID."""
 
-    def __init__(self, replicas=3, linger=3, healthy_after=0, stuck=None):
+    def __init__(
+        self, replicas=3, linger=3, healthy_after=0, stuck=None, observed_after=0
+    ):
         self.replicas, self.linger, self.stuck = replicas, linger, stuck
         self.partition, self.tick, self.events = replicas, 0, []
         self.pods = {
             n: dict(uid=f"old-{n}", hash="rev-1", ready_at=0) for n in range(replicas)
         }
+        # Until this tick the controller has not observed generation 2, and its
+        # status still names the old revision as the update revision.
+        self.observed_after = observed_after
         self.replace_at = {}
         self.healthy_after = healthy_after
         self.gate_calls = 0
@@ -464,17 +563,22 @@ class FakeCluster:
                 self.events.append(f"replaced {ordinal}")
                 del self.replace_at[ordinal]
 
-    def kube(self, args):
+    def kube(self, args, timeout=None):
         if args[:2] == ["get", "statefulset"]:
+            observed = self.tick >= self.observed_after
             return json.dumps(
                 dict(
+                    metadata=dict(generation=2),
                     spec=dict(
                         replicas=self.replicas,
                         updateStrategy=dict(
                             rollingUpdate=dict(partition=self.partition)
                         ),
                     ),
-                    status=dict(updateRevision="rev-2"),
+                    status=dict(
+                        observedGeneration=2 if observed else 1,
+                        updateRevision="rev-2" if observed else "rev-1",
+                    ),
                 )
             )
         if args[:2] == ["get", "pod"]:
@@ -540,9 +644,51 @@ class RollTests(unittest.TestCase):
         self.assertEqual(cluster.events[0], "patch 2")
         self.assertEqual(cluster.events[-1], "replaced 0")
 
+    def test_lagging_controller_status_does_not_pass_the_old_pod(self):
+        # A stale status names rev-1, the old pod's revision; it must not pass.
+        cluster = FakeCluster(linger=2, observed_after=4)
+        cluster.roller().run()
+        self.assertEqual(cluster.events[:2], ["patch 2", "replaced 2"])
+        self.assertEqual(cluster.partition, 0)
+
+    def test_pods_already_on_the_update_revision_pass_without_replacement(self):
+        cluster = FakeCluster(linger=1000)
+        for ordinal in range(3):
+            cluster.pods[ordinal]["hash"] = "rev-2"
+        cluster.roller(timeout=5).run()
+        self.assertEqual(cluster.events, ["patch 2", "patch 1", "patch 0"])
+
+    def test_resume_at_partition_zero_verifies_ordinal_zero(self):
+        cluster = FakeCluster()
+        cluster.partition = 0
+        for ordinal in (1, 2):
+            cluster.pods[ordinal] = dict(uid=f"new-{ordinal}", hash="rev-2", ready_at=0)
+        with self.assertRaisesRegex(roll.RollTimeout, "garage-0.*revision rev-2"):
+            cluster.roller(timeout=5).run()
+        self.assertEqual(cluster.events, [])
+
+    def test_hung_kubectl_is_a_timeout(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, directory, True)
+        kubectl = directory / "kubectl"
+        kubectl.write_text(STUB_HUNG_GATE_KUBECTL)
+        kubectl.chmod(0o755)
+        path = os.environ["PATH"]
+        os.environ["PATH"] = f"{directory}{os.pathsep}{path}"
+        self.addCleanup(os.environ.__setitem__, "PATH", path)
+        started = time.monotonic()
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            code = roll.main(
+                ["garage", "garage", "--timeout", "2", "--gate-container", "garage"]
+                + ["--gate-command", "/garage status", "--expect-nodes", "3"]
+            )
+        self.assertEqual(code, 1)
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertIn("Resume with", stderr.getvalue())
+
     def test_timeout_stops_and_leaves_the_partition(self):
         cluster = FakeCluster(stuck=2)
-        with self.assertRaisesRegex(roll.RollTimeout, "garage-2.*new pod"):
+        with self.assertRaisesRegex(roll.RollTimeout, "garage-2.*revision rev-2"):
             cluster.roller(timeout=5).run()
         self.assertEqual(cluster.events, ["patch 2"])
         self.assertEqual(cluster.partition, 2)
@@ -565,6 +711,24 @@ class RollTests(unittest.TestCase):
         self.assertEqual(roll.healthy_nodes(text), 2)
         self.assertEqual(roll.healthy_nodes("==== FAILED NODES ====\nID\nx\n"), 0)
 
+
+STUB_HUNG_GATE_KUBECTL = r"""#!/usr/bin/env python3
+import json, sys, time
+args = sys.argv[3:]  # after `-n <namespace>`
+if args[:2] == ['get', 'statefulset']:
+    print(json.dumps(dict(
+        metadata=dict(generation=1),
+        spec=dict(replicas=3, updateStrategy=dict(rollingUpdate=dict(partition=1))),
+        status=dict(observedGeneration=1, updateRevision='rev-2'))))
+elif args[:2] == ['get', 'pod']:
+    print(json.dumps(dict(
+        metadata=dict(uid='u', labels={'controller-revision-hash': 'rev-2'}),
+        status=dict(conditions=[dict(type='Ready', status='True')]))))
+elif args[0] == 'exec':
+    time.sleep(60)
+else:
+    sys.exit('unexpected kubectl command: ' + str(args))
+"""
 
 STUB_GIT = r"""#!/usr/bin/env python3
 import json, os, sys
@@ -594,8 +758,12 @@ if args[0] == 'list':
     print(json.dumps([dict(name='garage', namespace='garage', status='deployed', chart='garage-' + os.environ['DEPLOYED'])]))
 elif args[:2] == ['show', 'chart']:
     print('name: garage\nversion: 0.10.4')
+elif args[0] == 'template':
+    print('kind: StatefulSet')
 elif args[:2] == ['diff', 'upgrade'] or (args[0] == 'upgrade' and '--dry-run=server' in args):
     pass
+elif os.environ.get('HELM_UPGRADE_FAILS') and args[0] == 'upgrade':
+    sys.exit('upgrade failed')
 else:
     sys.exit('unexpected Helm command: ' + str(args))
 """
@@ -607,6 +775,13 @@ with open(os.environ['TEST_LOG'], 'a') as log:
     log.write(json.dumps(['kubectl'] + args) + '\n')
 if 'get' in args and 'statefulset' in args and any(a.startswith('-o') or a == 'jsonpath={.spec.replicas}' for a in args):
     print('3')
+elif args[:2] == ['create', '--dry-run=client']:
+    sys.stdin.read()
+    print(json.dumps(dict(kind='StatefulSet', metadata=dict(name='garage'), spec={})))
+elif os.environ.get('KUBECTL_ALLOW_PATCH') and 'patch' in args:
+    pass
+elif 'cluster-info' in args:
+    pass
 else:
     sys.exit('kubectl must not mutate: ' + str(args))
 """
@@ -691,15 +866,38 @@ class GarageScriptTests(unittest.TestCase):
         commands = self.commands()
         for command in commands:
             if command[0] == "kubectl":
-                self.assertEqual(command[1:5], ["-n", "garage", "get", "statefulset"])
+                self.assertTrue(
+                    command[1:5] == ["-n", "garage", "get", "statefulset"]
+                    or command[1:3] == ["create", "--dry-run=client"],
+                    command,
+                )
             if command[0] == "helm":
                 self.assertTrue(
                     command[0:2]
-                    in (["helm", "list"], ["helm", "show"], ["helm", "diff"])
+                    in (
+                        ["helm", "list"],
+                        ["helm", "show"],
+                        ["helm", "diff"],
+                        ["helm", "template"],
+                    )
                     or "--dry-run=server" in command,
                     command,
                 )
         self.assertTrue([c for c in commands if c[:3] == ["helm", "diff", "upgrade"]])
+
+    def test_upgrade_never_applies_the_storageclass(self):
+        # A failing upgrade, then a successful one up to the roll: neither path
+        # may reach `kubectl apply` (the stub kubectl exits on any apply).
+        self.environment.update(
+            DEPLOYED="0.9.2", HELM_UPGRADE_FAILS="1", KUBECTL_ALLOW_PATCH="1"
+        )
+        for name in ("garage-values.yaml", "storageclass-longhorn-garage-data.yaml"):
+            (self.garage_dir / name).write_text("{}\n")
+        result = self.run_script("--upgrade-chart")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("helm upgrade failed", result.stderr)
+        applies = [c for c in self.commands() if c[0] == "kubectl" and "apply" in c]
+        self.assertEqual(applies, [])
 
     def test_upgrade_without_the_flag_is_refused(self):
         self.environment["DEPLOYED"] = "0.9.2"
