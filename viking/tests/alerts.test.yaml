@@ -454,3 +454,68 @@ tests:
       - expr: count(ALERTS{alertname="OpenVikingLockListingBlind"}) or vector(0)
         eval_time: 60m
         exp_samples: [{ labels: "{}", value: 0 }]
+
+  # BUG-1282: a failed watchdog run must stay reported after a later run
+  # succeeds (KubeJobFailed does not), as one alert for the CronJob.
+  - name: failed watchdog runs fire once, and a later success does not clear it
+    interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29001",condition="true"}'
+        values: "1x60"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29001",owner_kind="CronJob",owner_name="ov-lock-watchdog",owner_is_controller="true"}'
+        values: "1x60"
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29016",condition="true"}'
+        values: "1x60"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29016",owner_kind="CronJob",owner_name="ov-lock-watchdog",owner_is_controller="true"}'
+        values: "1x60"
+      # A later successful run: kube-state-metrics emits no Failed condition.
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29031",owner_kind="CronJob",owner_name="ov-lock-watchdog",owner_is_controller="true"}'
+        values: "_x15 1x45"
+      # Another CronJob's failure in the same namespace is not this alert's.
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="viking",job_name="ovlock-janitor-29001",condition="true"}'
+        values: "1x60"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="ovlock-janitor-29001",owner_kind="CronJob",owner_name="ovlock-janitor",owner_is_controller="true"}'
+        values: "1x60"
+    alert_rule_test:
+      - alertname: OpenVikingLockWatchdogRunFailed
+        eval_time: 0m
+        exp_alerts: []
+      - alertname: OpenVikingLockWatchdogRunFailed
+        eval_time: 30m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: viking
+              owner_name: ov-lock-watchdog
+            exp_annotations:
+              summary: "2 failed ov-lock-watchdog run(s) in viking — an automatic OpenViking restart may have failed"
+              description: "A run of the ov-lock-watchdog CronJob failed: exit 1 means a restart of deploy/openviking was attempted and failed (or an unexpected error), exit 2 means the Kubernetes API refused its ServiceAccount or its config is bad. A wedged lock may still be held. Read the run with kubectl -n viking get jobs | grep ov-lock-watchdog, then kubectl -n viking logs job/<name>, or Loki {namespace=\"viking\"} |= \"ov-lock-watchdog: restart FAILED\". If a lock is still wedged, restart deploy/openviking by hand after the queue drains. This clears when the failed Jobs are gone (48 h TTL, newest 5 kept), not when a later run succeeds (BUG-1282)."
+
+  - name: a hand-copied probe Job with no CronJob owner does not fire it
+    # ov-exporter-sidecar-patch.yaml's probe copies the CronJob's Job by hand,
+    # so kube-state-metrics reports no owner for it.
+    interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-probe",condition="true"}'
+        values: "1x30"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-probe",owner_kind="<none>",owner_name="<none>",owner_is_controller="<none>"}'
+        values: "1x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingLockWatchdogRunFailed"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: the alert clears when the failed watchdog Job is deleted
+    interval: 1m
+    input_series:
+      - series: 'kube_job_failed{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29001",condition="true"}'
+        values: "1x10 stale"
+      - series: 'kube_job_owner{job="kube-state-metrics",namespace="viking",job_name="ov-lock-watchdog-29001",owner_kind="CronJob",owner_name="ov-lock-watchdog",owner_is_controller="true"}'
+        values: "1x10 stale"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingLockWatchdogRunFailed", alertstate="firing"}) or vector(0)
+        eval_time: 5m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertname="OpenVikingLockWatchdogRunFailed"}) or vector(0)
+        eval_time: 20m
+        exp_samples: [{ labels: "{}", value: 0 }]
