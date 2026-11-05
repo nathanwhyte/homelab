@@ -2800,7 +2800,9 @@ data:
     #
     # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
     #   each bullet that names a PR or issue number, a compendium item ID, a numbered phase, or
-    #   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. The
+    #   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. A
+    #   write that filtering would leave with no text is kept whole and recorded ``kept_empty``
+    #   (an empty body is never re-indexed, so the old vector would stay searchable). The
     #   user-level ``profile.md`` (a URI with no peer in the parsed placement) is never filtered or logged: it is
     #   the frozen fallback ``profile-inject`` reads for a peer with no profile.
     # * ``OV_EVENT_EXCERPT_CHECK`` (``ov-event-excerpt``): logs an ``events`` write whose summary
@@ -3048,17 +3050,28 @@ data:
         if mode == "0" or parsed is None or parsed.peer is None:
             return  # the user-level profile.md is the frozen fallback: never touched
         kept, removed = filter_profile_content(memory_file.content or "")
+        # A write left with no text is not applied (Codex round 1 of homelab#309, P2): the
+        # stock updater derives an empty abstract, EmbeddingMsgConverter.from_context returns
+        # None, and neither an index update nor a delete follows, so the old vector and its
+        # activity-filled abstract stay searchable. Keeping the text matches shadow mode.
+        apply = mode == "1" and bool(kept.strip())
+        if mode == "shadow":
+            action = "would_drop"
+        elif apply:
+            action = "dropped"
+        else:
+            action = "kept_empty"
         for reason, bullet in removed:
             emit_record(
                 PROFILE_PREFIX,
                 {
-                    "action": "would_drop" if mode == "shadow" else "dropped",
+                    "action": action,
                     "reason": reason,
                     "uri": memory_file.uri,
                     "bullet": _clip(bullet),
                 },
             )
-        if removed and mode == "1":
+        if removed and apply:
             memory_file.content = kept
 
 

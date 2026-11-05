@@ -2051,6 +2051,26 @@ class ProfileFilterTests(WriteCheckCase):
         # the old bullet already in the file is cut as well: the check sees the merged text
         self.assertIn("Merged dotfiles#1", " ".join(r["bullet"] for r in records))
 
+    def test_mode_1_keeps_a_write_it_would_empty(self):
+        # Codex round 1 of homelab#309, P2: an empty body is never re-indexed, so the old
+        # vector and abstract would stay searchable; keep the text, as shadow does
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for body in (ACTIVITY, "\n" + ACTIVITY + "\n"):
+            fs = WFS()
+            records, _ = self.apply(fs, upsert("profile", uri, body))
+            self.assertEqual(fs.files[uri], body)
+            self.assertEqual({r["action"] for r in records}, {"kept_empty"})
+            self.assertEqual(len(records), 4)
+
+    def test_mode_1_still_cuts_down_to_a_heading(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        fs = WFS()
+        records, _ = self.apply(fs, upsert("profile", uri, "# pop\n" + ACTIVITY))
+        self.assertEqual(fs.files[uri], "# pop\n")
+        self.assertEqual({r["action"] for r in records}, {"dropped"})
+
     def test_mode_0_is_off(self):
         os.environ["OV_PROFILE_FILTER"] = "0"
         fs = WFS({PROFILE_URI: CLEAN})
@@ -2426,7 +2446,8 @@ class RecordFailureTests(WriteCheckCase):
                 "OV_PREF_DEDUPE",
             ):
                 os.environ[var] = mode
-            fs = WFS({URI_A: SAME_BODY})
+            # CLEAN keeps text after the cut: a write it would empty is kept whole
+            fs = WFS({URI_A: SAME_BODY, PROFILE_URI: CLEAN})
             self.apply_broken(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
             self.assertEqual("dotfiles#509" in fs.files[PROFILE_URI], mode == "shadow")
             self.apply_broken(
