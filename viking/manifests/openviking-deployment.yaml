@@ -287,6 +287,14 @@ spec:
             # ("would_skip"), "0" turns the gate off.
             - name: OV_PREF_GATE
               value: "1"
+            # IMPR-1401 (ov_memory_guard_patch.py): drop activity-log bullets from a peer's
+            # profile write (a PR or issue number, an item ID, a P0-P3 finding label or
+            # "Phase N"), after the merge. Each removed line is one stderr line,
+            # ov-profile-filter {"action": "dropped", …}. The user-level profile.md is never
+            # touched. Shadow from 2026-10-31 (homelab#296) to this change; "shadow" logs
+            # only ("would_drop"), "0" turns it off.
+            - name: OV_PROFILE_FILTER
+              value: "1"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
