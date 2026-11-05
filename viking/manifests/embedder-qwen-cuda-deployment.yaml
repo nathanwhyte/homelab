@@ -112,7 +112,8 @@ spec:
             # variant), cost 4–5 GB of extra host RSS per slot and −4% tok/s,
             # and q4_0 KV drifted the vectors (cosine min 0.984; q8_0 was
             # 0.9995, inside the f16 noise floor). If slots ever return, each
-            # slot must be >= OV's embedding.max_input_tokens (8192) — the
+            # slot must be >= OV's embedding.max_input_tokens (6000 since
+            # BUG-1191; openviking-standalone-configmap.yaml:145) — the
             # IDEA-1042 lesson in viking/openviking.md — and q8_0 KV is the
             # free choice. The fix for the tail is a faster model (TASK-1218),
             # not concurrency.
