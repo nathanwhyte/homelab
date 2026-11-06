@@ -677,7 +677,7 @@ windows_way_back() {
 }
 
 cmd_windows() {
-	local entry next out rc=0 esp
+	local entry next out rc=0 esp src
 	# grub.cfg is root-only, so whether the pinned title still names a menu entry
 	# cannot be read. Check what os-prober built it from instead, before draining:
 	# the ESP it names is still /boot/efi and still holds the Windows loader. A
@@ -686,8 +686,9 @@ cmd_windows() {
 		die "cannot reach $NODE over ssh to check the Windows boot entry; nothing was changed."
 	[[ -n ${esp%%$'\n'*} && ${esp%%$'\n'*} != loader-ok ]] ||
 		die "/boot/efi is not mounted on $NODE, so the Windows boot entry cannot be checked; nothing was changed. Mount it (ssh -t $NODE_SSH sudo mount /boot/efi), then re-run: $SELF windows"
+	src=${esp%$'\n'loader-ok}
 	[[ $esp == "$WINDOWS_ESP"$'\n'loader-ok ]] ||
-		die "the Windows GRUB entry may be stale, so nothing was changed: '$WINDOWS_GRUB_ENTRY' names $WINDOWS_ESP and $WINDOWS_LOADER, but $NODE reports /boot/efi on '${esp%%$'\n'*}'$([[ $esp == *loader-ok ]] || echo ' without that loader'). Check with: ssh -t $NODE_SSH sudo grep menuentry /boot/grub/grub.cfg; then update WINDOWS_GRUB_ENTRY, WINDOWS_ESP and the sudoers grant (GUIDE-1070 § sudoers)."
+		die "the Windows GRUB entry may be stale, so nothing was changed: '$WINDOWS_GRUB_ENTRY' names $WINDOWS_ESP and $WINDOWS_LOADER, but $NODE reports /boot/efi on '${src//$'\n'/, }'$([[ $esp == *$'\n'loader-ok ]] || echo ' without that loader'). Check with: ssh -t $NODE_SSH sudo grep menuentry /boot/grub/grub.cfg; then update WINDOWS_GRUB_ENTRY, WINDOWS_ESP and the sudoers grant (GUIDE-1070 § sudoers)."
 	cmd_down windows
 	entry=$(printf '%q' "$WINDOWS_GRUB_ENTRY")
 	log "setting $NODE's next boot (once) to: $WINDOWS_GRUB_ENTRY"
@@ -696,10 +697,11 @@ cmd_windows() {
 	# grubenv is world-readable. Reading next_entry back proves the write and its
 	# quoting landed; whether the title matches a menu entry is the preflight's
 	# job above.
-	next=$("$SSH" -o BatchMode=yes "$NODE_SSH" "grep '^next_entry=' /boot/grub/grubenv") ||
+	# An unreadable file fails the ssh; a readable one without the line reads empty.
+	next=$("$SSH" -o BatchMode=yes "$NODE_SSH" "test -r /boot/grub/grubenv && { grep '^next_entry=' /boot/grub/grubenv || true; }") ||
 		die "cannot read $NODE's /boot/grub/grubenv after grub-reboot; not rebooting: it is drained and still on Ubuntu. $(windows_way_back)"
 	[[ $next == "next_entry=$WINDOWS_GRUB_ENTRY" ]] ||
-		die "$NODE's next boot entry reads '$next', not 'next_entry=$WINDOWS_GRUB_ENTRY'; not rebooting: it is drained and still on Ubuntu. Inspect: ssh $NODE_SSH cat /boot/grub/grubenv. $(windows_way_back)"
+		die "$NODE's next boot entry reads '${next:-no next_entry line}', not 'next_entry=$WINDOWS_GRUB_ENTRY'; not rebooting: it is drained and still on Ubuntu. Inspect: ssh $NODE_SSH cat /boot/grub/grubenv. $(windows_way_back)"
 	log "rebooting $NODE"
 	# ssh exits 255 both when the reboot drops the connection and when it never
 	# connected, so its status proves nothing. The remote echoes reboot's own

@@ -48,7 +48,7 @@ sudo() {
 	if [[ $* == *'/usr/sbin/reboot'* ]]; then return "${STUB_REBOOT_RC:-0}"; fi
 	return "${STUB_SUDO_RC:-0}"
 }
-findmnt() { echo "${STUB_ESP-/dev/nvme0n1p1}"; }
+findmnt() { [[ -z ${STUB_ESP-x} ]] || echo "${STUB_ESP-/dev/nvme0n1p1}"; } # STUB_ESP= prints nothing, as for an unmounted path
 cmd=${cmd//\/boot\/grub\/grubenv/$STUB_GRUBENV}
 cmd=${cmd//\/boot\/efi\/EFI\/Microsoft\/Boot\/bootmgfw.efi/$STUB_LOADER}
 eval "$cmd"
@@ -120,7 +120,7 @@ assert_eq "it runs the ESP preflight, down, grub-reboot, the grubenv check and t
 down windows
 ssh timmy-lan: sudo -n /usr/sbin/grub-reboot Windows\\ Boot\\ Manager\\ \\(on\\ /dev/nvme0n1p1\\)
 sudo: [-n] [/usr/sbin/grub-reboot] [$ENTRY]
-ssh timmy-lan: grep '^next_entry=' /boot/grub/grubenv
+ssh timmy-lan: test -r /boot/grub/grubenv && { grep '^next_entry=' /boot/grub/grubenv || true; }
 ssh timmy-lan: sudo -n /usr/sbin/reboot; echo reboot-rc=\$?
 sudo: [-n] [/usr/sbin/reboot]" "$calls"
 assert_has "it says next_entry is set to Windows and names up" "timmy is rebooting with next_entry set to Windows. After the Windows session, reboot it back to Ubuntu, then:  " "$out"
@@ -146,17 +146,24 @@ assert_eq "a missing Windows loader fails windows" 1 "${out##*$'\n'}"
 assert_has "it says the loader is missing" "reports /boot/efi on '/dev/nvme0n1p1' without that loader" "$out"
 assert_eq "it stops before down" "$PREFLIGHT" "$(<"$STUB_LOG")"
 
-reset
-out=$(run STUB_ESP=)
-assert_eq "an unmounted /boot/efi fails windows" 1 "${out##*$'\n'}"
-assert_has "it says to mount it, not to edit the entry" "/boot/efi is not mounted on timmy, so the Windows boot entry cannot be checked; nothing was changed. Mount it (ssh -t timmy-lan sudo mount /boot/efi)" "$out"
-assert_lacks "and does not call the entry stale" "may be stale" "$out"
-assert_eq "it stops before down" "$PREFLIGHT" "$(<"$STUB_LOG")"
+# Unmounted: findmnt prints nothing, and the loader is usually gone too (empty
+# output); a stray loader on the root filesystem leaves `loader-ok` alone.
+for loader in absent present; do
+	reset
+	[[ $loader == present ]] || rm -f "$STUB_LOADER"
+	out=$(run STUB_ESP=)
+	assert_eq "an unmounted /boot/efi fails windows (loader $loader)" 1 "${out##*$'\n'}"
+	assert_has "it says to mount it, not to edit the entry (loader $loader)" "/boot/efi is not mounted on timmy, so the Windows boot entry cannot be checked; nothing was changed. Mount it (ssh -t timmy-lan sudo mount /boot/efi)" "$out"
+	assert_lacks "and does not call the entry stale (loader $loader)" "may be stale" "$out"
+	assert_eq "it stops before down (loader $loader)" "$PREFLIGHT" "$(<"$STUB_LOG")"
+done
 
-# The comparison is exact: a second findmnt line fails it.
+# The comparison is exact: a second findmnt line fails it, and the message
+# names every source it saw.
 reset
 out=$(run STUB_ESP=$'/dev/nvme0n1p1\n/dev/sda1')
 assert_eq "extra findmnt output fails windows" 1 "${out##*$'\n'}"
+assert_has "it names both sources" "timmy reports /boot/efi on '/dev/nvme0n1p1, /dev/sda1'." "$out"
 assert_eq "it stops before down" "$PREFLIGHT" "$(<"$STUB_LOG")"
 
 reset
@@ -204,9 +211,17 @@ assert_eq "a next_entry that only contains the Windows title fails windows" 1 "$
 assert_lacks "it never reboots" "/usr/sbin/reboot;" "$(<"$STUB_LOG")"
 
 reset
+printf '# GRUB Environment Block\nsaved_entry=0\n' >"$STUB_GRUBENV"
+out=$(run)
+assert_eq "a grubenv with no next_entry line fails windows" 1 "${out##*$'\n'}"
+assert_has "it says the line is missing, not that the file is unreadable" "next boot entry reads 'no next_entry line'" "$out"
+assert_way_back "next_entry missing" "$out"
+
+reset
 rm -f "$STUB_GRUBENV"
 out=$(run)
 assert_eq "an unreadable grubenv fails windows" 1 "${out##*$'\n'}"
+assert_has "it says the file cannot be read" "cannot read timmy's /boot/grub/grubenv after grub-reboot" "$out"
 assert_way_back "grubenv unreadable" "$out"
 assert_lacks "it never reboots" "/usr/sbin/reboot;" "$(<"$STUB_LOG")"
 
