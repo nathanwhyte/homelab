@@ -2020,68 +2020,74 @@ class ProfileFilterTests(WriteCheckCase):
         ):
             self.assertIsNone(mg.profile_bullet_reason(line), line)
 
-    def test_continuation_lines_go_with_their_bullet(self):
-        kept, removed = mg.filter_profile_content(
-            "# N\n- Merged #5\n  and more detail\n- Lives in X\n"
-        )
-        self.assertEqual(kept, "# N\n- Lives in X\n")
-        self.assertEqual([r for r, _ in removed], ["pr_or_issue", "continuation"])
+    def test_any_item_with_a_second_line_keeps_the_write_whole(self):
+        # B1 (Codex rounds 2 and 3 of homelab#309): only one-line items are cut, so no
+        # item boundary can be got wrong; every other shape is kept whole and named
+        for body in (
+            "# N\n- Merged #5\n  and more detail\n- Lives in X\n",  # continuation
+            "# N\n- Merged #5\n\n    Completed release work\n- Lives in X\n",  # paragraph
+            "# N\n- Ships carefully\n  - merged #3 today\n- Lives in X\n",  # nested
+            "- Merged #5\nlazy prose\n- Likes tea\n",  # lazy line
+            "- Likes tea\n- Merged #5\n  ```\n  code\n  ```\n",  # fence in an item
+        ):
+            kept, removed, unsupported = mg.filter_profile_content(body)
+            self.assertEqual(kept, body, body)
+            self.assertEqual(unsupported, "multi_line_item", body)
+            self.assertTrue(removed, body)  # the matches are still logged
 
-    def test_a_paragraph_after_a_blank_line_goes_with_its_item(self):
-        # Codex round 2 of homelab#309, P2: a blank line used to end the continuation
-        kept, removed = mg.filter_profile_content(
-            "# N\n- Merged #5\n\n    Completed release work\n- Lives in X\n"
-        )
-        self.assertEqual(kept, "# N\n- Lives in X\n")
-        self.assertEqual(
-            removed,
-            [
-                ("pr_or_issue", "- Merged #5"),
-                ("continuation", "Completed release work"),
-            ],
-        )
+    def test_a_quoted_list_keeps_the_write_whole(self):
+        # Codex round 3, R3.a-2: a quoted finding label was missed
+        body = "# N\n> - P1: finding\n> - Lives in X\n- Merged #5\n"
+        kept, removed, unsupported = mg.filter_profile_content(body)
+        self.assertEqual((kept, unsupported), (body, "quoted_item"))
+        self.assertEqual(removed, [("pr_or_issue", "- Merged #5")])
 
-    def test_a_match_anywhere_in_an_item_drops_the_whole_item(self):
-        # A2: the item is the unit, so a nested bullet or later paragraph counts
-        kept, removed = mg.filter_profile_content(
-            "# N\n- Ships carefully\n  - merged #3 today\n- Lives in X\n"
-            "- Likes tea\n\n  Tracks BUG-12 too\n"
-        )
-        self.assertEqual(kept, "# N\n- Lives in X\n")
-        self.assertEqual(
-            [r for r, _ in removed],
-            ["pr_or_issue", "continuation", "item_id", "continuation"],
-        )
+    def test_blank_lines_survive_so_a_paragraph_stays_apart(self):
+        # Codex round 3, R3.a-1: the item's trailing blank line went with it, the prose
+        # joined the trait above as a lazy line, and the next rewrite dropped that trait
+        body = "# N\n- Lives in X\n- Merged #1\n\nProse with #2 is not an item\n"
+        kept, removed, unsupported = mg.filter_profile_content(body)
+        self.assertIsNone(unsupported)
+        self.assertEqual(kept, "# N\n- Lives in X\n\nProse with #2 is not an item\n")
+        self.assertEqual(removed, [("pr_or_issue", "- Merged #1")])
+        self.assertEqual(mg.filter_profile_content(kept), (kept, [], None))
 
-    def test_finding_label_is_read_at_the_item_marker_only(self):
-        kept, _ = mg.filter_profile_content("- Triage\n  - P1: nested\n")
-        self.assertEqual(kept, "- Triage\n  - P1: nested\n")
-        kept, _ = mg.filter_profile_content("1. P1: a finding\n2) Lives in X\n")
-        self.assertEqual(kept, "2) Lives in X\n")
+    def test_finding_label_is_read_at_the_item_marker(self):
+        kept, _, unsupported = mg.filter_profile_content(
+            "1. P1: a finding\n2) Lives in X\n- Prefers P2 triage\n"
+        )
+        self.assertIsNone(unsupported)
+        self.assertEqual(kept, "2) Lives in X\n- Prefers P2 triage\n")
 
     def test_kept_lines_are_byte_exact(self):
         body = (
             "# N\r\n- Lives in X\r\n- Merged #5\r\n\r\nprose with #7 is not an item\r\n"
         )
-        kept, _ = mg.filter_profile_content(body)
+        kept, _, _ = mg.filter_profile_content(body)
         self.assertEqual(
-            kept, "# N\r\n- Lives in X\r\nprose with #7 is not an item\r\n"
+            kept, "# N\r\n- Lives in X\r\n\r\nprose with #7 is not an item\r\n"
         )
-        # with no blank line, CommonMark reads the prose as a lazy line of the item
-        kept, removed = mg.filter_profile_content(
-            "- Merged #5\nlazy prose\n- Likes tea\n"
-        )
-        self.assertEqual(kept, "- Likes tea\n")
-        self.assertEqual(removed[-1], ("continuation", "lazy prose"))
         # \f and U+2028 are not line breaks to markdown-it; the line map must not shift
         body = "# N\f x\n- Lives\u2028 in X\n- Merged #5\n- Likes tea\n"
-        kept, _ = mg.filter_profile_content(body)
+        kept, _, _ = mg.filter_profile_content(body)
         self.assertEqual(kept, "# N\f x\n- Lives\u2028 in X\n- Likes tea\n")
 
     def test_no_markdown_it_means_no_filtering(self):
         with mock.patch.object(mg, "_MD_PARSER", [None]):
             body = "# N\n- Merged #5\n"
-            self.assertEqual(mg.filter_profile_content(body), (body, []))
+            self.assertEqual(mg.filter_profile_content(body), (body, [], "no_parser"))
+
+    def test_mode_1_records_kept_unsupported_with_the_shape(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        body = CLEAN + "- Merged #5\n  more detail\n"
+        fs = WFS()
+        records, _ = self.apply(fs, upsert("profile", uri, body))
+        self.assertEqual(fs.files[uri], body)
+        self.assertEqual(
+            [(r["action"], r["shape"]) for r in records],
+            [("kept_unsupported", "multi_line_item")],
+        )
 
     def test_shadow_is_the_default_and_writes_every_bullet(self):
         fs = WFS({PROFILE_URI: CLEAN})

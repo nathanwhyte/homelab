@@ -72,8 +72,9 @@ the summary only, so a decision that appears only in the ChatLog is lost with it
 ``"would_drop"`` and writes the event anyway.
 
 **Write-time checks** (IMPR-1401, BUG-1283, BUG-1284; section "Write-time checks" below).
-``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write (a
-write the cut would leave with no text is kept whole and recorded ``kept_empty``),
+``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write (only
+when every list item is one unquoted line, else ``kept_unsupported``; a write the cut
+would leave with no text is kept whole and recorded ``kept_empty``),
 ``OV_EVENT_EXCERPT_CHECK`` logs an event whose summary names a ``#N`` its excerpt lacks,
 ``OV_PREF_DEDUPE`` logs a preference equal to another (log only, never a skip), and
 ``OV_PROFILE_PREFETCH_PEER_ONLY`` keeps the user-level singleton out of the extraction
@@ -861,11 +862,13 @@ def apply(module) -> bool:
 # the other ``MemoryFileUtils.write`` callers are untouched.
 #
 # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
-#   each top-level list item (bounded by markdown-it, nested items and indented paragraphs
-#   included) that names a PR or issue number, a compendium item ID, a numbered phase, or
-#   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. A
-#   write that filtering would leave with no text is kept whole and recorded ``kept_empty``
-#   (an empty body is never re-indexed, so the old vector would stay searchable). The
+#   each list item that names a PR or issue number, a compendium item ID, a numbered
+#   phase, or opens with a review finding label (``P0:``-``P3:``); shadow records
+#   ``would_drop``. It cuts only when markdown-it finds every list item to be one line in
+#   an unquoted list; any other shape is kept whole and recorded ``kept_unsupported``
+#   with a ``shape`` field. A write that filtering would leave with no text is kept whole
+#   and recorded ``kept_empty`` (an empty body is never re-indexed, so the old vector
+#   would stay searchable). The
 #   user-level ``profile.md`` (a URI with no peer in the parsed placement) is never filtered or logged: it is
 #   the frozen fallback ``profile-inject`` reads for a peer with no profile.
 # * ``OV_EVENT_EXCERPT_CHECK`` (``ov-event-excerpt``): logs an ``events`` write whose summary
@@ -996,20 +999,6 @@ def profile_bullet_reason(line: str) -> str | None:
     return None
 
 
-def profile_item_reason(item_lines: list[str]) -> str | None:
-    """Why a list item (its source lines) is activity-log material, or None.
-
-    The finding label is read at the item's own marker; the other patterns anywhere in
-    the item, nested items and paragraphs after a blank line included.
-    """
-    text = "".join(item_lines)
-    for reason, pattern in PROFILE_REASONS:
-        target = item_lines[0] if reason == "finding_label" else text
-        if pattern.search(target):
-            return reason
-    return None
-
-
 # The line split markdown-it uses: it normalizes \r\n and \r to \n and counts only \n, so
 # str.splitlines (which also splits on \v, \f, \x1c, U+2028 ...) would shift token maps.
 _MD_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
@@ -1031,57 +1020,68 @@ def _markdown():
     return _MD_PARSER[0]
 
 
-def _top_level_items(md, content: str) -> list[tuple[int, int]]:
-    """``[(start, end), ...]`` source line ranges of list items not nested in another item."""
-    items, depth = [], 0
+def _list_items(md, content: str) -> list[tuple[int, int, bool]]:
+    """``[(start, end, quoted), ...]`` for every list item markdown-it finds, nested ones
+    included: its source line range, and whether a blockquote encloses it."""
+    items, quotes = [], 0
     for token in md.parse(content):
-        if token.type == "list_item_open":
-            if depth == 0 and token.map:
-                items.append((token.map[0], token.map[1]))
-            depth += 1
-        elif token.type == "list_item_close":
-            depth -= 1
+        if token.type == "blockquote_open":
+            quotes += 1
+        elif token.type == "blockquote_close":
+            quotes -= 1
+        elif token.type == "list_item_open" and token.map:
+            items.append((token.map[0], token.map[1], quotes > 0))
     return items
 
 
-def filter_profile_content(content: str) -> tuple[str, list[tuple[str, str]]]:
-    """``(kept text, [(reason, line), ...])``: each top-level list item that matches
-    ``PROFILE_REASONS`` is removed whole, as the CommonMark parser bounds it.
+def filter_profile_content(
+    content: str,
+) -> tuple[str, list[tuple[str, str]], str | None]:
+    """``(kept text, [(reason, line), ...], unsupported)``.
 
-    The first record names the item's marker line; each other non-blank line of the item
-    is a ``continuation`` record. Lines outside a removed item are kept byte for byte.
-    The item boundaries come from markdown-it, not a line heuristic (Codex round 2 of
-    homelab#309, P2: a blank line used to end a bullet's continuation, so an indented
-    paragraph after it survived its dropped bullet). If markdown-it is missing, or its
-    line map does not fit the text, nothing is removed.
+    The filter acts only on the shape the extraction model writes: every list item is
+    one source line in an unquoted list. Then each matching item's line is removed and
+    every other line, blank lines included, is kept byte for byte, so no neighbour can
+    change its meaning. Any other shape (an item with a second line, a nested item or a
+    paragraph under it, a quoted list), a missing markdown-it or a line map that does
+    not fit the text keeps the write whole and names why in ``unsupported``; the records
+    then list the items that would have matched. Codex rounds 2 and 3 of homelab#309
+    (P2s) found items whose boundaries a cut got wrong; this shape has no boundary to
+    get wrong (user pick B1).
     """
     md = _markdown()
-    if md is None or not content:
-        return content, []
+    if md is None:
+        return content, [], "no_parser"
+    if not content:
+        return content, [], None
     lines = _MD_LINE.findall(content)
     try:
-        items = _top_level_items(md, content)
+        items = _list_items(md, content)
     except Exception as exc:  # noqa: BLE001 — a parse failure keeps the write whole
         logger.warning("ov-memory-guard: profile parse failed (%r); kept whole", exc)
-        return content, []
-    if "".join(lines) != content or any(end > len(lines) for _, end in items):
+        return content, [], "parse_error"
+    if "".join(lines) != content or any(end > len(lines) for _, end, _ in items):
         logger.warning("ov-memory-guard: profile line map mismatch; kept whole")
-        return content, []
+        return content, [], "line_map"
+    unsupported = None
+    for start, end, quoted in items:
+        if quoted:
+            unsupported = "quoted_item"
+            break
+        if any(line.strip() for line in lines[start + 1 : end]):
+            unsupported = "multi_line_item"  # a nested item is one too
+            break
     drop: set[int] = set()
     removed: list[tuple[str, str]] = []
-    for start, end in items:
-        reason = profile_item_reason(lines[start:end])
-        if not reason:
-            continue
-        drop.update(range(start, end))
-        removed.append((reason, lines[start].strip()))
-        removed.extend(
-            ("continuation", line.strip())
-            for line in lines[start + 1 : end]
-            if line.strip()
-        )
+    for start, _end, _quoted in items:
+        reason = profile_bullet_reason(lines[start])
+        if reason and start not in drop:
+            drop.add(start)
+            removed.append((reason, lines[start].strip()))
+    if unsupported:
+        return content, removed, unsupported
     kept = "".join(line for i, line in enumerate(lines) if i not in drop)
-    return kept, removed
+    return kept, removed, None
 
 
 def _body_digest(text: str) -> str:
@@ -1177,28 +1177,31 @@ def _check_profile(memory_file) -> None:
     parsed = parse_memory_uri(memory_file.uri)
     if mode == "0" or parsed is None or parsed.peer is None:
         return  # the user-level profile.md is the frozen fallback: never touched
-    kept, removed = filter_profile_content(memory_file.content or "")
+    kept, removed, unsupported = filter_profile_content(memory_file.content or "")
     # A write left with no text is not applied (Codex round 1 of homelab#309, P2): the
     # stock updater derives an empty abstract, EmbeddingMsgConverter.from_context returns
     # None, and neither an index update nor a delete follows, so the old vector and its
     # activity-filled abstract stay searchable. Keeping the text matches shadow mode.
-    apply = mode == "1" and bool(kept.strip())
+    # A shape the filter does not cut (see filter_profile_content) is kept whole too.
+    apply = mode == "1" and unsupported is None and bool(kept.strip())
     if mode == "shadow":
         action = "would_drop"
+    elif unsupported:
+        action = "kept_unsupported"
     elif apply:
         action = "dropped"
     else:
         action = "kept_empty"
     for reason, bullet in removed:
-        emit_record(
-            PROFILE_PREFIX,
-            {
-                "action": action,
-                "reason": reason,
-                "uri": memory_file.uri,
-                "bullet": _clip(bullet),
-            },
-        )
+        record = {
+            "action": action,
+            "reason": reason,
+            "uri": memory_file.uri,
+            "bullet": _clip(bullet),
+        }
+        if unsupported:
+            record["shape"] = unsupported
+        emit_record(PROFILE_PREFIX, record)
     if removed and apply:
         memory_file.content = kept
 

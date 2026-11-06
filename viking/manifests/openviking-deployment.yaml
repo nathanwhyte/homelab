@@ -289,10 +289,11 @@ spec:
               value: "1"
             # IMPR-1401 (ov_memory_guard_patch.py): drop activity-log bullets from a peer's
             # profile write (a PR or issue number, an item ID, a P0-P3 finding label or
-            # "Phase N"), after the merge. Each removed line is one stderr line,
-            # ov-profile-filter {"action": "dropped", …}. A write the cut would leave with no
-            # text is kept whole and recorded "kept_empty" instead, since an empty body is
-            # never re-indexed. The user-level profile.md is never touched. Shadow from 2026-10-31 (homelab#296) to this change; "shadow" logs
+            # "Phase N"), after the merge. Each removed bullet is one stderr line,
+            # ov-profile-filter {"action": "dropped", …}. It cuts only a profile whose list
+            # items are each one unquoted line; any other shape is kept whole and recorded
+            # "kept_unsupported". A write the cut would leave with no text is kept whole and
+            # recorded "kept_empty", since an empty body is never re-indexed. The user-level profile.md is never touched. Shadow from 2026-10-31 (homelab#296) to this change; "shadow" logs
             # only ("would_drop"), "0" turns it off.
             - name: OV_PROFILE_FILTER
               value: "1"
