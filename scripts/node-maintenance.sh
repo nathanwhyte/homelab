@@ -619,13 +619,20 @@ print_new_rows() {
 wait_longhorn_healthy() {
 	log "Waiting for all attached Longhorn volumes to be healthy..."
 	# Print each degraded row once (a volume whose state changes is a new row),
-	# and the kubectl warning once per stretch of failed reads: the gate polls
-	# every 15s, and a volume rebuilding for minutes used to fill the output with
-	# copies of the same rows.
-	local bad printed='' unavailable=0
+	# and one kubectl warning per stretch of failed reads, numbered after the
+	# first so no line repeats: the gate polls every 15s, and a volume rebuilding
+	# for minutes used to fill the output with copies of the same rows.
+	local bad printed='' unavailable=0 outages=0
 	while true; do
 		bad=$(longhorn_unhealthy) || {
-			((unavailable)) || warn "kubectl unavailable, retrying every 10s..."
+			if ((! unavailable)); then
+				outages=$((outages + 1))
+				if ((outages == 1)); then
+					warn "kubectl unavailable, retrying every 10s..."
+				else
+					warn "kubectl unavailable again (outage $outages), retrying every 10s..."
+				fi
+			fi
 			unavailable=1
 			sleep 10
 			continue

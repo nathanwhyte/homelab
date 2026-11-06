@@ -151,6 +151,12 @@ strip() { sed $'s/\033\\[[0-9;]*m//g'; }
 	echo "gate_polls=$(grep -c volumes.longhorn.io "$STUB_LOG")"
 	echo "gate_max=$(max_repeat "$gate")"
 	printf 'GATE\n%s\nEND\n' "$gate"
+
+	# Three separate kubectl outages, each followed by a good read.
+	volumes "$a" fail "$a" fail fail "$a" fail "[$(lh_volume garage-0 attached healthy)]"
+	flaky=$(wait_longhorn_healthy 2>&1 | strip)
+	echo "flaky_max=$(max_repeat "$flaky")"
+	printf 'FLAKY\n%s\nEND\n' "$flaky"
 ) >"$TMPDIR_TEST/nm.out" 2>&1
 nm=$(<"$TMPDIR_TEST/nm.out")
 field() { sed -n "s/^$1=//p" <<<"$nm"; }
@@ -197,6 +203,11 @@ assert_eq "a volume is printed in its first state" 1 "$(grep -c '    degraded: g
 assert_eq "and again when its state changes" 1 "$(grep -c '    degraded: garage-2	attached/degraded' <<<"$gate")"
 assert_eq "an outage of kubectl is reported once" 1 "$(grep -c 'kubectl unavailable' <<<"$gate")"
 assert_has "the gate still ends healthy" "Longhorn volumes healthy." "$gate"
+assert_eq "three kubectl outages print no line twice" 1 "$(field flaky_max)"
+flaky=$(block FLAKY)
+assert_eq "each outage is reported once" 3 "$(grep -c 'kubectl unavailable' <<<"$flaky")"
+assert_has "a later outage is numbered" "kubectl unavailable again (outage 3)" "$flaky"
+assert_has "the flaky gate still ends healthy" "Longhorn volumes healthy." "$flaky"
 
 # --- timmy-offline.sh ------------------------------------------------------------
 orphan() { printf '%s,%s' "$(lh_volume "$1" attached healthy "$2")" "$(lh_replica "$1" timmy)"; }
