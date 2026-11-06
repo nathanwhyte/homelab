@@ -861,7 +861,8 @@ def apply(module) -> bool:
 # the other ``MemoryFileUtils.write`` callers are untouched.
 #
 # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
-#   each bullet that names a PR or issue number, a compendium item ID, a numbered phase, or
+#   each top-level list item (bounded by markdown-it, nested items and indented paragraphs
+#   included) that names a PR or issue number, a compendium item ID, a numbered phase, or
 #   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. A
 #   write that filtering would leave with no text is kept whole and recorded ``kept_empty``
 #   (an empty body is never re-indexed, so the old vector would stay searchable). The
@@ -995,27 +996,92 @@ def profile_bullet_reason(line: str) -> str | None:
     return None
 
 
+def profile_item_reason(item_lines: list[str]) -> str | None:
+    """Why a list item (its source lines) is activity-log material, or None.
+
+    The finding label is read at the item's own marker; the other patterns anywhere in
+    the item, nested items and paragraphs after a blank line included.
+    """
+    text = "".join(item_lines)
+    for reason, pattern in PROFILE_REASONS:
+        target = item_lines[0] if reason == "finding_label" else text
+        if pattern.search(target):
+            return reason
+    return None
+
+
+# The line split markdown-it uses: it normalizes \r\n and \r to \n and counts only \n, so
+# str.splitlines (which also splits on \v, \f, \x1c, U+2028 ...) would shift token maps.
+_MD_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
+_MD_PARSER: list = []  # [MarkdownIt] once built; [None] when markdown-it is missing
+
+
+def _markdown():
+    if not _MD_PARSER:
+        try:
+            from markdown_it import MarkdownIt  # shipped in the v0.5.1.1 image
+
+            _MD_PARSER.append(MarkdownIt("commonmark"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "ov-memory-guard: markdown-it unavailable (%r); profiles are not filtered",
+                exc,
+            )
+            _MD_PARSER.append(None)
+    return _MD_PARSER[0]
+
+
+def _top_level_items(md, content: str) -> list[tuple[int, int]]:
+    """``[(start, end), ...]`` source line ranges of list items not nested in another item."""
+    items, depth = [], 0
+    for token in md.parse(content):
+        if token.type == "list_item_open":
+            if depth == 0 and token.map:
+                items.append((token.map[0], token.map[1]))
+            depth += 1
+        elif token.type == "list_item_close":
+            depth -= 1
+    return items
+
+
 def filter_profile_content(content: str) -> tuple[str, list[tuple[str, str]]]:
-    """``(kept text, [(reason, bullet), ...])``; an indented continuation goes with its bullet."""
-    kept, removed = [], []
-    dropping = False
-    for line in content.splitlines(keepends=True):
-        reason = profile_bullet_reason(line)
-        if reason:
-            removed.append((reason, line.strip()))
-            dropping = True
+    """``(kept text, [(reason, line), ...])``: each top-level list item that matches
+    ``PROFILE_REASONS`` is removed whole, as the CommonMark parser bounds it.
+
+    The first record names the item's marker line; each other non-blank line of the item
+    is a ``continuation`` record. Lines outside a removed item are kept byte for byte.
+    The item boundaries come from markdown-it, not a line heuristic (Codex round 2 of
+    homelab#309, P2: a blank line used to end a bullet's continuation, so an indented
+    paragraph after it survived its dropped bullet). If markdown-it is missing, or its
+    line map does not fit the text, nothing is removed.
+    """
+    md = _markdown()
+    if md is None or not content:
+        return content, []
+    lines = _MD_LINE.findall(content)
+    try:
+        items = _top_level_items(md, content)
+    except Exception as exc:  # noqa: BLE001 — a parse failure keeps the write whole
+        logger.warning("ov-memory-guard: profile parse failed (%r); kept whole", exc)
+        return content, []
+    if "".join(lines) != content or any(end > len(lines) for _, end in items):
+        logger.warning("ov-memory-guard: profile line map mismatch; kept whole")
+        return content, []
+    drop: set[int] = set()
+    removed: list[tuple[str, str]] = []
+    for start, end in items:
+        reason = profile_item_reason(lines[start:end])
+        if not reason:
             continue
-        if (
-            dropping
-            and line.strip()
-            and line[:1].isspace()
-            and not PROFILE_BULLET.match(line)
-        ):
-            removed.append(("continuation", line.strip()))
-            continue
-        dropping = False
-        kept.append(line)
-    return "".join(kept), removed
+        drop.update(range(start, end))
+        removed.append((reason, lines[start].strip()))
+        removed.extend(
+            ("continuation", line.strip())
+            for line in lines[start + 1 : end]
+            if line.strip()
+        )
+    kept = "".join(line for i, line in enumerate(lines) if i not in drop)
+    return kept, removed
 
 
 def _body_digest(text: str) -> str:

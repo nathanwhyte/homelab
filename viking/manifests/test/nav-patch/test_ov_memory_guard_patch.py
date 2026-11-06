@@ -33,6 +33,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import ov_memory_guard_patch as mg
 
+# The profile filter parses with markdown-it, which the openviking image and the
+# openviking uv tool ship; run-nav-patch-tests.py (CI included) runs under that tool.
+# Skip only when the package is absent, as for ``Installed`` below.
+NO_MARKDOWN = importlib.util.find_spec("markdown_it") is None
+
 # The interpreter has already imported *a* sitecustomize (Homebrew's, or ours via
 # PYTHONPATH in the pod), so load this directory's copy by path under its own name.
 _spec = importlib.util.spec_from_file_location(
@@ -1972,6 +1977,7 @@ class MemoryUriTests(unittest.TestCase):
         )
 
 
+@unittest.skipIf(NO_MARKDOWN, "needs markdown-it (the openviking image or uv tool)")
 class ProfileFilterTests(WriteCheckCase):
     def test_reasons_each_pattern(self):
         for line, reason in (
@@ -2020,6 +2026,62 @@ class ProfileFilterTests(WriteCheckCase):
         )
         self.assertEqual(kept, "# N\n- Lives in X\n")
         self.assertEqual([r for r, _ in removed], ["pr_or_issue", "continuation"])
+
+    def test_a_paragraph_after_a_blank_line_goes_with_its_item(self):
+        # Codex round 2 of homelab#309, P2: a blank line used to end the continuation
+        kept, removed = mg.filter_profile_content(
+            "# N\n- Merged #5\n\n    Completed release work\n- Lives in X\n"
+        )
+        self.assertEqual(kept, "# N\n- Lives in X\n")
+        self.assertEqual(
+            removed,
+            [
+                ("pr_or_issue", "- Merged #5"),
+                ("continuation", "Completed release work"),
+            ],
+        )
+
+    def test_a_match_anywhere_in_an_item_drops_the_whole_item(self):
+        # A2: the item is the unit, so a nested bullet or later paragraph counts
+        kept, removed = mg.filter_profile_content(
+            "# N\n- Ships carefully\n  - merged #3 today\n- Lives in X\n"
+            "- Likes tea\n\n  Tracks BUG-12 too\n"
+        )
+        self.assertEqual(kept, "# N\n- Lives in X\n")
+        self.assertEqual(
+            [r for r, _ in removed],
+            ["pr_or_issue", "continuation", "item_id", "continuation"],
+        )
+
+    def test_finding_label_is_read_at_the_item_marker_only(self):
+        kept, _ = mg.filter_profile_content("- Triage\n  - P1: nested\n")
+        self.assertEqual(kept, "- Triage\n  - P1: nested\n")
+        kept, _ = mg.filter_profile_content("1. P1: a finding\n2) Lives in X\n")
+        self.assertEqual(kept, "2) Lives in X\n")
+
+    def test_kept_lines_are_byte_exact(self):
+        body = (
+            "# N\r\n- Lives in X\r\n- Merged #5\r\n\r\nprose with #7 is not an item\r\n"
+        )
+        kept, _ = mg.filter_profile_content(body)
+        self.assertEqual(
+            kept, "# N\r\n- Lives in X\r\nprose with #7 is not an item\r\n"
+        )
+        # with no blank line, CommonMark reads the prose as a lazy line of the item
+        kept, removed = mg.filter_profile_content(
+            "- Merged #5\nlazy prose\n- Likes tea\n"
+        )
+        self.assertEqual(kept, "- Likes tea\n")
+        self.assertEqual(removed[-1], ("continuation", "lazy prose"))
+        # \f and U+2028 are not line breaks to markdown-it; the line map must not shift
+        body = "# N\f x\n- Lives\u2028 in X\n- Merged #5\n- Likes tea\n"
+        kept, _ = mg.filter_profile_content(body)
+        self.assertEqual(kept, "# N\f x\n- Lives\u2028 in X\n- Likes tea\n")
+
+    def test_no_markdown_it_means_no_filtering(self):
+        with mock.patch.object(mg, "_MD_PARSER", [None]):
+            body = "# N\n- Merged #5\n"
+            self.assertEqual(mg.filter_profile_content(body), (body, []))
 
     def test_shadow_is_the_default_and_writes_every_bullet(self):
         fs = WFS({PROFILE_URI: CLEAN})
@@ -2448,8 +2510,11 @@ class RecordFailureTests(WriteCheckCase):
                 os.environ[var] = mode
             # CLEAN keeps text after the cut: a write it would empty is kept whole
             fs = WFS({URI_A: SAME_BODY, PROFILE_URI: CLEAN})
-            self.apply_broken(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
-            self.assertEqual("dotfiles#509" in fs.files[PROFILE_URI], mode == "shadow")
+            if not NO_MARKDOWN:  # without markdown-it no profile record is written
+                self.apply_broken(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
+                self.assertEqual(
+                    "dotfiles#509" in fs.files[PROFILE_URI], mode == "shadow"
+                )
             self.apply_broken(
                 fs,
                 upsert("events", EVENT_URI, "body", summary="PR #1", ranges="0-3"),
