@@ -30,11 +30,15 @@ spec:
         #
         # The value compared is a lower bound on the replacements in the last
         # hour: the latest sample minus the lowest sample in the window. It never
-        # counts more than happened. It counts fewer when samples are missing: a
-        # rise whose earlier sample has aged out of the window (a scrape gap near
-        # an hour), or a container restart whose low point went unscraped.
-        # increase() was rejected because it extrapolates past the samples (exactly 20 read
-        # as 20.17, 10 sparse ones as 25), so it can count more than happened.
+        # counts more than happened, and it can count fewer. Examples: a
+        # container restart in the window drops the replacements before it, even
+        # with every sample scraped; a rise whose earlier sample aged out of the
+        # window (a scrape gap near an hour) is missed; an unscraped restart low
+        # point loses the replacements before the first sample after it.
+        # increase() was rejected because it extrapolates past the samples
+        # (exactly 20 read as 20.17, 10 sparse ones as 25), so it can count more
+        # than happened. The summary prints the value as an integer, since
+        # humanize rounds up (12345 as 12.35k).
         #
         # Threshold: the highest value of this expression sampled every 5 min
         # from 2026-10-07 to 2026-11-06 was 10. Held locks are the job of
@@ -44,7 +48,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "OpenViking replaced at least {{ $value | humanize }} expired lock tokens in the last hour"
+            summary: "OpenViking replaced at least {{ printf \"%.0f\" $value }} expired lock tokens in the last hour"
             description: "Each replacement is an acquire taking over a lock token whose timestamp was older than the lock expiry, logged as `replaced stale pathlock token during acquire` with its stale_owner. The count is of tokens, not owners: one owner can leave several (a path lock and per-file locks). The stale_owner values in the openviking container's log name the owners to look into. This is not a held lock, and a restart does not address it."
         # BUG-1138: OpenVikingNativeQueueNotDraining was retired here, not fixed.
         # It had two defects. Its bare sum() spanned BOTH scrape targets — the
