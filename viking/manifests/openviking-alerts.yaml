@@ -20,14 +20,36 @@ spec:
           annotations:
             summary: "OpenViking reports a service component not ready for 5m"
             description: "Native readiness gauge is 0 — a dependency (vectordb, embedder, VLM) or the server itself is unhealthy."
-        - alert: OpenVikingStaleLocks
-          expr: openviking_lock_stale > 0
-          for: 10m
+        # BUG-1282: openviking_lock_stale is ragfs's stale_tokens_removed, the
+        # per-process count of lock tokens an acquire replaced because their
+        # timestamp was older than the lock expiry, exported as a gauge
+        # (crates/ragfs/src/metrics/mod.rs:134, lock/manager.rs:712-714 and
+        # 1220-1221@v0.5.1.1). It never fell within a pod in 14 days of samples,
+        # so the retired `> 0` rule fired from the first replacement until the
+        # next restart.
+        #
+        # The value compared is a lower bound on the replacements in the last
+        # hour: the latest sample minus the lowest sample in the window. It never
+        # counts more than happened, and it can count fewer. Examples: a
+        # container restart in the window drops the replacements before it, even
+        # with every sample scraped; a rise whose earlier sample aged out of the
+        # window (a scrape gap near an hour) is missed; an unscraped restart low
+        # point loses the replacements before the first sample after it.
+        # increase() was rejected because it extrapolates past the samples
+        # (exactly 20 read as 20.17, 10 sparse ones as 25), so it can count more
+        # than happened. The summary prints the value as an integer, since
+        # humanize rounds up (12345 as 12.35k).
+        #
+        # Threshold: the highest value of this expression sampled every 5 min
+        # from 2026-10-07 to 2026-11-06 was 10. Held locks are the job of
+        # OpenVikingWedgedLockFile, OpenVikingLockListingBlind and the watchdog.
+        - alert: OpenVikingStaleLockTakeoverBurst
+          expr: openviking_lock_stale - min_over_time(openviking_lock_stale[1h]) > 20
           labels:
             severity: warning
           annotations:
-            summary: "OpenViking reports stale locks for 10m"
-            description: "Potentially stale lock handles — the ERR-1014 signature (poisoned lock_handoff / abandoned client handle). Remedy: kubectl rollout restart deploy/openviking -n viking after the queue drains."
+            summary: "OpenViking replaced at least {{ printf \"%.0f\" $value }} expired lock tokens in the last hour"
+            description: "Each replacement is an acquire taking over a lock token whose timestamp was older than the lock expiry, logged as `replaced stale pathlock token during acquire` with its stale_owner. The count is of tokens, not owners: one owner can leave several (a path lock and per-file locks). The stale_owner values in the openviking container's log name the owners to look into. This is not a held lock, and a restart does not address it."
         # BUG-1138: OpenVikingNativeQueueNotDraining was retired here, not fixed.
         # It had two defects. Its bare sum() spanned BOTH scrape targets — the
         # native /metrics on the openviking container and the ov-exporter sidecar,
