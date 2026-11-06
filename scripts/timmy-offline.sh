@@ -660,7 +660,7 @@ cmd_down() {
 # these exact arguments (GUIDE-1070 § sudoers), so no TTY or password is needed;
 # sudo -n fails instead of prompting when a grant is missing.
 cmd_windows() {
-	local entry next rc=0
+	local entry next out rc=0
 	cmd_down windows
 	entry=$(printf '%q' "$WINDOWS_GRUB_ENTRY")
 	log "next boot of $NODE: $WINDOWS_GRUB_ENTRY (once)"
@@ -671,13 +671,22 @@ cmd_windows() {
 	next=$("$SSH" -o BatchMode=yes "$NODE_SSH" "grep '^next_entry=' /boot/grub/grubenv") ||
 		die "cannot read $NODE's /boot/grub/grubenv after grub-reboot; not rebooting. Check it, then reboot by hand: ssh -t $NODE_SSH sudo reboot"
 	[[ $next == "next_entry=$WINDOWS_GRUB_ENTRY" ]] ||
-		die "$NODE's next boot entry reads '$next', not '$WINDOWS_GRUB_ENTRY'; not rebooting"
+		die "$NODE's next boot entry reads '$next', not '$WINDOWS_GRUB_ENTRY'; not rebooting: it is drained and still on Ubuntu, and its next boot follows that entry. Inspect with: ssh $NODE_SSH cat /boot/grub/grubenv; then boot Windows by hand: ssh -t $NODE_SSH 'sudo grub-reboot \"$WINDOWS_GRUB_ENTRY\" && sudo reboot', or bring it back: $SELF up"
 	log "rebooting $NODE"
-	# The connection drops as the node goes down: ssh exits 255 then.
-	"$SSH" -o BatchMode=yes "$NODE_SSH" "sudo -n /usr/sbin/reboot" || rc=$?
-	if ((rc != 0 && rc != 255)); then
-		die "reboot failed on $NODE (exit $rc); its NEXT boot, whenever it comes, is Windows. Reboot it by hand: ssh -t $NODE_SSH sudo reboot"
-	fi
+	# ssh exits 255 both when the reboot drops the connection and when it never
+	# connected, so its status proves nothing. The remote echoes reboot's own
+	# status after it returns (systemd queues the reboot and returns at once);
+	# only that line says the reboot was accepted.
+	out=$("$SSH" -o BatchMode=yes "$NODE_SSH" "sudo -n /usr/sbin/reboot; echo reboot-rc=\$?" 2>&1) || rc=$?
+	case $out in
+	*reboot-rc=0*) ;;
+	*reboot-rc=*)
+		die "reboot refused on $NODE (${out//$'\n'/ }); it is drained and still on Ubuntu, and its NEXT boot, whenever it comes, is Windows. Reboot it by hand: ssh -t $NODE_SSH sudo reboot"
+		;;
+	*)
+		die "could not confirm $NODE accepted the reboot (ssh exit $rc: ${out//$'\n'/ }). Its next boot is Windows. Check whether it is going down (ssh $NODE_SSH uptime); if it is still up on Ubuntu, reboot it by hand: ssh -t $NODE_SSH sudo reboot"
+		;;
+	esac
 	log "timmy is rebooting into Windows. The reboot after the Windows session returns to Ubuntu; then:  $SELF up"
 }
 

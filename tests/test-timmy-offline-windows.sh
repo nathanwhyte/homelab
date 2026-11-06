@@ -17,22 +17,33 @@ export STUB_LOG=$TMPDIR_TEST/calls.log STUB_GRUBENV=$TMPDIR_TEST/grubenv
 
 # ssh [-o opt]... <host> <command>: logs `ssh <host>: <command>`, then runs the
 # command in bash with sudo replaced: sudo logs `sudo: [arg]...` and exits
-# STUB_SUDO_RC (default 0; for /usr/sbin/reboot, STUB_REBOOT_RC, default 255 as
-# when the connection drops). /boot/grub/grubenv reads $STUB_GRUBENV.
+# STUB_SUDO_RC (default 0; for /usr/sbin/reboot, STUB_REBOOT_RC, default 0).
+# /boot/grub/grubenv reads $STUB_GRUBENV. For the reboot command, ssh then
+# exits 255 as the dropped connection does (STUB_REBOOT_SSH_EXIT overrides),
+# and STUB_REBOOT_NO_CONNECT=1 fails it with 255 before running anything.
 cat >"$TMPDIR_TEST/ssh" <<'STUB'
 #!/usr/bin/env bash
 while [[ $1 == -o ]]; do shift 2; done
 host=$1 cmd=$2
 echo "ssh $host: $cmd" >>"$STUB_LOG"
+reboot=0
+[[ $cmd == *'/usr/sbin/reboot'* ]] && reboot=1
+if ((reboot)) && [[ ${STUB_REBOOT_NO_CONNECT:-0} == 1 ]]; then
+	echo "ssh: connect to host $host port 22: Connection refused" >&2
+	exit 255
+fi
 sudo() {
 	printf 'sudo:' >>"$STUB_LOG"
 	printf ' [%s]' "$@" >>"$STUB_LOG"
 	echo >>"$STUB_LOG"
-	if [[ $* == *'/usr/sbin/reboot'* ]]; then return "${STUB_REBOOT_RC:-255}"; fi
+	if [[ $* == *'/usr/sbin/reboot'* ]]; then return "${STUB_REBOOT_RC:-0}"; fi
 	return "${STUB_SUDO_RC:-0}"
 }
 cmd=${cmd//\/boot\/grub\/grubenv/$STUB_GRUBENV}
 eval "$cmd"
+rc=$?
+((reboot)) && exit "${STUB_REBOOT_SSH_EXIT:-255}"
+exit "$rc"
 STUB
 chmod +x "$TMPDIR_TEST/ssh"
 export SSH=$TMPDIR_TEST/ssh
@@ -86,15 +97,23 @@ assert_eq "it runs down, grub-reboot, the grubenv check and the reboot, in order
 ssh timmy-lan: sudo -n /usr/sbin/grub-reboot Windows\\ Boot\\ Manager\\ \\(on\\ /dev/nvme0n1p1\\)
 sudo: [-n] [/usr/sbin/grub-reboot] [$ENTRY]
 ssh timmy-lan: grep '^next_entry=' /boot/grub/grubenv
-ssh timmy-lan: sudo -n /usr/sbin/reboot
+ssh timmy-lan: sudo -n /usr/sbin/reboot; echo reboot-rc=\$?
 sudo: [-n] [/usr/sbin/reboot]" "$calls"
 assert_has "it says Windows is booting and names up" "timmy is rebooting into Windows" "$out"
 assert_has "and the command for the return" "timmy-offline.sh up" "$out"
 assert_lacks "down's power-off hint is not printed" "shutdown -h now" "$out"
 
 reset
-out=$(STUB_REBOOT_RC=0 run)
-assert_eq "a reboot that returns 0 also succeeds" 0 "${out##*$'\n'}"
+out=$(run STUB_REBOOT_SSH_EXIT=0)
+assert_eq "a reboot whose connection closes cleanly also succeeds" 0 "${out##*$'\n'}"
+
+# ssh exits 255 for a connection that never ran the reboot too.
+reset
+out=$(run STUB_REBOOT_NO_CONNECT=1)
+assert_eq "a reboot ssh that never connected fails windows" 1 "${out##*$'\n'}"
+assert_has "it says the reboot is unconfirmed" "could not confirm timmy accepted the reboot (ssh exit 255: ssh: connect to host timmy-lan port 22: Connection refused)" "$out"
+assert_has "it says the next boot is Windows and how to check" "Its next boot is Windows. Check whether it is going down (ssh timmy-lan uptime)" "$out"
+assert_lacks "it does not claim Windows is booting" "timmy is rebooting into Windows" "$out"
 
 reset
 out=$(run STUB_DOWN_RC=1)
@@ -113,6 +132,7 @@ reset "0"
 out=$(run)
 assert_eq "a next_entry that is not the Windows entry fails windows" 1 "${out##*$'\n'}"
 assert_has "it names what grubenv holds" "next boot entry reads 'next_entry=0'" "$out"
+assert_has "and what to run next" "Inspect with: ssh timmy-lan cat /boot/grub/grubenv" "$out"
 assert_lacks "it never reboots" "/usr/sbin/reboot" "$(<"$STUB_LOG")"
 
 reset
@@ -124,6 +144,7 @@ assert_lacks "it never reboots" "/usr/sbin/reboot" "$(<"$STUB_LOG")"
 reset
 out=$(run STUB_REBOOT_RC=1)
 assert_eq "a reboot sudo refuses fails windows" 1 "${out##*$'\n'}"
+assert_has "it says the reboot was refused" "reboot refused on timmy (reboot-rc=1)" "$out"
 assert_has "it warns the next boot is Windows" "its NEXT boot, whenever it comes, is Windows" "$out"
 
 help=$(bash "$OUTAGE" --help 2>&1)
