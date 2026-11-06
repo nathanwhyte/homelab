@@ -81,10 +81,20 @@ STUB
 chmod +x "$TMPDIR_TEST/node-maintenance.sh"
 export NODE_MAINTENANCE=$TMPDIR_TEST/node-maintenance.sh
 
-# Any direct SSH from the planned-outage caller bypasses cycle ownership.
+# Any direct SSH from the planned-outage caller bypasses cycle ownership, except
+# pod_health's read-only uptime read (`cat /proc/uptime`), answered here. Every
+# other call is recorded in $UNEXPECTED_SSH, which no case resets and the end of
+# the run checks is empty.
+export UNEXPECTED_SSH=$TMPDIR_TEST/unexpected-ssh
+: >"$UNEXPECTED_SSH"
 cat >"$TMPDIR_TEST/ssh" <<'STUB'
 #!/usr/bin/env bash
 echo "ssh: $*" >>"$STUB_LOG"
+if [[ $* == '-o BatchMode=yes -o ConnectTimeout=10 timmy-lan cat /proc/uptime' ]]; then
+	echo "200000.25 1234567.89"
+	exit 0
+fi
+echo "ssh: $*" >>"$UNEXPECTED_SSH"
 echo "unexpected SSH in planned-outage caller" >&2
 exit 91
 STUB
@@ -473,6 +483,8 @@ reset_cluster
 catchup_backup >/dev/null
 assert_eq "up starts one catch-up backup from the CronJob" 1 \
 	"$(grep -c 'create job k3s-datastore-backup-catchup-[0-9]* --from=cronjob/k3s-datastore-backup' "$STUB_LOG")"
+
+assert_eq "no case made an SSH call other than the uptime read" "" "$(<"$UNEXPECTED_SSH")"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 ((FAIL == 0))
