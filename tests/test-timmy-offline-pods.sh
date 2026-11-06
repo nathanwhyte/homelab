@@ -119,7 +119,9 @@ SIDECAR_CRASH=$(pod viking openviking-2 900 Running "[$running]" \
 	'{"spec":{"initContainers":[{"name":"proxy","restartPolicy":"Always"}]},"status":{"initContainerStatuses":[{"name":"proxy","ready":false,"restartCount":7,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}')
 KILLED_INIT=$(pod garage garage-3 600 Pending '[{"name":"garage","ready":false,"restartCount":0,"state":{"waiting":{"reason":"PodInitializing"}}}]' \
 	'{"status":{"initContainerStatuses":[{"name":"init","ready":false,"restartCount":1,"state":{"terminated":{"exitCode":137}}}]}}')
-CREATING=$(pod llama cloud-llm-counter-7d9f-fghij 30 Pending '[{"name":"counter","ready":false,"restartCount":0,"state":{"waiting":{"reason":"ContainerCreating"}}}]')
+# 120s, not seconds-granular: a clock tick between building the fixture and the
+# report would turn 30s into 31s; 120s and 121s both read 2m.
+CREATING=$(pod llama cloud-llm-counter-7d9f-fghij 120 Pending '[{"name":"counter","ready":false,"restartCount":0,"state":{"waiting":{"reason":"ContainerCreating"}}}]')
 # A slow crashloop between crashes: Running and ready, last crash minutes ago.
 SLOW=$(pod longhorn-system csi-provisioner-85dd8446fb-hbjbw $((19 * 86400)) Running \
 	'[{"name":"csi-provisioner","ready":true,"restartCount":94,"state":{"running":{}},"lastState":{"terminated":{"reason":"Error","exitCode":255}}}]')
@@ -194,7 +196,7 @@ assert_lacks "a pod not Ready for under the grace is left out" "omnipendium-db-1
 assert_eq "the grace never hides a crashloop" "viking embedder-qwen-cuda-abc 0/1 CrashLoopBackOff 2 1h" "$(row embedder-qwen-cuda-abc "$out")"
 assert_eq "a crashing native sidecar is listed, counted in READY and RESTARTS" "viking openviking-2 1/2 Init:CrashLoopBackOff 7 15m" "$(row openviking-2 "$out")"
 assert_eq "an init container killed without a reason reads its exit code" "garage garage-3 0/1 Init:ExitCode:137 1 10m" "$(row garage-3 "$out")"
-assert_eq "a container still being created reads as its phase" "llama cloud-llm-counter-7d9f-fghij 0/1 Pending 0 30s" "$(row cloud-llm-counter-7d9f-fghij "$out")"
+assert_eq "a container still being created reads as its phase" "llama cloud-llm-counter-7d9f-fghij 0/1 Pending 0 2m" "$(row cloud-llm-counter-7d9f-fghij "$out")"
 assert_eq "a container that exited 0 beside a running one is not a failure, but the pod is NotReady" \
 	"viking ov-vectordb-0 1/2 NotReady 0 15m" "$(row ov-vectordb-0 "$out")"
 assert_has "the report has its column header" "NAMESPACE        NAME" "$out"
@@ -258,7 +260,7 @@ assert_lacks "a recreated pod does not inherit its predecessor's restarts" "gara
 queries=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
 assert_eq "it asks Prometheus for timmy's uptime, then each pod UID's busiest container, init containers included, at the threshold over the window" \
 	"time() - max(node_boot_time_seconds and on (namespace, pod) kube_pod_info{node=\"timmy\"})
-max by (uid) (floor(increase(kube_pod_container_status_restarts_total[86400s])) or floor(increase(kube_pod_init_container_status_restarts_total[86400s]))) >= 5" \
+max by (uid) ((max_over_time(kube_pod_container_status_restarts_total[86400s]) - min_over_time(kube_pod_container_status_restarts_total[86400s])) or (max_over_time(kube_pod_init_container_status_restarts_total[86400s]) - min_over_time(kube_pod_init_container_status_restarts_total[86400s]))) >= 5" \
 	"$(while IFS= read -r q; do decode "$q"; done <<<"$queries")"
 
 reset "$HEALTHY" "$REBOOTED"
@@ -294,7 +296,7 @@ prom uid-csi-provisioner-85dd8446fb-hbjbw=42
 out=$(STUB_UPTIME=600 run up) # 10m: inside the 15m grace
 assert_eq "up inside the grace still succeeds" 0 "${out##*$'\n'}"
 assert_has "it says the history starts after the grace, and when to rerun" \
-	"WARN: restart history skipped: timmy booted 10m ago, and restarts count from 15m after its boot (the outage restarted every controller that needs the API server); listing pods by status only. For crashloops, rerun $OUTAGE status in 6m" "$out"
+	"WARN: restart history skipped: timmy booted 10m ago, and restarts count from 15m after its boot (the outage restarted every controller that needs the API server) over at least 5m; listing pods by status only. For crashloops, rerun $OUTAGE status in 10m" "$out"
 assert_eq "it asks Prometheus only for the boot time" 1 "$(grep -c -- '--raw' "$STUB_LOG")"
 assert_has "it still lists pods by status" "CrashLoopBackOff" "$out"
 assert_lacks "and no restart count" "hbjbw" "$out"
@@ -308,6 +310,31 @@ reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=15m run up)
 assert_has "a grace that is not whole seconds is refused" "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '15m'" "$out"
 assert_eq "and never reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
+
+# Past the grace but short of five scrapes: still skipped, and the wait rounds up.
+reset "$HEALTHY"
+out=$(STUB_UPTIME=1100 run up) # a 200s window; 100s still to wait
+assert_has "a window under 5m is skipped, its wait rounded up" "rerun $OUTAGE status in 2m" "$out"
+assert_eq "and only the boot time is asked" 1 "$(grep -c -- '--raw' "$STUB_LOG")"
+
+reset "$HEALTHY"
+out=$(STUB_UPTIME=1200 run up) # exactly 5m
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+assert_has "a 5m window is read" "[300s]" "$(decode "$query")"
+
+# A leading zero would be octal to bash arithmetic (0600 is 384s).
+reset "$HEALTHY"
+out=$(RESTART_BOOT_GRACE_SECONDS=0600 run up)
+assert_has "a grace with a leading zero is refused" "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '0600'" "$out"
+assert_eq "before any query" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
+
+# restart_counts checks its own inputs, whoever calls it.
+reset "$HEALTHY"
+out=$(RESTART_WARN_24H=nope bash -c 'source "$1"; restart_counts 86400' _ "$OUTAGE" 2>&1)
+assert_has "restart_counts refuses a bad threshold itself" "RESTART_WARN_24H must be a positive integer, got 'nope'" "$out"
+out=$(bash -c 'source "$1"; restart_counts 60' _ "$OUTAGE" 2>&1)
+assert_has "and a window under 5m" "restart window must be 300-86400 seconds, got '60'" "$out"
+assert_eq "neither reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 
 reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=0 STUB_UPTIME=90000 run up)

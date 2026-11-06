@@ -527,7 +527,8 @@ prom_query() {
 	printf '%s\n' "$out"
 }
 
-# 30m, 3h, 24h: a duration in seconds, rounded down to its largest unit.
+# 30m, 3h, 24h: a duration in seconds, rounded down to its largest unit (an
+# elapsed time; a wait still to come rounds up, see pod_health's rerun hint).
 dur_label() {
 	if (($1 >= 3600)); then
 		echo "$(($1 / 3600))h"
@@ -538,6 +539,9 @@ dur_label() {
 	fi
 }
 
+# The shortest restart window worth reading: five of Prometheus' 60s scrapes.
+RESTART_MIN_WINDOW_SECONDS=300
+
 # The restart-history window in seconds: from RESTART_BOOT_GRACE_SECONDS after
 # timmy's boot (node-exporter's node_boot_time_seconds, joined to timmy through
 # its pod) to now, at most 86400. Zero or less while timmy is inside the grace.
@@ -546,11 +550,9 @@ dur_label() {
 # On failure prints the reason on stderr and returns 1.
 restart_window() {
 	local out up window
-	if [[ ! $RESTART_WARN_24H =~ ^[1-9][0-9]*$ ]]; then
-		echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
-		return 1
-	fi
-	if [[ ! $RESTART_BOOT_GRACE_SECONDS =~ ^[0-9]+$ ]]; then
+	restart_threshold_ok || return 1
+	# Canonical decimal only: bash arithmetic reads a leading 0 as octal.
+	if [[ ! $RESTART_BOOT_GRACE_SECONDS =~ ^(0|[1-9][0-9]*)$ ]]; then
 		echo "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '$RESTART_BOOT_GRACE_SECONDS'" >&2
 		return 1
 	fi
@@ -564,6 +566,12 @@ restart_window() {
 	echo "$window"
 }
 
+restart_threshold_ok() {
+	[[ $RESTART_WARN_24H =~ ^[1-9][0-9]*$ ]] && return 0
+	echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
+	return 1
+}
+
 # {"<pod uid>": n} for each pod with a container (init containers included) that
 # restarted at least RESTART_WARN_24H times in the last $1 seconds
 # (restart_window; n is that container's count), from Prometheus'
@@ -572,11 +580,19 @@ restart_window() {
 # the pod's phase nor its last restart time tells them apart; the count over the
 # window does. On failure prints the reason on stderr and returns 1.
 restart_counts() {
-	local out
+	local out c=kube_pod_container_status_restarts_total i=kube_pod_init_container_status_restarts_total
+	restart_threshold_ok || return 1
+	if [[ ! $1 =~ ^[1-9][0-9]*$ ]] || (($1 < RESTART_MIN_WINDOW_SECONDS || $1 > 86400)); then
+		echo "restart window must be $RESTART_MIN_WINDOW_SECONDS-86400 seconds, got '$1'" >&2
+		return 1
+	fi
 	# By UID, not name: a recreated StatefulSet pod must not inherit its
 	# predecessor's crashes. Init containers count too: a native sidecar's
-	# restarts are only in the init-container series.
-	out=$(prom_query "max by (uid) (floor(increase(kube_pod_container_status_restarts_total[$1s])) or floor(increase(kube_pod_init_container_status_restarts_total[$1s]))) >= $RESTART_WARN_24H") || return 1
+	# restarts are only in the init-container series. The newest sample minus
+	# the oldest in the window, not increase(): increase() extrapolates to the
+	# window's edges, which in a short window turns 3 restarts into 8. A
+	# container's restartCount never drops while its pod (its UID) lives.
+	out=$(prom_query "max by (uid) ((max_over_time(${c}[${1}s]) - min_over_time(${c}[${1}s])) or (max_over_time(${i}[${1}s]) - min_over_time(${i}[${1}s]))) >= $RESTART_WARN_24H") || return 1
 	jq -ce 'select(.status == "success")
 		| [.data.result[] | select(.metric.uid) | {key: .metric.uid, value: (.value[1] | tonumber)}]
 		| from_entries' <<<"$out" 2>/dev/null || {
@@ -603,11 +619,12 @@ pod_health() {
 		warn "pod health unavailable (${err//$'\n'/ }); check with: kubectl get pods -A"
 		return 0
 	fi
-	if ! window=$(restart_window 2>"$err_file") || { ((window >= 60)) && ! restarts=$(restart_counts "$window" 2>"$err_file"); }; then
+	if ! window=$(restart_window 2>"$err_file") ||
+		{ ((window >= RESTART_MIN_WINDOW_SECONDS)) && ! restarts=$(restart_counts "$window" 2>"$err_file"); }; then
 		warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
 		restarts='{}' history=0
-	elif ((window < 60)); then
-		warn "restart history skipped: $NODE booted $(dur_label $((window + RESTART_BOOT_GRACE_SECONDS))) ago, and restarts count from $(dur_label "$RESTART_BOOT_GRACE_SECONDS") after its boot (the outage restarted every controller that needs the API server); listing pods by status only. For crashloops, rerun $SELF status in $(dur_label $((60 - window)))"
+	elif ((window < RESTART_MIN_WINDOW_SECONDS)); then
+		warn "restart history skipped: $NODE booted $(dur_label $((window + RESTART_BOOT_GRACE_SECONDS))) ago, and restarts count from $(dur_label "$RESTART_BOOT_GRACE_SECONDS") after its boot (the outage restarted every controller that needs the API server) over at least $(dur_label "$RESTART_MIN_WINDOW_SECONDS"); listing pods by status only. For crashloops, rerun $SELF status in $(((RESTART_MIN_WINDOW_SECONDS - window + 59) / 60))m"
 		restarts='{}' history=0
 	else
 		span=$(dur_label "$window")
