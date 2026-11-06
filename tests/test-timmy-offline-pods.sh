@@ -350,6 +350,14 @@ reset "$HEALTHY"
 out=$(STUB_UPTIME=11700 STUB_SCRAPES=162 run up)
 assert_has "90% is enough" "none restarting 5+ times in 3h" "$out"
 
+# The required count rounds up: 4 of a 5m window's 5 scrapes is 80%, short.
+reset "$HEALTHY"
+out=$(STUB_UPTIME=1200 STUB_SCRAPES=4 run up)
+assert_has "4 of 5 scrapes is incomplete" "scraped kube-state-metrics 4 of ~5 times in the last 5m" "$out"
+reset "$HEALTHY"
+out=$(STUB_UPTIME=1200 STUB_SCRAPES=5 run up)
+assert_has "5 of 5 is enough" "none restarting 5+ times in 5m" "$out"
+
 reset "$HEALTHY"
 out=$(STUB_SCRAPES=none run up)
 assert_has "no coverage series is incomplete" "scraped kube-state-metrics 0 of ~1440 times in the last 24h" "$out"
