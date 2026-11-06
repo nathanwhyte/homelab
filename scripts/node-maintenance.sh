@@ -1187,11 +1187,17 @@ drain_leftovers() {
 # pods/"<name>" -n "<ns>" (will retry after 5s): <reason>` every 5s until
 # DRAIN_TIMEOUT, so a 5m drain used to print ~120 copies. Each pod's first
 # evicting line and first retry line pass through; the rest are counted, and the
-# end prints one line per retried pod with the count and whether it was evicted.
+# end prints one line per retried pod with the count and where the pod is now.
 # Every other line, kubectl's own timeout error included, passes through as it
 # arrives (fflush, so a drain watched live still shows progress).
+#
+# The outcome comes from the cluster, not from kubectl's `pod/<name> evicted`
+# line, which names no namespace. Returns 0, so under pipefail a
+# `kubectl drain … | drain_filter <node>` pipeline keeps kubectl's status.
 drain_filter() {
-	awk '
+	local node=$1 summary pod count reason out on_node deleting outcome
+	summary=$(mktemp)
+	awk -v summary="$summary" '
 	function emit(s) { print s; fflush() }
 	/^evicting pod / {
 		if (!($3 in evicting)) { evicting[$3] = 1; emit($0) }
@@ -1209,22 +1215,30 @@ drain_filter() {
 		retries[pod]++
 		next
 	}
-	/^pod\/[^ ]+ evicted$/ {
-		name = substr($1, 5)
-		evicted[name] = 1
-		emit($0)
-		next
-	}
 	{ emit($0) }
 	END {
-		for (i = 1; i <= n; i++) {
-			pod = order[i]
-			name = pod
-			sub(/^[^\/]*\//, "", name)
-			printf "    %s: eviction refused %d times (%s); %s\n", pod, retries[pod], reason[pod],
-				(name in evicted) ? "evicted in the end" : "not evicted when the drain ended"
-		}
+		for (i = 1; i <= n; i++) printf "%s\t%d\t%s\n", order[i], retries[order[i]], reason[order[i]] > summary
 	}'
+	while IFS=$'\t' read -r pod count reason; do
+		# Empty output: the pod is gone. A pod recreated under the same name (a
+		# StatefulSet) cannot land on the cordoned node, so another node means evicted.
+		if ! out=$("$KUBECTL" get pod -n "${pod%%/*}" "${pod#*/}" --ignore-not-found \
+			-o jsonpath='{.spec.nodeName} {.metadata.deletionTimestamp}' 2>/dev/null); then
+			outcome="outcome unknown (cannot read the pod)"
+		else
+			read -r on_node deleting <<<"$out" || true
+			if [[ ${on_node:-} != "$node" ]]; then
+				outcome="evicted in the end"
+			elif [[ -n ${deleting:-} ]]; then
+				outcome="evicted, still terminating on $node"
+			else
+				outcome="still on $node when the drain ended"
+			fi
+		fi
+		printf '    %s: eviction refused %d times (%s); %s\n' "$pod" "$count" "$reason" "$outcome"
+	done <"$summary"
+	rm -f "$summary"
+	return 0
 }
 
 repeat_drain() {
@@ -1236,7 +1250,7 @@ repeat_drain() {
 	warn "$node is already cordoned — re-draining"
 	require_cycle_state_path "$node"
 	# pipefail: the pipeline fails with kubectl, whatever the filter returns.
-	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter ||
+	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter "$node" ||
 		warn "drain incomplete — assessing what is left on $node"
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	# Unlike a first drain, a repeat always checks leftovers, even after success.
@@ -1438,7 +1452,7 @@ cmd_reboot() {
 	# survivor, report the volumes that will blip during the reboot and proceed.
 	local drained=1
 	# pipefail: the pipeline fails with kubectl, whatever the filter returns.
-	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter || drained=0
+	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter "$node" || drained=0
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	if ((! drained)); then
 		warn "drain incomplete — assessing what is left on $node"

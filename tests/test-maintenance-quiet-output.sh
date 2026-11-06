@@ -19,11 +19,23 @@ IM=instance-manager-0f3c9a2b7d1e4f56a8b9c0d1e2f3a4b5
 cat >"$TMPDIR_TEST/kubectl" <<STUB
 #!/usr/bin/env bash
 # Every call is logged. drain prints the transcript and exits 1 (timeout);
-# volume reads replay \$STUB_VOLUMES_DIR/<n>.json in order (a missing file
+# STUB_DRAIN=samename prints two same-named pods in different namespaces
+# instead. A pod read (get pod -n NS NAME) prints \$STUB_PODS_DIR/NS_NAME, prints
+# nothing if it is missing (the pod is gone), and fails if NS_NAME.fail exists.
+# Volume reads replay \$STUB_VOLUMES_DIR/<n>.json in order (a missing file
 # fails the read), the last one repeating.
 echo "\$*" >>"\$STUB_LOG"
 case "\$1" in
 drain)
+	if [[ \${STUB_DRAIN:-} == samename ]]; then
+		for ns in alpha beta; do
+			echo "evicting pod \$ns/same-0"
+			echo "error when evicting pods/\"same-0\" -n \"\$ns\" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget." >&2
+		done
+		echo 'pod/same-0 evicted'
+		echo 'error: unable to drain node "timmy" due to error: global timeout reached: 5m0s, continuing command...' >&2
+		exit 1
+	fi
 	echo 'node/timmy cordoned'
 	echo 'Warning: ignoring DaemonSet-managed Pods: kube-system/svclb-traefik-x7k2p, longhorn-system/longhorn-manager-9qz4r' >&2
 	echo 'evicting pod garage/garage-1'
@@ -41,6 +53,12 @@ drain)
 	exit 1
 	;;
 get)
+	if [[ \$2 == pod ]]; then
+		f=\$STUB_PODS_DIR/\$4_\$5
+		[[ -e \$f.fail ]] && exit 1
+		[[ -e \$f ]] && cat "\$f"
+		exit 0
+	fi
 	n=\$(cat "\$STUB_VOLUMES_DIR/next" 2>/dev/null || echo 1)
 	f=\$STUB_VOLUMES_DIR/\$n.json
 	[[ -e \$STUB_VOLUMES_DIR/\$((n + 1)).json || -e \$STUB_VOLUMES_DIR/\$((n + 1)).fail ]] && echo \$((n + 1)) >"\$STUB_VOLUMES_DIR/next"
@@ -51,7 +69,8 @@ esac
 STUB
 chmod +x "$TMPDIR_TEST/kubectl"
 export PATH=$TMPDIR_TEST:$PATH KUBECTL=$TMPDIR_TEST/kubectl
-export STUB_LOG=$TMPDIR_TEST/calls.log STUB_VOLUMES_DIR=$TMPDIR_TEST/volumes
+export STUB_LOG=$TMPDIR_TEST/calls.log STUB_VOLUMES_DIR=$TMPDIR_TEST/volumes STUB_PODS_DIR=$TMPDIR_TEST/pods
+mkdir -p "$STUB_PODS_DIR"
 
 PASS=0
 FAIL=0
@@ -100,14 +119,26 @@ strip() { sed $'s/\033\\[[0-9;]*m//g'; }
 	set +e
 	sleep() { :; }
 
+	# After the drain the instance-manager is still on timmy; garage-1 is gone.
+	echo 'timmy ' >"$STUB_PODS_DIR/longhorn-system_$IM"
 	raw=$("$KUBECTL" drain timmy 2>&1)
-	out=$("$KUBECTL" drain timmy 2>&1 | drain_filter)
+	out=$("$KUBECTL" drain timmy 2>&1 | drain_filter timmy)
 	rc=$?
 	echo "rc=$rc"
 	echo "raw_max=$(max_repeat "$raw")"
 	echo "max=$(max_repeat "$out")"
 	echo "lines=$(wc -l <<<"$out" | tr -d ' ')"
 	printf 'OUT\n%s\nEND\n' "$out"
+
+	# Same-named pods: kubectl's `pod/same-0 evicted` names no namespace. Only
+	# alpha's went (and came back on manu); beta's is still on timmy.
+	echo 'manu ' >"$STUB_PODS_DIR/alpha_same-0"
+	echo 'timmy ' >"$STUB_PODS_DIR/beta_same-0"
+	printf 'SAMENAME\n%s\nEND\n' "$(STUB_DRAIN=samename "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)"
+	# Accepted but still terminating, and a pod that cannot be read.
+	echo 'timmy 2026-11-06T07:00:00Z' >"$STUB_PODS_DIR/alpha_same-0"
+	: >"$STUB_PODS_DIR/beta_same-0.fail"
+	printf 'EDGES\n%s\nEND\n' "$(STUB_DRAIN=samename "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)"
 
 	# A list that shrinks as volumes heal ([A,B,C] → [A,B'] → [A]), with a kubectl
 	# outage between, and B changing state on the way.
@@ -133,15 +164,27 @@ if ((max <= 2)); then ok "the filtered drain prints no line more than twice (max
 drain=$(block OUT)
 assert_eq "evicting the instance-manager is printed once" 1 "$(grep -c "^evicting pod longhorn-system/$IM\$" <<<"$drain")"
 assert_eq "its first retry line is printed once" 1 "$(grep -c "^error when evicting pods/\"$IM\" -n \"longhorn-system\" (will retry" <<<"$drain")"
+PDB="(Cannot evict pod as it would violate the pod's disruption budget.)"
 assert_has "the instance-manager ends as one counted line" \
-	"    longhorn-system/$IM: eviction refused 60 times (Cannot evict pod as it would violate the pod's disruption budget.); not evicted when the drain ended" "$drain"
+	"    longhorn-system/$IM: eviction refused 60 times $PDB; still on timmy when the drain ended" "$drain"
 assert_has "a pod evicted after retries says so" \
 	"    garage/garage-1: eviction refused 2 times (Cannot evict pod as it would violate the pod's disruption budget.); evicted in the end" "$drain"
 assert_has "kubectl's own eviction line passes through" "pod/garage-1 evicted" "$drain"
 assert_has "kubectl's timeout error passes through" 'error: unable to drain node "timmy"' "$drain"
 assert_has "the DaemonSet warning passes through" "Warning: ignoring DaemonSet-managed Pods" "$drain"
 last=$(tail -1 <<<"$drain")
-assert_eq "the counted lines come last, after kubectl's own" "    longhorn-system/$IM: eviction refused 60 times (Cannot evict pod as it would violate the pod's disruption budget.); not evicted when the drain ended" "$last"
+assert_eq "the counted lines come last, after kubectl's own" "    longhorn-system/$IM: eviction refused 60 times $PDB; still on timmy when the drain ended" "$last"
+
+samename=$(block SAMENAME)
+assert_has "of two same-named pods, the one that left reads evicted" \
+	"    alpha/same-0: eviction refused 1 times $PDB; evicted in the end" "$samename"
+assert_has "and the one still on the node does not" \
+	"    beta/same-0: eviction refused 1 times $PDB; still on timmy when the drain ended" "$samename"
+edges=$(block EDGES)
+assert_has "a pod accepted but still terminating says so" \
+	"    alpha/same-0: eviction refused 1 times $PDB; evicted, still terminating on timmy" "$edges"
+assert_has "a pod that cannot be read has no outcome claimed" \
+	"    beta/same-0: eviction refused 1 times $PDB; outcome unknown (cannot read the pod)" "$edges"
 
 assert_eq "the health gate still waits for healthy" 0 "$(field gate_rc)"
 assert_eq "it polled through every state" 9 "$(field gate_polls)"
