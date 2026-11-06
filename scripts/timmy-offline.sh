@@ -6,7 +6,7 @@
 #                            spin down memory-heavy services, cordon + drain
 #   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads,
 #                            resume CronJobs, run a catch-up k3s backup, expire the silence,
-#                            list pods neither Running nor Completed or crashlooping (a warning, never a failure)
+#                            list pods not Running and ready, not Completed, or crashlooping (a warning, never a failure)
 #   timmy-offline.sh status  what is parked/suspended/silenced, what is cordoned, Longhorn health,
 #                            unhealthy pods
 #
@@ -430,44 +430,49 @@ garage_check() {
 	sed -n '/HEALTHY NODES/,$p' <<<"$out" | sed 's/^/    /'
 }
 
-# The STATUS `kubectl get pods` prints, derived from the pod JSON the way its
-# printer does (k8s.io/kubernetes pkg/printers/internalversion printPod):
-# Terminating, else the first unfinished init container (Init:<reason> or
-# Init:<i>/<n>; a running native sidecar counts as finished), else the first
-# container with a waiting or terminated reason, else .status.reason (Evicted),
-# else the phase. A crashlooping pod's phase is still Running, so the phase alone
-# would hide it. A Running pod named in $restarts ({"<pod uid>": restarts in 24h},
-# from restart_counts) reads "Running (<n> restarts in 24h)".
+# This report's own health rule, not kubectl's STATUS column (whose printer has
+# more branches than a copy here could keep up with). A pod is healthy when it
+# has Succeeded, or is Running, not being deleted, Ready (or not Ready for less
+# than NOTREADY_GRACE_SECONDS, so pods still starting after `up` are left out),
+# with no container restarting RESTART_WARN_24H+ times in 24h ($restarts,
+# {"<pod uid>": n} from restart_counts). Any other pod is listed with the first
+# REASON that applies:
+#   Terminating                        deletionTimestamp set
+#   Init:<reason>, Init:ExitCode:<n>   an init container (native sidecars included)
+#                                      waiting for a reason other than starting, or
+#                                      exited non-zero
+#   <reason>, ExitCode:<n>             likewise for a regular container
+#                                      (CrashLoopBackOff, ImagePullBackOff, Error)
+#   <.status.reason> or <phase>        not Running (Evicted, Pending, Failed, Unknown)
+#   Running (<n> restarts in 24h)      a slow crashloop, Running between crashes
+#   NotReady                           Ready false beyond the grace
+# READY counts regular containers and native sidecars; RESTARTS sums every
+# container, init containers included. The reasons are the API's own strings.
+NOTREADY_GRACE_SECONDS=300
 # shellcheck disable=SC2016 # jq program, not shell
 POD_STATUS_JQ='
-def cstate:
-	if .state.waiting.reason then .state.waiting.reason
-	elif .state.terminated then
-		(.state.terminated.reason // (if (.state.terminated.signal // 0) != 0
-			then "Signal:\(.state.terminated.signal)"
-			else "ExitCode:\(.state.terminated.exitCode)" end))
+def starting: (.state.waiting.reason // "") | IN("ContainerCreating", "PodInitializing");
+def problem:
+	if .state.waiting.reason and (starting | not) then .state.waiting.reason
+	elif .state.terminated and .state.terminated.exitCode != 0 then
+		(.state.terminated.reason // "ExitCode:\(.state.terminated.exitCode)")
 	else null end;
-def initstate:
-	(.spec.initContainers // []) as $specs
-	| (.status.initContainerStatuses // []) as $st
-	| [$st | to_entries[]
-		| select((.value.state.terminated.exitCode == 0) | not)
-		| select((.value.state.running and (($specs[.key].restartPolicy // "") == "Always")) | not)]
-	| if length == 0 then null
-		else .[0] as $e
-		| if $e.value.state.terminated then
-			"Init:" + ($e.value.state.terminated.reason // "ExitCode:\($e.value.state.terminated.exitCode)")
-		elif ($e.value.state.waiting.reason // "PodInitializing") != "PodInitializing" then
-			"Init:" + $e.value.state.waiting.reason
-		else "Init:\($e.key)/\($st | length)" end
-	end;
-def podstatus:
-	if .metadata.deletionTimestamp then "Terminating"
-	else (initstate // (
-		(.status.containerStatuses // []) as $cs
-		| ([$cs[] | cstate | select(. != null)] | first) as $c
-		| if $c == "Completed" and any($cs[]; .state.running) then "Running"
-			else ($c // .status.reason // .status.phase // "Unknown") end))
+def since($t): try (now - ($t | fromdateiso8601)) catch 0;
+def reason($r):
+	([.status.conditions[]? | select(.type == "Ready")] | first) as $ready
+	| if .metadata.deletionTimestamp then "Terminating"
+	elif .status.phase == "Succeeded" then null
+	else
+		([.status.initContainerStatuses[]? | problem | select(. != null)] | first) as $init
+		| ([.status.containerStatuses[]? | problem | select(. != null)] | first) as $main
+		| if $init then "Init:\($init)"
+		elif $main then $main
+		elif .status.phase != "Running" then (.status.reason // .status.phase // "Unknown")
+		elif $r > 0 then "Running (\($r) restarts in 24h)"
+		elif ($ready.status // "") != "True"
+			and since($ready.lastTransitionTime // .status.startTime // .metadata.creationTimestamp) >= $grace
+			then "NotReady"
+		else null end
 	end;
 def age:
 	try ((now - (.metadata.creationTimestamp | fromdateiso8601)) | floor
@@ -477,13 +482,13 @@ def age:
 		else "\(.)s" end)
 	catch "?";
 .items[]
-| ($restarts[.metadata.uid // ""] // 0) as $r
-| (podstatus | if . == "Running" and $r > 0 then "Running (\($r) restarts in 24h)" else . end) as $s
-| select($s != "Running" and $s != "Completed")
-| (.status.containerStatuses // []) as $cs
+| reason($restarts[.metadata.uid // ""] // 0) as $s
+| select($s != null)
+| ([.spec.initContainers[]? | select(.restartPolicy == "Always") | .name]) as $sidecars
+| ([.status.containerStatuses[]?] + [.status.initContainerStatuses[]? | select(.name | IN($sidecars[]))]) as $serving
 | [.metadata.namespace, .metadata.name,
-	"\([$cs[] | select(.ready)] | length)/\(.spec.containers // [] | length)",
-	$s, ([$cs[].restartCount // 0] | add // 0 | tostring), age]
+	"\([$serving[] | select(.ready)] | length)/\((.spec.containers // [] | length) + ($sidecars | length))",
+	$s, ([.status.containerStatuses[]?, .status.initContainerStatuses[]? | .restartCount // 0] | add // 0 | tostring), age]
 | @tsv'
 
 # {"<pod uid>": n} for each pod with a container (init containers included) that restarted at least
@@ -520,11 +525,10 @@ restart_counts() {
 	}
 }
 
-# Pods cluster-wide that are neither Running nor Completed, or that are Running
-# with a container restarting RESTART_WARN_24H or more times a day (namespace,
-# name, ready, status, restarts, age). Status comes from the pod JSON, never
-# kubectl's table, so a kubectl warning on stderr is never read as a pod. A
-# report, never a gate: `up` has already restored service, and an unrelated
+# Pods cluster-wide that are not healthy by POD_STATUS_JQ's rule (namespace,
+# name, ready, reason, restarts, age). It reads the pod JSON, never kubectl's
+# table, so a kubectl warning on stderr is never read as a pod. A report, never
+# a gate: `up` has already restored service, and an unrelated
 # crashloop (Longhorn's csi-provisioner at 93 restarts, found by hand on
 # 2026-11-05, Running and ready between crashes) should surface at the next
 # maintenance cycle without failing it. Without Prometheus (it is pinned to
@@ -543,22 +547,31 @@ pod_health() {
 		warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
 		restarts='{}' history=0
 	fi
-	rm -f "$err_file"
-	if ! bad=$(jq -r --argjson restarts "$restarts" "$POD_STATUS_JQ" <<<"$json" 2>/dev/null); then
+	if ! jq -e '.items | arrays' >/dev/null 2>&1 <<<"$json"; then
+		rm -f "$err_file"
 		warn "pod health unavailable (kubectl did not return pod JSON); check with: kubectl get pods -A"
+		return 0
+	fi
+	rc=0
+	bad=$(jq -r --argjson restarts "$restarts" --argjson grace "$NOTREADY_GRACE_SECONDS" \
+		"$POD_STATUS_JQ" <<<"$json" 2>"$err_file") || rc=$?
+	err=$(<"$err_file")
+	rm -f "$err_file"
+	if ((rc != 0)); then
+		warn "pod health unavailable (report failed: ${err//$'\n'/ }); check with: kubectl get pods -A"
 		return 0
 	fi
 	if [[ -z $bad ]]; then
 		if ((history)); then
-			log "all pods Running or Completed, none restarting $RESTART_WARN_24H+ times in 24h"
+			log "all pods healthy (Running and ready, or Completed), none restarting $RESTART_WARN_24H+ times in 24h"
 		else
-			log "all pods Running or Completed"
+			log "all pods healthy (Running and ready, or Completed)"
 		fi
 		return 0
 	fi
-	warn "pods not healthy (neither Running nor Completed, or restarting $RESTART_WARN_24H+ times in 24h):"
+	warn "pods not healthy (not Running and ready, not Completed, or restarting $RESTART_WARN_24H+ times in 24h):"
 	{
-		printf 'NAMESPACE\tNAME\tREADY\tSTATUS\tRESTARTS\tAGE\n'
+		printf 'NAMESPACE\tNAME\tREADY\tREASON\tRESTARTS\tAGE\n'
 		printf '%s\n' "$bad"
 	} | column -t -s $'\t' | sed 's/^/    /'
 }

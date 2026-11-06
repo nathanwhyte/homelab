@@ -63,16 +63,23 @@ export STUB_LOG STUB_PODS STUB_PROM XDG_STATE_HOME=$TMPDIR_TEST/state
 STATE_DIR=$XDG_STATE_HOME/homelab-timmy-offline
 
 # Pod JSON as the API returns it. pod <ns> <name> <age seconds> <phase>
-# <containerStatuses JSON> [extra JSON merged into the pod].
+# <containerStatuses JSON> [extra JSON merged into the pod]. Its Ready condition
+# is True when every container is ready, else False since the pod was created;
+# extra may replace it.
 pod() {
 	local extra='{}'
 	[[ -z ${6:-} ]] || extra=$6
 	jq -cn --arg ns "$1" --arg name "$2" --argjson age "$3" --arg phase "$4" \
 		--argjson cs "$5" --argjson extra "$extra" '
-		{metadata: {namespace: $ns, name: $name, uid: "uid-\($name)",
-			creationTimestamp: (now - $age | floor | todate)},
+		(now - $age | floor | todate) as $created
+		| {metadata: {namespace: $ns, name: $name, uid: "uid-\($name)", creationTimestamp: $created},
 		 spec: {containers: [$cs[] | {name}]},
-		 status: {phase: $phase, containerStatuses: $cs}} * $extra'
+		 status: {phase: $phase, containerStatuses: $cs,
+			conditions: [{type: "Ready", lastTransitionTime: $created,
+				status: (if ($cs | length) > 0 and all($cs[]; .ready) then "True" else "False" end)}]}} * $extra'
+}
+ready_since() { # a Ready condition JSON: <True|False> <seconds ago>
+	jq -cn --arg s "$1" --argjson ago "$2" '{status: {conditions: [{type: "Ready", status: $s, lastTransitionTime: (now - $ago | floor | todate)}]}}'
 }
 running='{"name":"app","ready":true,"restartCount":0,"state":{"running":{}}}'
 CRASHLOOP=$(pod longhorn-system csi-provisioner-6c8b9d7f4-x2k9q $((19 * 86400 + 3600)) Running \
@@ -89,9 +96,20 @@ COMPLETED=$(pod kube-system k3s-datastore-backup-29371-abcde 21600 Succeeded \
 # an unfinished init container.
 SIDECAR=$(pod viking openviking-1 900 Running "[$running]" \
 	'{"spec":{"initContainers":[{"name":"proxy","restartPolicy":"Always"}]},"status":{"initContainerStatuses":[{"name":"proxy","ready":true,"restartCount":0,"state":{"running":{}}}]}}')
-# A finished container beside a running one reads Running, as in kubectl.
+# A container that exited 0 beside a running one: not a failure, but the pod is
+# not Ready, so it is listed NotReady once past the grace.
 MIXED=$(pod viking ov-vectordb-0 900 Running \
 	"[{\"name\":\"setup\",\"ready\":false,\"restartCount\":0,\"state\":{\"terminated\":{\"reason\":\"Completed\",\"exitCode\":0}}},$running]")
+unready='{"name":"app","ready":false,"restartCount":0,"state":{"running":{}}}'
+NOTREADY=$(pod omnipendium omnipendium-db-0 3600 Running "[$unready]")
+STARTING=$(pod omnipendium omnipendium-db-1 3600 Running "[$unready]" "$(ready_since False 60)")
+FRESH_CRASH=$(pod viking embedder-qwen-cuda-abc 3600 Running \
+	'[{"name":"embedder","ready":false,"restartCount":2,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]' "$(ready_since False 60)")
+SIDECAR_CRASH=$(pod viking openviking-2 900 Running "[$running]" \
+	'{"spec":{"initContainers":[{"name":"proxy","restartPolicy":"Always"}]},"status":{"initContainerStatuses":[{"name":"proxy","ready":false,"restartCount":7,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}')
+KILLED_INIT=$(pod garage garage-3 600 Pending '[{"name":"garage","ready":false,"restartCount":0,"state":{"waiting":{"reason":"PodInitializing"}}}]' \
+	'{"status":{"initContainerStatuses":[{"name":"init","ready":false,"restartCount":1,"state":{"terminated":{"exitCode":137}}}]}}')
+CREATING=$(pod llama cloud-llm-counter-7d9f-fghij 30 Pending '[{"name":"counter","ready":false,"restartCount":0,"state":{"waiting":{"reason":"ContainerCreating"}}}]')
 # A slow crashloop between crashes: Running and ready, last crash minutes ago.
 SLOW=$(pod longhorn-system csi-provisioner-85dd8446fb-hbjbw $((19 * 86400)) Running \
 	'[{"name":"csi-provisioner","ready":true,"restartCount":94,"state":{"running":{}},"lastState":{"terminated":{"reason":"Error","exitCode":255}}}]')
@@ -151,21 +169,30 @@ row() { # the report row naming pod $1, whitespace collapsed
 	grep -E "^    [^ ]+ +$1 " <<<"$2" | tr -s ' ' | sed 's/^ //'
 }
 
-reset "$HEALTHY" "$CRASHLOOP" "$PENDING" "$COMPLETED" "$INIT_CRASH" "$EVICTED" "$TERMINATING" "$SIDECAR" "$MIXED"
+reset "$HEALTHY" "$CRASHLOOP" "$PENDING" "$COMPLETED" "$INIT_CRASH" "$EVICTED" "$TERMINATING" "$SIDECAR" "$MIXED" \
+	"$NOTREADY" "$STARTING" "$FRESH_CRASH" "$SIDECAR_CRASH" "$KILLED_INIT" "$CREATING"
 out=$(run up)
 assert_eq "up with a crashlooping pod still succeeds" 0 "${out##*$'\n'}"
 assert_eq "up lists the crashlooping pod with ready, restarts and age" \
 	"longhorn-system csi-provisioner-6c8b9d7f4-x2k9q 0/1 CrashLoopBackOff 93 19d" "$(row csi-provisioner-6c8b9d7f4-x2k9q "$out")"
 assert_eq "a pod with no container started reads Pending" "viking openviking-0 0/1 Pending 0 3m" "$(row openviking-0 "$out")"
-assert_eq "a crashing init container reads Init:CrashLoopBackOff" "garage garage-2 0/1 Init:CrashLoopBackOff 0 2h" "$(row garage-2 "$out")"
+assert_eq "a crashing init container reads Init:CrashLoopBackOff, its restarts counted" "garage garage-2 0/1 Init:CrashLoopBackOff 4 2h" "$(row garage-2 "$out")"
 assert_eq "an evicted pod reads Evicted" "llama cloud-llm-counter-7d9f-abcde 0/0 Evicted 0 1d" "$(row cloud-llm-counter-7d9f-abcde "$out")"
 assert_eq "a deleted pod reads Terminating" "grafana grafana-6b5c-xyz 1/1 Terminating 0 10m" "$(row grafana-6b5c-xyz "$out")"
-assert_has "the report has kubectl's column header" "NAMESPACE        NAME" "$out"
-assert_has "up marks the list as a warning" "WARN: pods not healthy (neither Running nor Completed, or restarting 5+ times in 24h):" "$out"
-assert_lacks "up leaves Running pods out" "garage-0 " "$out"
+assert_eq "a pod not Ready past the grace reads NotReady" "omnipendium omnipendium-db-0 0/1 NotReady 0 1h" "$(row omnipendium-db-0 "$out")"
+assert_lacks "a pod not Ready for under the grace is left out" "omnipendium-db-1" "$out"
+assert_eq "the grace never hides a crashloop" "viking embedder-qwen-cuda-abc 0/1 CrashLoopBackOff 2 1h" "$(row embedder-qwen-cuda-abc "$out")"
+assert_eq "a crashing native sidecar is listed, counted in READY and RESTARTS" "viking openviking-2 1/2 Init:CrashLoopBackOff 7 15m" "$(row openviking-2 "$out")"
+assert_eq "an init container killed without a reason reads its exit code" "garage garage-3 0/1 Init:ExitCode:137 1 10m" "$(row garage-3 "$out")"
+assert_eq "a container still being created reads as its phase" "llama cloud-llm-counter-7d9f-fghij 0/1 Pending 0 30s" "$(row cloud-llm-counter-7d9f-fghij "$out")"
+assert_eq "a container that exited 0 beside a running one is not a failure, but the pod is NotReady" \
+	"viking ov-vectordb-0 1/2 NotReady 0 15m" "$(row ov-vectordb-0 "$out")"
+assert_has "the report has its column header" "NAMESPACE        NAME" "$out"
+assert_has "the column header names REASON" "REASON" "$out"
+assert_has "up marks the list as a warning" "WARN: pods not healthy (not Running and ready, not Completed, or restarting 5+ times in 24h):" "$out"
+assert_lacks "up leaves Running and ready pods out" "garage-0 " "$out"
 assert_lacks "up leaves Completed pods out" "k3s-datastore-backup-29371" "$out"
-assert_lacks "a running native sidecar is not an unfinished init container" "openviking-1" "$out"
-assert_lacks "a finished container beside a running one reads Running" "ov-vectordb-0" "$out"
+assert_lacks "a running, ready native sidecar is healthy" "openviking-1" "$out"
 back=$(grep -n 'timmy is back in service' <<<"$out" | cut -d: -f1)
 warned=$(grep -n 'pods not healthy' <<<"$out" | cut -d: -f1)
 if [[ -n $back && -n $warned ]] && ((back < warned)); then
@@ -177,7 +204,7 @@ fi
 reset "$HEALTHY"
 out=$(run up)
 assert_eq "up on a healthy cluster succeeds" 0 "${out##*$'\n'}"
-assert_has "it says every pod is fine" "all pods Running or Completed" "$out"
+assert_has "it says every pod is fine" "all pods healthy (Running and ready, or Completed)" "$out"
 assert_lacks "it prints no pod warning" "pods not healthy" "$out"
 
 reset "$CRASHLOOP"
@@ -189,7 +216,7 @@ assert_has "it warns that pod health is unavailable" "WARN: pod health unavailab
 # (round 1 reproduced it as one when the table and stderr were parsed together).
 reset "$HEALTHY"
 out=$(STUB_PODS_WARN='Warning: Use tokens from the TokenRequest API or manually created secret-based tokens instead of auto-generated secret-based tokens.' run up)
-assert_has "a stderr warning beside healthy pods reads as no unhealthy pods" "all pods Running or Completed" "$out"
+assert_has "a stderr warning beside healthy pods reads as no unhealthy pods" "all pods healthy (Running and ready, or Completed)" "$out"
 assert_lacks "it lists no pod" "pods not healthy" "$out"
 
 # Anything but pod JSON on stdout is an unavailable report, never a pod.
@@ -225,7 +252,7 @@ assert_eq "it asks Prometheus for each pod UID's busiest container, init contain
 reset "$HEALTHY" "$REBOOTED"
 out=$(run up)
 assert_has "with history read and nothing flagged, it says so" \
-	"all pods Running or Completed, none restarting 5+ times in 24h" "$out"
+	"all pods healthy (Running and ready, or Completed), none restarting 5+ times in 24h" "$out"
 
 reset "$HEALTHY" "$SLOW"
 prom uid-csi-provisioner-85dd8446fb-hbjbw=3
@@ -247,7 +274,7 @@ reset "$HEALTHY"
 echo '{"status":"error","errorType":"bad_data","error":"parse error"}' >"$STUB_PROM"
 out=$(run up)
 assert_has "a Prometheus error answer is an unavailable history" "WARN: restart history unavailable (Prometheus returned no query result)" "$out"
-assert_has "the status-only report still runs" "==> all pods Running or Completed" "$out"
+assert_has "the status-only report still runs" "==> all pods healthy (Running and ready, or Completed)" "$out"
 assert_lacks "and claims nothing about restarts" "none restarting" "$out"
 
 reset "$HEALTHY"
