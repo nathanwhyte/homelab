@@ -25,17 +25,22 @@ spec:
         # a gauge that resets only with the process
         # (crates/ragfs/src/metrics/mod.rs:134@v0.5.1.1). Each step is the server
         # healing itself, so the retired `> 0` rule fired from the first takeover
-        # until the next restart. Only a burst is recorded: the busiest hour from
-        # 2026-10-07 to 2026-11-06 was about 10. increase() suits it because the
-        # count never falls within a pod. Held locks are the job of
-        # OpenVikingWedgedLockFile, OpenVikingLockListingBlind and the watchdog.
+        # until the next restart. Only a burst alerts: the most takeovers in any
+        # hour from 2026-10-07 to 2026-11-06 was 10, by this same expression.
+        # The count is the exact rise since the window's lowest sample, not
+        # increase(), which extrapolates (exactly 20 read as 20.17) and inflates
+        # sparse samples. Within a series the count only rises, so the lowest
+        # sample is the window's start; a container restart under the same pod
+        # name drops it to 0, and the difference then counts only takeovers
+        # since that restart. Held locks are the job of OpenVikingWedgedLockFile,
+        # OpenVikingLockListingBlind and the watchdog.
         - alert: OpenVikingStaleLockTakeoverBurst
-          expr: increase(openviking_lock_stale[1h]) > 20
+          expr: openviking_lock_stale - min_over_time(openviking_lock_stale[1h]) > 20
           labels:
             severity: warning
           annotations:
             summary: "OpenViking replaced {{ $value | humanize }} expired lock tokens in the last hour"
-            description: "Each takeover is the server reclaiming a lock whose client stopped refreshing it, logged as `replaced stale pathlock token during acquire` with the stale_owner. A burst means many clients died or lost storage at once (a Garage roll, a node drain). It is not a held lock and needs no restart; check the openviking container's log for the stale owners."
+            description: "Each takeover is the server replacing a lock token whose owner stopped refreshing it, logged as `replaced stale pathlock token during acquire` with the stale_owner. The count is of tokens, not clients: one owner can leave several (a path lock plus one per file). A burst may follow clients exiting without releasing, or losing storage at once (a Garage roll, a node drain); the stale_owner values in the openviking container's log tell which. It is not a held lock and needs no restart."
         # BUG-1138: OpenVikingNativeQueueNotDraining was retired here, not fixed.
         # It had two defects. Its bare sum() spanned BOTH scrape targets — the
         # native /metrics on the openviking container and the ov-exporter sidecar,

@@ -541,7 +541,7 @@ tests:
         exp_samples: [{ labels: "{}", value: 0 }]
 
   - name: the 30-day peak hour of takeovers does not fire
-    # The busiest hour from 2026-10-07 to 2026-11-06 was about 10 takeovers.
+    # The most takeovers in any hour from 2026-10-07 to 2026-11-06 was 10.
     interval: 1m
     input_series:
       - series: 'openviking_lock_stale{pod="openviking-a"}'
@@ -563,6 +563,44 @@ tests:
         exp_samples: [{ labels: "{}", value: 1 }]
       - expr: count(ALERTS{alertname="OpenVikingStaleLockTakeoverBurst"}) or vector(0)
         eval_time: 80m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: exactly 20 takeovers on a nonzero baseline does not fire, 21 does
+    # Round 1 of homelab#317: increase() read this as 20.17 and fired.
+    interval: 30s
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "100x119 120x120"
+      - series: 'openviking_lock_stale{pod="openviking-b"}'
+        values: "100x119 121x120"
+    promql_expr_test:
+      - expr: count by (pod) (ALERTS{alertname="OpenVikingStaleLockTakeoverBurst", alertstate="firing"})
+        eval_time: 65m
+        exp_samples: [{ labels: '{pod="openviking-b"}', value: 1 }]
+
+  - name: sparse samples count only the takeovers observed
+    # Round 1 of homelab#317: increase() extrapolated 10 observed takeovers to 25.
+    interval: 30s
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "100 110 _ _ 110 _x20"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 1m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 5m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a container restart under the same pod name counts only new takeovers
+    # The series keeps its pod label, falls to 0 and climbs again.
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "30x20 0 0 3x30"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 40m
         exp_samples: [{ labels: "{}", value: 0 }]
 
   - name: a restart does not count the old pod's total as new takeovers
