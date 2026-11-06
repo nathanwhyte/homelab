@@ -5,8 +5,10 @@
 #   timmy-offline.sh down    silence alerts, suspend dependent CronJobs, park cross-node volumes,
 #                            spin down memory-heavy services, cordon + drain
 #   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads,
-#                            resume CronJobs, run a catch-up k3s backup, expire the silence
-#   timmy-offline.sh status  what is parked/suspended/silenced, what is cordoned, Longhorn health
+#                            resume CronJobs, run a catch-up k3s backup, expire the silence,
+#                            list pods neither Running nor Completed (a warning, never a failure)
+#   timmy-offline.sh status  what is parked/suspended/silenced, what is cordoned, Longhorn health,
+#                            unhealthy pods
 #
 # Why this exists on top of node-maintenance.sh: three Longhorn volumes are
 # attached on manu/wemby but their ONLY replica lives on timmy's disk
@@ -127,7 +129,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,10p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,11p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -423,6 +425,28 @@ garage_check() {
 	sed -n '/HEALTHY NODES/,$p' <<<"$out" | sed 's/^/    /'
 }
 
+# Pods cluster-wide that are neither Running nor Completed, as kubectl's own table
+# rows (namespace, name, ready, status, restarts, age). The STATUS column, not
+# .status.phase: a crashlooping pod's phase is still Running. A report, never a
+# gate: `up` has already restored service, and an unrelated crashloop (Longhorn's
+# csi-provisioner at 93 restarts, found by hand on 2026-11-05) should surface at
+# the next maintenance cycle without failing it. Rows with fewer than six fields
+# are not kubectl table rows and are skipped.
+pod_health() {
+	local out bad
+	if ! out=$("$KUBECTL" get pods -A --no-headers 2>&1); then
+		warn "pod health unavailable (${out//$'\n'/ }); check with: kubectl get pods -A"
+		return 0
+	fi
+	bad=$(awk 'NF >= 6 && $4 != "Running" && $4 != "Completed"' <<<"$out")
+	if [[ -z $bad ]]; then
+		log "all pods Running or Completed"
+		return 0
+	fi
+	warn "pods neither Running nor Completed (NAMESPACE NAME READY STATUS RESTARTS AGE):"
+	sed 's/^/    /' <<<"$bad"
+}
+
 # --- Commands -------------------------------------------------------------------
 
 cmd_down() {
@@ -521,6 +545,7 @@ cmd_up() {
 	expire_silence
 	close_window
 	log "timmy is back in service."
+	pod_health
 }
 
 cmd_status() {
@@ -545,7 +570,12 @@ cmd_status() {
 	else
 		log "no cross-node volume depends solely on $NODE"
 	fi
-	"$NODE_MAINTENANCE" status
+	# Unhealthy Longhorn fails node-maintenance.sh status; list pods anyway, then
+	# keep its exit status.
+	local rc=0
+	"$NODE_MAINTENANCE" status || rc=$?
+	pod_health
+	return "$rc"
 }
 
 main() {
