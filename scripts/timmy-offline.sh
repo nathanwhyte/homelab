@@ -147,20 +147,22 @@ cross_node_orphans() {
 }
 
 wait_cross_node_detached() {
-	local deadline left shown=''
+	local deadline left='' row printed=''
 	deadline=$((SECONDS + DETACH_TIMEOUT_SECONDS))
 	log "waiting for timmy-only volumes attached elsewhere to detach..."
 	while ((SECONDS < deadline)); do
 		left=$(cross_node_orphans) || die "cannot read Longhorn state"
 		[[ -z $left ]] && return 0
-		# Only when the list changes, not on every 10s poll.
-		if [[ $left != "$shown" ]]; then
-			printf '%s\n' "$left" | sed 's/^/    still attached: /'
-			shown=$left
-		fi
+		# Each row once, not on every 10s poll.
+		while IFS= read -r row; do
+			grep -qxF -- "$row" <<<"$printed" && continue
+			printf '    still attached: %s\n' "$row"
+			printed+=$row$'\n'
+		done <<<"$left"
 		sleep 10
 	done
-	die "volumes still attached after ${DETACH_TIMEOUT_SECONDS}s; not safe to power off"
+	# Name them here: the loop printed each row only once, possibly minutes ago.
+	die "volumes still attached after ${DETACH_TIMEOUT_SECONDS}s (${left//$'\n'/; }); not safe to power off"
 }
 
 # --- Parking --------------------------------------------------------------------

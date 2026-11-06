@@ -605,12 +605,24 @@ longhorn_unhealthy() {
 			| "\(.metadata.name)\t\(.status.state)/\(.status.robustness)"'
 }
 
+# print_new_rows <prefix> <rows> <printed>: each line of <rows> not already a
+# line of <printed>, with <prefix>. For poll loops that print a row once.
+print_new_rows() {
+	local row
+	while IFS= read -r row; do
+		[[ -n $row ]] || continue
+		grep -qxF -- "$row" <<<"$3" && continue
+		printf '%s%s\n' "$1" "$row"
+	done <<<"$2"
+}
+
 wait_longhorn_healthy() {
 	log "Waiting for all attached Longhorn volumes to be healthy..."
-	# Print the degraded list and the kubectl warning only when they change: the
-	# gate polls every 15s, and a volume rebuilding for minutes used to fill the
-	# output with copies of the same rows.
-	local bad shown='' unavailable=0
+	# Print each degraded row once (a volume whose state changes is a new row),
+	# and the kubectl warning once per stretch of failed reads: the gate polls
+	# every 15s, and a volume rebuilding for minutes used to fill the output with
+	# copies of the same rows.
+	local bad printed='' unavailable=0
 	while true; do
 		bad=$(longhorn_unhealthy) || {
 			((unavailable)) || warn "kubectl unavailable, retrying every 10s..."
@@ -620,10 +632,8 @@ wait_longhorn_healthy() {
 		}
 		unavailable=0
 		[[ -z $bad ]] && break
-		if [[ $bad != "$shown" ]]; then
-			printf '%s\n' "$bad" | sed 's/^/    degraded: /'
-			shown=$bad
-		fi
+		print_new_rows "    degraded: " "$bad" "$printed"
+		printed+=$bad$'\n'
 		sleep 15
 	done
 	log "Longhorn volumes healthy."
