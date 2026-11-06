@@ -34,6 +34,7 @@ get)
     ;;
   node|nodes) echo "unexpected node read in planned-outage caller" >&2; exit 91 ;;
   volumes.longhorn.io*) echo '{"items":[]}' ;;
+  pods) echo '{"items":[]}' ;; # pod health: no pods (tests/test-timmy-offline-pods.sh covers it)
   *) printf '%s' "${STUB_REPLICAS:-1}" ;;
   esac
   ;;
