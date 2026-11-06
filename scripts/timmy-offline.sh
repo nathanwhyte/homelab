@@ -4,6 +4,8 @@
 #
 #   timmy-offline.sh down    silence alerts, suspend dependent CronJobs, park cross-node volumes,
 #                            spin down memory-heavy services, cordon + drain
+#   timmy-offline.sh windows down, then boot timmy into Windows once, no password needed
+#                            (the reboot after the Windows session returns to Ubuntu)
 #   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads,
 #                            resume CronJobs, run a catch-up k3s backup, expire the silence,
 #                            list pods not Running and ready, not Completed, or crashlooping (a warning, never a failure)
@@ -64,10 +66,13 @@
 # `down` that never reached the drain: with no reboot to verify it skips
 # node-maintenance.sh finish instead of dying on the missing cycle state.
 #
-# The power-off itself is deliberately manual (needs a TTY for sudo):
+# A power-off stays manual (needs a TTY for sudo):
 #   ssh -t timmy-lan sudo shutdown -h now
-# or, for a Windows session (os-prober entry — Windows shares the Ubuntu ESP on
-# nvme0n1p1; boots Windows exactly once, the following reboot returns to Ubuntu):
+# A Windows session does not: `windows` runs `down`, then `grub-reboot` the
+# os-prober entry (Windows shares the Ubuntu ESP on nvme0n1p1) and reboots, both
+# through NOPASSWD sudoers grants pinned to those exact commands (GUIDE-1070
+# § sudoers). It boots Windows exactly once; the following reboot returns to
+# Ubuntu. By hand, the same is:
 #   ssh -t timmy-lan 'sudo grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)" && sudo reboot'
 
 set -euo pipefail
@@ -96,6 +101,13 @@ SILENCE_MAX_SECONDS=2592000 # 30d
 WINDOW_FILE=$STATE_DIR/window
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
+# `windows`: the os-prober GRUB entry (Windows shares the Ubuntu ESP on
+# nvme0n1p1). Pinned, with /usr/sbin/grub-reboot, in timmy's sudoers grant.
+WINDOWS_GRUB_ENTRY="Windows Boot Manager (on /dev/nvme0n1p1)"
+# The ESP the entry names, and the Windows loader os-prober found on it.
+WINDOWS_ESP=/dev/nvme0n1p1
+WINDOWS_LOADER=/boot/efi/EFI/Microsoft/Boot/bootmgfw.efi
+SSH=${SSH:-ssh} # overridable so the tests can stub it
 # Prometheus, for pod_health's restart history (namespace/service:port), and the
 # restarts in 24h of any one container that list its pod. A node reboot restarts
 # each of its containers once, and timmy reboots up to ~3 times a day.
@@ -134,7 +146,7 @@ die() {
 }
 
 usage() {
-	sed -n '2,11p' "$SELF" | sed 's/^# \{0,1\}//'
+	sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//'
 	exit 1
 }
 
@@ -635,9 +647,78 @@ cmd_down() {
 		die "NOT safe to power off — scale the owning workloads to 0 and add them to PARKED, then re-check with '$SELF status'"
 	fi
 	echo
+	down_done "${1:-}"
+}
+
+# down's closing lines; `windows` (down called by cmd_windows) drops the
+# power-off hint, since cmd_windows goes on to reboot timmy itself.
+down_done() {
+	if [[ ${1:-} == windows ]]; then
+		log "timmy is parked, cordoned and drained."
+		return 0
+	fi
 	log "timmy is parked, cordoned and drained. Power off when ready:"
 	log "    ssh -t $NODE_SSH sudo shutdown -h now"
+	log "or boot Windows once:  $SELF windows"
 	log "When it is back on Ubuntu:  $SELF up"
+}
+
+# `windows`: down, then boot timmy into Windows exactly once. grub-reboot sets
+# GRUB's one-shot next_entry, so the boot after Windows returns to Ubuntu
+# (GRUB_DEFAULT=0). Both sudo commands are NOPASSWD grants on timmy pinned to
+# these exact arguments (GUIDE-1070 § sudoers), so no TTY or password is needed;
+# sudo -n fails instead of prompting when a grant is missing.
+#
+# Every failure after down ends with windows_way_back, which works whatever
+# next_entry holds (a grub-reboot whose ssh dropped may have written it), so no
+# message has to guess timmy's next boot.
+windows_way_back() {
+	printf '%s' "Next, either boot Windows: ssh -t $NODE_SSH 'sudo grub-reboot \"$WINDOWS_GRUB_ENTRY\" && sudo reboot', or return to Ubuntu: ssh -t $NODE_SSH 'sudo grub-editenv - unset next_entry && sudo reboot'. $SELF up needs a reboot since down (it checks the boot ID): run it once $NODE is back on Ubuntu."
+}
+
+cmd_windows() {
+	local entry next out rc=0 esp src
+	# grub.cfg is root-only, so whether the pinned title still names a menu entry
+	# cannot be read. Check what os-prober built it from instead, before draining:
+	# the ESP it names is still /boot/efi and still holds the Windows loader. A
+	# renumbered disk fails here; a reworded title would not.
+	esp=$("$SSH" -o BatchMode=yes "$NODE_SSH" "findmnt -no SOURCE /boot/efi; if test -f $(printf '%q' "$WINDOWS_LOADER"); then echo loader-ok; fi") ||
+		die "cannot reach $NODE over ssh to check the Windows boot entry; nothing was changed."
+	[[ -n ${esp%%$'\n'*} && ${esp%%$'\n'*} != loader-ok ]] ||
+		die "/boot/efi is not mounted on $NODE, so the Windows boot entry cannot be checked; nothing was changed. Mount it (ssh -t $NODE_SSH sudo mount /boot/efi), then re-run: $SELF windows"
+	src=${esp%$'\n'loader-ok}
+	[[ $esp == "$WINDOWS_ESP"$'\n'loader-ok ]] ||
+		die "the Windows GRUB entry may be stale, so nothing was changed: '$WINDOWS_GRUB_ENTRY' names $WINDOWS_ESP and $WINDOWS_LOADER, but $NODE reports /boot/efi on '${src//$'\n'/, }'$([[ $esp == *$'\n'loader-ok ]] || echo ' without that loader'). Check with: ssh -t $NODE_SSH sudo grep menuentry /boot/grub/grub.cfg; then update WINDOWS_GRUB_ENTRY, WINDOWS_ESP and the sudoers grant (GUIDE-1070 § sudoers)."
+	cmd_down windows
+	entry=$(printf '%q' "$WINDOWS_GRUB_ENTRY")
+	log "setting $NODE's next boot (once) to: $WINDOWS_GRUB_ENTRY"
+	"$SSH" -o BatchMode=yes "$NODE_SSH" "sudo -n /usr/sbin/grub-reboot $entry" ||
+		die "grub-reboot failed on $NODE (is the NOPASSWD grant in /etc/sudoers.d/node-maintenance? GUIDE-1070 § sudoers); not rebooting: it is drained and still on Ubuntu. $(windows_way_back)"
+	# grubenv is world-readable. Reading next_entry back proves the write and its
+	# quoting landed; whether the title matches a menu entry is the preflight's
+	# job above.
+	# An unreadable file fails the ssh; a readable one without the line reads empty.
+	next=$("$SSH" -o BatchMode=yes "$NODE_SSH" "test -r /boot/grub/grubenv && { grep '^next_entry=' /boot/grub/grubenv || true; }") ||
+		die "cannot read $NODE's /boot/grub/grubenv after grub-reboot; not rebooting: it is drained and still on Ubuntu. $(windows_way_back)"
+	[[ $next == "next_entry=$WINDOWS_GRUB_ENTRY" ]] ||
+		die "$NODE's next boot entry reads '${next:-no next_entry line}', not 'next_entry=$WINDOWS_GRUB_ENTRY'; not rebooting: it is drained and still on Ubuntu. Inspect: ssh $NODE_SSH cat /boot/grub/grubenv. $(windows_way_back)"
+	log "rebooting $NODE"
+	# ssh exits 255 both when the reboot drops the connection and when it never
+	# connected, so its status proves nothing. The remote echoes reboot's own
+	# status after it returns (systemd queues the reboot and returns at once);
+	# only that line says the reboot was accepted.
+	out=$("$SSH" -o BatchMode=yes "$NODE_SSH" "sudo -n /usr/sbin/reboot; echo reboot-rc=\$?" 2>&1) || rc=$?
+	case $out in
+	*reboot-rc=0*) ;;
+	*reboot-rc=*)
+		die "reboot refused on $NODE (${out//$'\n'/ }); not rebooted: it is drained and still on Ubuntu, with next_entry set to Windows. $(windows_way_back)"
+		;;
+	*)
+		die "could not confirm $NODE accepted the reboot (ssh exit $rc: ${out//$'\n'/ }). Check whether it is going down: ssh $NODE_SSH uptime. If it went down, it boots next_entry (Windows, unless the title matches no menu entry); run $SELF up once it is back on Ubuntu. If it is still up on Ubuntu: $(windows_way_back)"
+		;;
+	esac
+	log "timmy is rebooting with next_entry set to Windows. After the Windows session, reboot it back to Ubuntu, then:  $SELF up"
+	log "If it comes back on Ubuntu without Windows, the title matched no menu entry (grub.cfg changed): run $SELF up, then fix WINDOWS_GRUB_ENTRY."
 }
 
 # Succeeds for this Mac's outage cordon, fails for an uncordoned timmy, and dies
@@ -721,6 +802,7 @@ cmd_status() {
 main() {
 	case ${1:-} in
 	down) cmd_down ;;
+	windows) cmd_windows ;;
 	up) cmd_up ;;
 	status) cmd_status ;;
 	*) usage ;;

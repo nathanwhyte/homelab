@@ -109,7 +109,9 @@ SIDECAR_CRASH=$(pod viking openviking-2 900 Running "[$running]" \
 	'{"spec":{"initContainers":[{"name":"proxy","restartPolicy":"Always"}]},"status":{"initContainerStatuses":[{"name":"proxy","ready":false,"restartCount":7,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}')
 KILLED_INIT=$(pod garage garage-3 600 Pending '[{"name":"garage","ready":false,"restartCount":0,"state":{"waiting":{"reason":"PodInitializing"}}}]' \
 	'{"status":{"initContainerStatuses":[{"name":"init","ready":false,"restartCount":1,"state":{"terminated":{"exitCode":137}}}]}}')
-CREATING=$(pod llama cloud-llm-counter-7d9f-fghij 30 Pending '[{"name":"counter","ready":false,"restartCount":0,"state":{"waiting":{"reason":"ContainerCreating"}}}]')
+# 120s, not seconds-granular: a clock tick between building the fixture and the
+# report would turn 30s into 31s; 120s and 121s both read 2m.
+CREATING=$(pod llama cloud-llm-counter-7d9f-fghij 120 Pending '[{"name":"counter","ready":false,"restartCount":0,"state":{"waiting":{"reason":"ContainerCreating"}}}]')
 # A slow crashloop between crashes: Running and ready, last crash minutes ago.
 SLOW=$(pod longhorn-system csi-provisioner-85dd8446fb-hbjbw $((19 * 86400)) Running \
 	'[{"name":"csi-provisioner","ready":true,"restartCount":94,"state":{"running":{}},"lastState":{"terminated":{"reason":"Error","exitCode":255}}}]')
@@ -184,7 +186,7 @@ assert_lacks "a pod not Ready for under the grace is left out" "omnipendium-db-1
 assert_eq "the grace never hides a crashloop" "viking embedder-qwen-cuda-abc 0/1 CrashLoopBackOff 2 1h" "$(row embedder-qwen-cuda-abc "$out")"
 assert_eq "a crashing native sidecar is listed, counted in READY and RESTARTS" "viking openviking-2 1/2 Init:CrashLoopBackOff 7 15m" "$(row openviking-2 "$out")"
 assert_eq "an init container killed without a reason reads its exit code" "garage garage-3 0/1 Init:ExitCode:137 1 10m" "$(row garage-3 "$out")"
-assert_eq "a container still being created reads as its phase" "llama cloud-llm-counter-7d9f-fghij 0/1 Pending 0 30s" "$(row cloud-llm-counter-7d9f-fghij "$out")"
+assert_eq "a container still being created reads as its phase" "llama cloud-llm-counter-7d9f-fghij 0/1 Pending 0 2m" "$(row cloud-llm-counter-7d9f-fghij "$out")"
 assert_eq "a container that exited 0 beside a running one is not a failure, but the pod is NotReady" \
 	"viking ov-vectordb-0 1/2 NotReady 0 15m" "$(row ov-vectordb-0 "$out")"
 assert_has "the report has its column header" "NAMESPACE        NAME" "$out"
