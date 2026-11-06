@@ -647,6 +647,12 @@ cmd_down() {
 		die "NOT safe to power off — scale the owning workloads to 0 and add them to PARKED, then re-check with '$SELF status'"
 	fi
 	echo
+	down_done "${1:-}"
+}
+
+# down's closing lines; `windows` (down called by cmd_windows) drops the
+# power-off hint, since cmd_windows goes on to reboot timmy itself.
+down_done() {
 	if [[ ${1:-} == windows ]]; then
 		log "timmy is parked, cordoned and drained."
 		return 0
@@ -678,11 +684,13 @@ cmd_windows() {
 	# renumbered disk fails here; a reworded title would not.
 	esp=$("$SSH" -o BatchMode=yes "$NODE_SSH" "findmnt -no SOURCE /boot/efi; if test -f $(printf '%q' "$WINDOWS_LOADER"); then echo loader-ok; fi") ||
 		die "cannot reach $NODE over ssh to check the Windows boot entry; nothing was changed."
+	[[ -n ${esp%%$'\n'*} && ${esp%%$'\n'*} != loader-ok ]] ||
+		die "/boot/efi is not mounted on $NODE, so the Windows boot entry cannot be checked; nothing was changed. Mount it (ssh -t $NODE_SSH sudo mount /boot/efi), then re-run: $SELF windows"
 	[[ $esp == "$WINDOWS_ESP"$'\n'loader-ok ]] ||
 		die "the Windows GRUB entry may be stale, so nothing was changed: '$WINDOWS_GRUB_ENTRY' names $WINDOWS_ESP and $WINDOWS_LOADER, but $NODE reports /boot/efi on '${esp%%$'\n'*}'$([[ $esp == *loader-ok ]] || echo ' without that loader'). Check with: ssh -t $NODE_SSH sudo grep menuentry /boot/grub/grub.cfg; then update WINDOWS_GRUB_ENTRY, WINDOWS_ESP and the sudoers grant (GUIDE-1070 § sudoers)."
 	cmd_down windows
 	entry=$(printf '%q' "$WINDOWS_GRUB_ENTRY")
-	log "next boot of $NODE: $WINDOWS_GRUB_ENTRY (once)"
+	log "setting $NODE's next boot (once) to: $WINDOWS_GRUB_ENTRY"
 	"$SSH" -o BatchMode=yes "$NODE_SSH" "sudo -n /usr/sbin/grub-reboot $entry" ||
 		die "grub-reboot failed on $NODE (is the NOPASSWD grant in /etc/sudoers.d/node-maintenance? GUIDE-1070 § sudoers); not rebooting: it is drained and still on Ubuntu. $(windows_way_back)"
 	# grubenv is world-readable. Reading next_entry back proves the write and its

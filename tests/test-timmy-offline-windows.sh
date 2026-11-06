@@ -125,7 +125,7 @@ ssh timmy-lan: sudo -n /usr/sbin/reboot; echo reboot-rc=\$?
 sudo: [-n] [/usr/sbin/reboot]" "$calls"
 assert_has "it says next_entry is set to Windows and names up" "timmy is rebooting with next_entry set to Windows. After the Windows session, reboot it back to Ubuntu, then:  " "$out"
 assert_has "and what an unmatched title looks like" "If it comes back on Ubuntu without Windows, the title matched no menu entry" "$out"
-assert_lacks "down's power-off hint is not printed" "shutdown -h now" "$out"
+assert_has "the progress line says the entry is being set, not that it is set" "setting timmy's next boot (once) to: $ENTRY" "$out"
 
 reset
 out=$(run STUB_REBOOT_SSH_EXIT=0)
@@ -144,6 +144,19 @@ rm -f "$STUB_LOADER"
 out=$(run)
 assert_eq "a missing Windows loader fails windows" 1 "${out##*$'\n'}"
 assert_has "it says the loader is missing" "reports /boot/efi on '/dev/nvme0n1p1' without that loader" "$out"
+assert_eq "it stops before down" "$PREFLIGHT" "$(<"$STUB_LOG")"
+
+reset
+out=$(run STUB_ESP=)
+assert_eq "an unmounted /boot/efi fails windows" 1 "${out##*$'\n'}"
+assert_has "it says to mount it, not to edit the entry" "/boot/efi is not mounted on timmy, so the Windows boot entry cannot be checked; nothing was changed. Mount it (ssh -t timmy-lan sudo mount /boot/efi)" "$out"
+assert_lacks "and does not call the entry stale" "may be stale" "$out"
+assert_eq "it stops before down" "$PREFLIGHT" "$(<"$STUB_LOG")"
+
+# The comparison is exact: a second findmnt line fails it.
+reset
+out=$(run STUB_ESP=$'/dev/nvme0n1p1\n/dev/sda1')
+assert_eq "extra findmnt output fails windows" 1 "${out##*$'\n'}"
 assert_eq "it stops before down" "$PREFLIGHT" "$(<"$STUB_LOG")"
 
 reset
@@ -172,7 +185,7 @@ assert_lacks "it never reboots" "/usr/sbin/reboot;" "$(<"$STUB_LOG")"
 reset ""
 out=$(run STUB_GRUB_SSH_EXIT=255)
 assert_eq "a grub-reboot whose ssh drops after the write fails windows" 1 "${out##*$'\n'}"
-assert_eq "the write did land (the stub ran it)" "sudo: [-n] [/usr/sbin/grub-reboot] [$ENTRY]" "$(rg -F 'sudo: [-n] [/usr/sbin/grub-reboot]' "$STUB_LOG")"
+assert_eq "the write did land (the stub ran it)" "sudo: [-n] [/usr/sbin/grub-reboot] [$ENTRY]" "$(grep -F 'sudo: [-n] [/usr/sbin/grub-reboot]' "$STUB_LOG")"
 assert_way_back "grub-reboot ssh dropped" "$out"
 assert_lacks "it never offers a plain reboot into Ubuntu" "reboot into Ubuntu: ssh -t timmy-lan sudo reboot" "$out"
 
@@ -182,6 +195,12 @@ assert_eq "a next_entry that is not the Windows entry fails windows" 1 "${out##*
 assert_has "it names what grubenv holds" "next boot entry reads 'next_entry=0'" "$out"
 assert_has "and how to inspect it" "Inspect: ssh timmy-lan cat /boot/grub/grubenv." "$out"
 assert_way_back "next_entry mismatch" "$out"
+assert_lacks "it never reboots" "/usr/sbin/reboot;" "$(<"$STUB_LOG")"
+
+# The comparison is exact: a next_entry that merely contains the title fails.
+reset "$ENTRY 2"
+out=$(run)
+assert_eq "a next_entry that only contains the Windows title fails windows" 1 "${out##*$'\n'}"
 assert_lacks "it never reboots" "/usr/sbin/reboot;" "$(<"$STUB_LOG")"
 
 reset
@@ -209,8 +228,15 @@ assert_lacks "it does not claim the reboot started" "timmy is rebooting" "$out"
 help=$(bash "$OUTAGE" --help 2>&1)
 assert_has "--help lists windows" "timmy-offline.sh windows down, then boot timmy into Windows once" "$help"
 assert_has "--help still ends with status" "unhealthy pods" "$help"
-down_hint=$(sed -n '/^cmd_down()/,/^}/p' "$OUTAGE")
-assert_has "down's closing hint names windows" 'or boot Windows once:  $SELF windows' "$down_hint"
+# down's closing lines, run for real (cmd_down is stubbed above).
+done_plain=$(bash -c 'source "$1"; down_done' _ "$OUTAGE" 2>&1)
+done_windows=$(bash -c 'source "$1"; down_done windows' _ "$OUTAGE" 2>&1)
+assert_has "down's closing hint names windows" "or boot Windows once:  " "$done_plain"
+assert_has "and still gives the power-off command" "ssh -t timmy-lan sudo shutdown -h now" "$done_plain"
+assert_has "down called by windows says timmy is drained" "timmy is parked, cordoned and drained." "$done_windows"
+assert_lacks "without the power-off hint" "shutdown -h now" "$done_windows"
+assert_has "cmd_down passes its argument to down_done" 'down_done "${1:-}"' "$(sed -n '/^cmd_down()/,/^}/p' "$OUTAGE")"
+assert_has "cmd_windows calls down with windows" "cmd_down windows" "$(sed -n '/^cmd_windows()/,/^}/p' "$OUTAGE")"
 
 echo
 echo "$PASS passed, $FAIL failed"
