@@ -21,26 +21,31 @@ spec:
             summary: "OpenViking reports a service component not ready for 5m"
             description: "Native readiness gauge is 0 — a dependency (vectordb, embedder, VLM) or the server itself is unhealthy."
         # BUG-1282: openviking_lock_stale is ragfs's stale_tokens_removed, the
-        # cumulative count of expired lock tokens an acquire replaced, exported as
-        # a gauge that resets only with the process
-        # (crates/ragfs/src/metrics/mod.rs:134@v0.5.1.1). Each step is the server
-        # healing itself, so the retired `> 0` rule fired from the first takeover
-        # until the next restart. Only a burst alerts: the most takeovers in any
-        # hour from 2026-10-07 to 2026-11-06 was 10, by this same expression.
-        # The count is the exact rise since the window's lowest sample, not
-        # increase(), which extrapolates (exactly 20 read as 20.17) and inflates
-        # sparse samples. Within a series the count only rises, so the lowest
-        # sample is the window's start; a container restart under the same pod
-        # name drops it to 0, and the difference then counts only takeovers
-        # since that restart. Held locks are the job of OpenVikingWedgedLockFile,
-        # OpenVikingLockListingBlind and the watchdog.
+        # per-process count of lock tokens an acquire replaced because their
+        # timestamp was older than the lock expiry, exported as a gauge
+        # (crates/ragfs/src/metrics/mod.rs:134, lock/manager.rs:712-714 and
+        # 1220-1221@v0.5.1.1). It never fell within a pod in 14 days of samples,
+        # so the retired `> 0` rule fired from the first replacement until the
+        # next restart.
+        #
+        # The value compared is a lower bound on the replacements in the last
+        # hour: the latest sample minus the lowest sample in the window. It never
+        # counts more than happened. It counts fewer when samples are missing: a
+        # rise whose earlier sample has aged out of the window (a scrape gap near
+        # an hour), or a container restart whose low point went unscraped.
+        # increase() was rejected because it extrapolates past the samples (exactly 20 read
+        # as 20.17, 10 sparse ones as 25), so it can count more than happened.
+        #
+        # Threshold: the highest value of this expression sampled every 5 min
+        # from 2026-10-07 to 2026-11-06 was 10. Held locks are the job of
+        # OpenVikingWedgedLockFile, OpenVikingLockListingBlind and the watchdog.
         - alert: OpenVikingStaleLockTakeoverBurst
           expr: openviking_lock_stale - min_over_time(openviking_lock_stale[1h]) > 20
           labels:
             severity: warning
           annotations:
-            summary: "OpenViking replaced {{ $value | humanize }} expired lock tokens in the last hour"
-            description: "Each takeover is the server replacing a lock token whose owner stopped refreshing it, logged as `replaced stale pathlock token during acquire` with the stale_owner. The count is of tokens, not clients: one owner can leave several (a path lock plus one per file). A burst may follow clients exiting without releasing, or losing storage at once (a Garage roll, a node drain); the stale_owner values in the openviking container's log tell which. It is not a held lock and needs no restart."
+            summary: "OpenViking replaced at least {{ $value | humanize }} expired lock tokens in the last hour"
+            description: "Each replacement is an acquire taking over a lock token whose timestamp was older than the lock expiry, logged as `replaced stale pathlock token during acquire` with its stale_owner. The count is of tokens, not owners: one owner can leave several (a path lock and per-file locks). The stale_owner values in the openviking container's log name the owners to look into. This is not a held lock, and a restart does not address it."
         # BUG-1138: OpenVikingNativeQueueNotDraining was retired here, not fixed.
         # It had two defects. Its bare sum() spanned BOTH scrape targets — the
         # native /metrics on the openviking container and the ov-exporter sidecar,
