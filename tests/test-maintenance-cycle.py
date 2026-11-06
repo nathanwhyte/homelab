@@ -74,6 +74,9 @@ def fake_command(tool, args):
     if verb == "get":
         if resource == "--raw=/readyz":
             print("ok")
+        elif resource == "--raw" and "/proxy/api/v1/query?" in args[2]:
+            # pod_health's restart history: no pod restarting often.
+            print(json.dumps({"status": "success", "data": {"result": []}}))
         elif resource == "nodes":
             if "json" in args:
                 print(

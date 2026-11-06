@@ -6,7 +6,7 @@
 #                            spin down memory-heavy services, cordon + drain
 #   timmy-offline.sh up      finish the node-maintenance cycle, restore the parked + spun-down workloads,
 #                            resume CronJobs, run a catch-up k3s backup, expire the silence,
-#                            list pods neither Running nor Completed (a warning, never a failure)
+#                            list pods neither Running nor Completed or crashlooping (a warning, never a failure)
 #   timmy-offline.sh status  what is parked/suspended/silenced, what is cordoned, Longhorn health,
 #                            unhealthy pods
 #
@@ -96,6 +96,11 @@ SILENCE_MAX_SECONDS=2592000 # 30d
 WINDOW_FILE=$STATE_DIR/window
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
+# Prometheus, for pod_health's restart history (namespace/service:port), and the
+# restarts in 24h of any one container that list its pod. A node reboot restarts
+# each of its containers once, and timmy reboots up to ~3 times a day.
+PROM_SERVICE=${PROM_SERVICE:-grafana/prom-prometheus:9090}
+RESTART_WARN_24H=${RESTART_WARN_24H:-5}
 
 # CronJobs that cannot succeed while timmy is out. Format: namespace/name
 QUIESCED_CRONJOBS=(
@@ -431,7 +436,8 @@ garage_check() {
 # Init:<i>/<n>; a running native sidecar counts as finished), else the first
 # container with a waiting or terminated reason, else .status.reason (Evicted),
 # else the phase. A crashlooping pod's phase is still Running, so the phase alone
-# would hide it.
+# would hide it. A Running pod named in $restarts ({"ns/pod": restarts in 24h},
+# from restart_counts) reads "Running (<n> restarts in 24h)".
 # shellcheck disable=SC2016 # jq program, not shell
 POD_STATUS_JQ='
 def cstate:
@@ -471,7 +477,8 @@ def age:
 		else "\(.)s" end)
 	catch "?";
 .items[]
-| podstatus as $s
+| ($restarts["\(.metadata.namespace)/\(.metadata.name)"] // 0) as $r
+| (podstatus | if . == "Running" and $r > 0 then "Running (\($r) restarts in 24h)" else . end) as $s
 | select($s != "Running" and $s != "Completed")
 | (.status.containerStatuses // []) as $cs
 | [.metadata.namespace, .metadata.name,
@@ -479,31 +486,74 @@ def age:
 	$s, ([$cs[].restartCount // 0] | add // 0 | tostring), age]
 | @tsv'
 
-# Pods cluster-wide that are neither Running nor Completed (namespace, name,
-# ready, status, restarts, age), from the pod JSON, never kubectl's table, so a
-# kubectl warning on stderr is never read as a pod. A report, never a gate: `up`
-# has already restored service, and an unrelated crashloop (Longhorn's
-# csi-provisioner at 93 restarts, found by hand on 2026-11-05) should surface at
-# the next maintenance cycle without failing it.
-pod_health() {
-	local json bad err_file err rc=0
+# {"ns/pod": n} for each pod with a container that restarted at least
+# RESTART_WARN_24H times in the last 24h (n is that container's count), from
+# Prometheus' kube-state-metrics history. A slow crashloop reads Running and ready
+# between crashes, and a node reboot restarts every container on the node, so
+# neither the pod's phase nor its last restart time tells them apart; the count
+# over a day does. Read through the API server's service proxy: no exec, no
+# port-forward. On failure prints the reason on stderr and returns 1.
+restart_counts() {
+	local query path out err_file err rc=0
+	if [[ ! $RESTART_WARN_24H =~ ^[1-9][0-9]*$ ]]; then
+		echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
+		return 1
+	fi
+	query="max by (namespace, pod) (floor(increase(kube_pod_container_status_restarts_total[24h]))) >= $RESTART_WARN_24H"
+	path="/api/v1/namespaces/${PROM_SERVICE%%/*}/services/${PROM_SERVICE#*/}/proxy/api/v1/query?query=$(jq -rn --arg q "$query" '$q | @uri')"
 	err_file=$(mktemp)
-	json=$("$KUBECTL" get pods -A -o json 2>"$err_file") || rc=$?
+	out=$("$KUBECTL" get --raw "$path" 2>"$err_file") || rc=$?
 	err=$(<"$err_file")
 	rm -f "$err_file"
 	if ((rc != 0)); then
+		echo "${err//$'\n'/ }" >&2
+		return 1
+	fi
+	jq -ce 'select(.status == "success")
+		| [.data.result[] | {key: "\(.metric.namespace)/\(.metric.pod)", value: (.value[1] | tonumber)}]
+		| from_entries' <<<"$out" 2>/dev/null || {
+		echo "Prometheus returned no query result" >&2
+		return 1
+	}
+}
+
+# Pods cluster-wide that are neither Running nor Completed, or that are Running
+# with a container restarting RESTART_WARN_24H or more times a day (namespace,
+# name, ready, status, restarts, age). Status comes from the pod JSON, never
+# kubectl's table, so a kubectl warning on stderr is never read as a pod. A
+# report, never a gate: `up` has already restored service, and an unrelated
+# crashloop (Longhorn's csi-provisioner at 93 restarts, found by hand on
+# 2026-11-05, Running and ready between crashes) should surface at the next
+# maintenance cycle without failing it. Without Prometheus (it is pinned to
+# timmy) the restart history is skipped with a warning.
+pod_health() {
+	local json bad err_file err rc=0 restarts history=1
+	err_file=$(mktemp)
+	json=$("$KUBECTL" get pods -A -o json 2>"$err_file") || rc=$?
+	err=$(<"$err_file")
+	if ((rc != 0)); then
+		rm -f "$err_file"
 		warn "pod health unavailable (${err//$'\n'/ }); check with: kubectl get pods -A"
 		return 0
 	fi
-	if ! bad=$(jq -r "$POD_STATUS_JQ" <<<"$json" 2>/dev/null); then
+	if ! restarts=$(restart_counts 2>"$err_file"); then
+		warn "restart history unavailable ($(<"$err_file")); listing pods by status only"
+		restarts='{}' history=0
+	fi
+	rm -f "$err_file"
+	if ! bad=$(jq -r --argjson restarts "$restarts" "$POD_STATUS_JQ" <<<"$json" 2>/dev/null); then
 		warn "pod health unavailable (kubectl did not return pod JSON); check with: kubectl get pods -A"
 		return 0
 	fi
 	if [[ -z $bad ]]; then
-		log "all pods Running or Completed"
+		if ((history)); then
+			log "all pods Running or Completed, none restarting $RESTART_WARN_24H+ times in 24h"
+		else
+			log "all pods Running or Completed"
+		fi
 		return 0
 	fi
-	warn "pods neither Running nor Completed:"
+	warn "pods not healthy (neither Running nor Completed, or restarting $RESTART_WARN_24H+ times in 24h):"
 	{
 		printf 'NAMESPACE\tNAME\tREADY\tSTATUS\tRESTARTS\tAGE\n'
 		printf '%s\n' "$bad"
