@@ -436,7 +436,7 @@ garage_check() {
 # Init:<i>/<n>; a running native sidecar counts as finished), else the first
 # container with a waiting or terminated reason, else .status.reason (Evicted),
 # else the phase. A crashlooping pod's phase is still Running, so the phase alone
-# would hide it. A Running pod named in $restarts ({"ns/pod": restarts in 24h},
+# would hide it. A Running pod named in $restarts ({"<pod uid>": restarts in 24h},
 # from restart_counts) reads "Running (<n> restarts in 24h)".
 # shellcheck disable=SC2016 # jq program, not shell
 POD_STATUS_JQ='
@@ -477,7 +477,7 @@ def age:
 		else "\(.)s" end)
 	catch "?";
 .items[]
-| ($restarts["\(.metadata.namespace)/\(.metadata.name)"] // 0) as $r
+| ($restarts[.metadata.uid // ""] // 0) as $r
 | (podstatus | if . == "Running" and $r > 0 then "Running (\($r) restarts in 24h)" else . end) as $s
 | select($s != "Running" and $s != "Completed")
 | (.status.containerStatuses // []) as $cs
@@ -486,7 +486,7 @@ def age:
 	$s, ([$cs[].restartCount // 0] | add // 0 | tostring), age]
 | @tsv'
 
-# {"ns/pod": n} for each pod with a container that restarted at least
+# {"<pod uid>": n} for each pod with a container (init containers included) that restarted at least
 # RESTART_WARN_24H times in the last 24h (n is that container's count), from
 # Prometheus' kube-state-metrics history. A slow crashloop reads Running and ready
 # between crashes, and a node reboot restarts every container on the node, so
@@ -499,7 +499,10 @@ restart_counts() {
 		echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
 		return 1
 	fi
-	query="max by (namespace, pod) (floor(increase(kube_pod_container_status_restarts_total[24h]))) >= $RESTART_WARN_24H"
+	# By UID, not name: a recreated StatefulSet pod must not inherit its
+	# predecessor's crashes. Init containers count too: a native sidecar's
+	# restarts are only in the init-container series.
+	query="max by (uid) (floor(increase(kube_pod_container_status_restarts_total[24h])) or floor(increase(kube_pod_init_container_status_restarts_total[24h]))) >= $RESTART_WARN_24H"
 	path="/api/v1/namespaces/${PROM_SERVICE%%/*}/services/${PROM_SERVICE#*/}/proxy/api/v1/query?query=$(jq -rn --arg q "$query" '$q | @uri')"
 	err_file=$(mktemp)
 	out=$("$KUBECTL" get --raw "$path" 2>"$err_file") || rc=$?
@@ -510,7 +513,7 @@ restart_counts() {
 		return 1
 	fi
 	jq -ce 'select(.status == "success")
-		| [.data.result[] | {key: "\(.metric.namespace)/\(.metric.pod)", value: (.value[1] | tonumber)}]
+		| [.data.result[] | select(.metric.uid) | {key: .metric.uid, value: (.value[1] | tonumber)}]
 		| from_entries' <<<"$out" 2>/dev/null || {
 		echo "Prometheus returned no query result" >&2
 		return 1

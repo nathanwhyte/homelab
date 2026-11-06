@@ -69,7 +69,7 @@ pod() {
 	[[ -z ${6:-} ]] || extra=$6
 	jq -cn --arg ns "$1" --arg name "$2" --argjson age "$3" --arg phase "$4" \
 		--argjson cs "$5" --argjson extra "$extra" '
-		{metadata: {namespace: $ns, name: $name,
+		{metadata: {namespace: $ns, name: $name, uid: "uid-\($name)",
 			creationTimestamp: (now - $age | floor | todate)},
 		 spec: {containers: [$cs[] | {name}]},
 		 status: {phase: $phase, containerStatuses: $cs}} * $extra'
@@ -98,13 +98,12 @@ SLOW=$(pod longhorn-system csi-provisioner-85dd8446fb-hbjbw $((19 * 86400)) Runn
 # A DaemonSet pod restarted by timmy's reboots: also restarted recently.
 REBOOTED=$(pod kube-system svclb-traefik-7wkkt $((60 * 86400)) Running \
 	'[{"name":"lb-tcp-80","ready":true,"restartCount":48,"state":{"running":{}},"lastState":{"terminated":{"reason":"Error","exitCode":1}}}]')
-# Prometheus' answer: pods whose busiest container restarted RESTART_WARN_24H+
-# times in 24h. prom <ns/pod=count>...
+# Prometheus' answer: pod UIDs whose busiest container restarted
+# RESTART_WARN_24H+ times in 24h. prom <uid=count>... (fixture UIDs are uid-<name>)
 prom() {
 	local kv
 	for kv in "$@"; do
-		jq -cn --arg p "${kv%=*}" --arg n "${kv##*=}" \
-			'{metric: {namespace: ($p | split("/")[0]), pod: ($p | split("/")[1])}, value: [1762412400, $n]}'
+		jq -cn --arg uid "${kv%=*}" --arg n "${kv##*=}" '{metric: {uid: $uid}, value: [1762412400, $n]}'
 	done | jq -s '{status: "success", data: {resultType: "vector", result: .}}' >"$STUB_PROM"
 }
 
@@ -206,8 +205,10 @@ assert_lacks "it lists no pod" "pods not healthy" "$out"
 # count over a day separates it from a pod a node reboot restarted.
 decode() { printf '%b\n' "${1//%/\\x}"; } # percent-decoding (jq's @uri encodes every reserved byte)
 reset "$HEALTHY" "$SLOW" "$REBOOTED" "$CRASHLOOP"
-prom longhorn-system/csi-provisioner-85dd8446fb-hbjbw=42 longhorn-system/csi-provisioner-6c8b9d7f4-x2k9q=12 \
-	garage/garage-1-gone=9
+# garage-0's predecessor (same name, another UID) crashed 20 times before it was
+# recreated; the current garage-0 has not restarted.
+prom uid-csi-provisioner-85dd8446fb-hbjbw=42 uid-csi-provisioner-6c8b9d7f4-x2k9q=12 \
+	uid-garage-1-gone=9 uid-garage-0-predecessor=20
 out=$(run up)
 assert_eq "up with a slow crashloop still succeeds" 0 "${out##*$'\n'}"
 assert_eq "a Running pod restarting 5+ times a day is listed with its count" \
@@ -216,9 +217,10 @@ assert_lacks "a pod restarted only by node reboots is left out" "svclb-traefik-7
 assert_eq "a crashlooping pod keeps its status, not the count" \
 	"longhorn-system csi-provisioner-6c8b9d7f4-x2k9q 0/1 CrashLoopBackOff 93 19d" "$(row csi-provisioner-6c8b9d7f4-x2k9q "$out")"
 assert_lacks "a pod Prometheus remembers but the cluster no longer has is left out" "garage-1-gone" "$out"
+assert_lacks "a recreated pod does not inherit its predecessor's restarts" "garage-0 " "$out"
 query=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
-assert_eq "it asks Prometheus for the busiest container's restarts over 24h, at the threshold" \
-	"max by (namespace, pod) (floor(increase(kube_pod_container_status_restarts_total[24h]))) >= 5" "$(decode "$query")"
+assert_eq "it asks Prometheus for each pod UID's busiest container, init containers included, at the threshold" \
+	"max by (uid) (floor(increase(kube_pod_container_status_restarts_total[24h])) or floor(increase(kube_pod_init_container_status_restarts_total[24h]))) >= 5" "$(decode "$query")"
 
 reset "$HEALTHY" "$REBOOTED"
 out=$(run up)
@@ -226,7 +228,7 @@ assert_has "with history read and nothing flagged, it says so" \
 	"all pods Running or Completed, none restarting 5+ times in 24h" "$out"
 
 reset "$HEALTHY" "$SLOW"
-prom longhorn-system/csi-provisioner-85dd8446fb-hbjbw=3
+prom uid-csi-provisioner-85dd8446fb-hbjbw=3
 out=$(RESTART_WARN_24H=3 run up)
 assert_has "RESTART_WARN_24H sets the threshold in the warning" "or restarting 3+ times in 24h" "$out"
 query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG")
