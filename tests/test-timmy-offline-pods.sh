@@ -20,9 +20,11 @@ STUB_PROM=$TMPDIR_TEST/prom # what the Prometheus query through `get --raw` prin
 cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 #!/usr/bin/env bash
 # Pods come from $STUB_PODS (STUB_FAIL_PODS=1 fails the read; STUB_PODS_WARN
-# adds a stderr warning to a successful one). The Prometheus query (get --raw)
-# prints $STUB_PROM, or fails with STUB_FAIL_PROM=1. Workload reads answer 0
-# replicas, so up has nothing to wait for; Longhorn has no volumes.
+# adds a stderr warning to a successful one). Prometheus queries (get --raw) fail
+# with STUB_FAIL_PROM=1; the boot-time query answers timmy's uptime,
+# STUB_UPTIME seconds (default 200000, so the window is a full 24h; `none`
+# answers no series), and the restart query prints $STUB_PROM. Workload reads
+# answer 0 replicas, so up has nothing to wait for; Longhorn has no volumes.
 set -euo pipefail
 echo "$*" >>"$STUB_LOG"
 if [[ $1 == -n ]]; then shift 2; fi
@@ -36,7 +38,15 @@ get)
     ;;
   --raw)
     [[ ${STUB_FAIL_PROM:-0} == 0 ]] || { echo 'Error from server (ServiceUnavailable): no endpoints available for service "prom-prometheus:9090"' >&2; exit 1; }
-    cat "$STUB_PROM"
+    if [[ $3 == *node_boot_time_seconds* ]]; then
+      if [[ ${STUB_UPTIME:-} == none ]]; then
+        echo '{"status":"success","data":{"resultType":"vector","result":[]}}'
+      else
+        echo "{\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[{\"metric\":{},\"value\":[1762412400,\"${STUB_UPTIME:-200000}.25\"]}]}}"
+      fi
+    else
+      cat "$STUB_PROM"
+    fi
     ;;
   volumes.longhorn.io*) echo '{"items":[]}' ;;
   *) printf 0 ;;
@@ -245,9 +255,11 @@ assert_eq "a crashlooping pod keeps its status, not the count" \
 	"longhorn-system csi-provisioner-6c8b9d7f4-x2k9q 0/1 CrashLoopBackOff 93 19d" "$(row csi-provisioner-6c8b9d7f4-x2k9q "$out")"
 assert_lacks "a pod Prometheus remembers but the cluster no longer has is left out" "garage-1-gone" "$out"
 assert_lacks "a recreated pod does not inherit its predecessor's restarts" "garage-0 " "$out"
-query=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
-assert_eq "it asks Prometheus for each pod UID's busiest container, init containers included, at the threshold" \
-	"max by (uid) (floor(increase(kube_pod_container_status_restarts_total[24h])) or floor(increase(kube_pod_init_container_status_restarts_total[24h]))) >= 5" "$(decode "$query")"
+queries=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
+assert_eq "it asks Prometheus for timmy's uptime, then each pod UID's busiest container, init containers included, at the threshold over the window" \
+	"time() - max(node_boot_time_seconds and on (namespace, pod) kube_pod_info{node=\"timmy\"})
+max by (uid) (floor(increase(kube_pod_container_status_restarts_total[86400s])) or floor(increase(kube_pod_init_container_status_restarts_total[86400s]))) >= 5" \
+	"$(while IFS= read -r q; do decode "$q"; done <<<"$queries")"
 
 reset "$HEALTHY" "$REBOOTED"
 out=$(run up)
@@ -258,8 +270,49 @@ reset "$HEALTHY" "$SLOW"
 prom uid-csi-provisioner-85dd8446fb-hbjbw=3
 out=$(RESTART_WARN_24H=3 run up)
 assert_has "RESTART_WARN_24H sets the threshold in the warning" "or restarting 3+ times in 24h" "$out"
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG")
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
 assert_has "and in the query" ">= 3" "$(decode "$query")"
+
+# E1: after an outage, restarts count from RESTART_BOOT_GRACE_SECONDS after
+# timmy's boot, so the controllers the outage restarted are not crashloops.
+reset "$HEALTHY" "$SLOW"
+prom uid-csi-provisioner-85dd8446fb-hbjbw=42
+out=$(STUB_UPTIME=11700 run up) # 3h15m: a 3h window
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+assert_has "a boot 3h15m ago gives a 3h window in the query" "[10800s]" "$(decode "$query")"
+assert_eq "and the row says so" \
+	"longhorn-system csi-provisioner-85dd8446fb-hbjbw 1/1 Running (42 restarts in 3h (since 15m after timmy's boot)) 94 19d" "$(row csi-provisioner-85dd8446fb-hbjbw "$out")"
+assert_has "the warning names the window" "or restarting 5+ times in 3h (since 15m after timmy's boot)):" "$out"
+
+reset "$HEALTHY"
+out=$(STUB_UPTIME=11700 run up)
+assert_has "nothing flagged in a short window says which window" \
+	"none restarting 5+ times in 3h (since 15m after timmy's boot)" "$out"
+
+reset "$HEALTHY" "$SLOW" "$CRASHLOOP"
+prom uid-csi-provisioner-85dd8446fb-hbjbw=42
+out=$(STUB_UPTIME=600 run up) # 10m: inside the 15m grace
+assert_eq "up inside the grace still succeeds" 0 "${out##*$'\n'}"
+assert_has "it says the history starts after the grace, and when to rerun" \
+	"WARN: restart history skipped: timmy booted 10m ago, and restarts count from 15m after its boot (the outage restarted every controller that needs the API server); listing pods by status only. For crashloops, rerun $OUTAGE status in 6m" "$out"
+assert_eq "it asks Prometheus only for the boot time" 1 "$(grep -c -- '--raw' "$STUB_LOG")"
+assert_has "it still lists pods by status" "CrashLoopBackOff" "$out"
+assert_lacks "and no restart count" "hbjbw" "$out"
+assert_has "the warning claims no restart rule" "WARN: pods not healthy (not Running and ready, and not Completed):" "$out"
+
+reset "$HEALTHY"
+out=$(STUB_UPTIME=none run up)
+assert_has "no boot time for timmy is an unavailable history" "WARN: restart history unavailable (Prometheus has no boot time for timmy)" "$out"
+
+reset "$HEALTHY"
+out=$(RESTART_BOOT_GRACE_SECONDS=15m run up)
+assert_has "a grace that is not whole seconds is refused" "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '15m'" "$out"
+assert_eq "and never reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
+
+reset "$HEALTHY"
+out=$(RESTART_BOOT_GRACE_SECONDS=0 STUB_UPTIME=90000 run up)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+assert_has "the window never reaches past 24h" "[86400s]" "$(decode "$query")"
 
 reset "$HEALTHY" "$SLOW" "$CRASHLOOP"
 out=$(STUB_FAIL_PROM=1 run up)

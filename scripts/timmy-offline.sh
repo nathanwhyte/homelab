@@ -97,10 +97,16 @@ WINDOW_FILE=$STATE_DIR/window
 AM_NAMESPACE=grafana
 AM_POD=alertmanager-prom-alertmanager-0
 # Prometheus, for pod_health's restart history (namespace/service:port), and the
-# restarts in 24h of any one container that list its pod. A node reboot restarts
-# each of its containers once, and timmy reboots up to ~3 times a day.
+# restarts of any one container in the restart window (at most 24h; see
+# RESTART_BOOT_GRACE_SECONDS) that list its pod. A node reboot restarts each of
+# its containers once, and timmy reboots up to ~3 times a day.
 PROM_SERVICE=${PROM_SERVICE:-grafana/prom-prometheus:9090}
 RESTART_WARN_24H=${RESTART_WARN_24H:-5}
+# Restarts count from this long after timmy's boot, and at most 24h back. timmy
+# is the only API server, so an outage restarts every controller that exits
+# without one (kube-state-metrics, csi-provisioner, NFD: 40-76 times each on
+# 2026-11-06), and they settle within minutes of its boot.
+RESTART_BOOT_GRACE_SECONDS=${RESTART_BOOT_GRACE_SECONDS:-900}
 
 # CronJobs that cannot succeed while timmy is out. Format: namespace/name
 QUIESCED_CRONJOBS=(
@@ -442,7 +448,7 @@ garage_check() {
 # is not being deleted and has Succeeded, or is Running, Ready (or its Ready
 # condition has not been True for less than NOTREADY_GRACE_SECONDS, so pods
 # still starting after `up` are left out), with no container problem and no
-# container restarting RESTART_WARN_24H+ times in 24h ($restarts,
+# container restarting RESTART_WARN_24H+ times in the restart window ($restarts,
 # {"<pod uid>": n} from restart_counts). Any other pod is listed with the first
 # REASON that applies, in this order:
 #   Terminating                        deletionTimestamp set
@@ -452,7 +458,9 @@ garage_check() {
 #   <reason>, ExitCode:<n>             likewise for a regular container
 #                                      (CrashLoopBackOff, ImagePullBackOff, Error)
 #   <.status.reason> or <phase>        not Running (Evicted, Pending, Failed, Unknown)
-#   Running (<n> restarts in 24h)      a slow crashloop, Running between crashes
+#   Running (<n> restarts in <span>)   a slow crashloop, Running between crashes
+#                                      (<span> is the window: 24h, or e.g. "3h
+#                                      (since 15m after timmy's boot)")
 #   NotReady                           Ready not True (False, Unknown or absent)
 #                                      beyond the grace
 # READY counts regular containers and native sidecars; RESTARTS sums every
@@ -479,7 +487,7 @@ def reason($r):
 		| if $init then "Init:\($init)"
 		elif $main then $main
 		elif .status.phase != "Running" then (.status.reason // .status.phase // "Unknown")
-		elif $r > 0 then "Running (\($r) restarts in 24h)"
+		elif $r > 0 then "Running (\($r) restarts in \($span))"
 		elif ($ready.status // "") != "True"
 			and since($ready.lastTransitionTime // .status.startTime // .metadata.creationTimestamp) >= $grace
 			then "NotReady"
@@ -502,24 +510,12 @@ def age:
 	$s, ([.status.containerStatuses[]?, .status.initContainerStatuses[]? | .restartCount // 0] | add // 0 | tostring), age]
 | @tsv'
 
-# {"<pod uid>": n} for each pod with a container (init containers included) that restarted at least
-# RESTART_WARN_24H times in the last 24h (n is that container's count), from
-# Prometheus' kube-state-metrics history. A slow crashloop reads Running and ready
-# between crashes, and a node reboot restarts every container on the node, so
-# neither the pod's phase nor its last restart time tells them apart; the count
-# over a day does. Read through the API server's service proxy: no exec, no
-# port-forward. On failure prints the reason on stderr and returns 1.
-restart_counts() {
-	local query path out err_file err rc=0
-	if [[ ! $RESTART_WARN_24H =~ ^[1-9][0-9]*$ ]]; then
-		echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
-		return 1
-	fi
-	# By UID, not name: a recreated StatefulSet pod must not inherit its
-	# predecessor's crashes. Init containers count too: a native sidecar's
-	# restarts are only in the init-container series.
-	query="max by (uid) (floor(increase(kube_pod_container_status_restarts_total[24h])) or floor(increase(kube_pod_init_container_status_restarts_total[24h]))) >= $RESTART_WARN_24H"
-	path="/api/v1/namespaces/${PROM_SERVICE%%/*}/services/${PROM_SERVICE#*/}/proxy/api/v1/query?query=$(jq -rn --arg q "$query" '$q | @uri')"
+# A PromQL instant query's JSON answer, read through the API server's service
+# proxy: no exec, no port-forward. On failure prints the reason on stderr and
+# returns 1.
+prom_query() {
+	local path out err_file err rc=0
+	path="/api/v1/namespaces/${PROM_SERVICE%%/*}/services/${PROM_SERVICE#*/}/proxy/api/v1/query?query=$(jq -rn --arg q "$1" '$q | @uri')"
 	err_file=$(mktemp)
 	out=$("$KUBECTL" get --raw "$path" 2>"$err_file") || rc=$?
 	err=$(<"$err_file")
@@ -528,6 +524,59 @@ restart_counts() {
 		echo "${err//$'\n'/ }" >&2
 		return 1
 	fi
+	printf '%s\n' "$out"
+}
+
+# 30m, 3h, 24h: a duration in seconds, rounded down to its largest unit.
+dur_label() {
+	if (($1 >= 3600)); then
+		echo "$(($1 / 3600))h"
+	elif (($1 >= 60)); then
+		echo "$(($1 / 60))m"
+	else
+		echo "${1}s"
+	fi
+}
+
+# The restart-history window in seconds: from RESTART_BOOT_GRACE_SECONDS after
+# timmy's boot (node-exporter's node_boot_time_seconds, joined to timmy through
+# its pod) to now, at most 86400. Zero or less while timmy is inside the grace.
+# Prometheus' own gap while timmy was down puts the outage's counter jumps at
+# its first scrape after the boot, inside the grace, so they are not counted.
+# On failure prints the reason on stderr and returns 1.
+restart_window() {
+	local out up window
+	if [[ ! $RESTART_WARN_24H =~ ^[1-9][0-9]*$ ]]; then
+		echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
+		return 1
+	fi
+	if [[ ! $RESTART_BOOT_GRACE_SECONDS =~ ^[0-9]+$ ]]; then
+		echo "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '$RESTART_BOOT_GRACE_SECONDS'" >&2
+		return 1
+	fi
+	out=$(prom_query "time() - max(node_boot_time_seconds and on (namespace, pod) kube_pod_info{node=\"$NODE\"})") || return 1
+	up=$(jq -er 'select(.status == "success") | .data.result[0].value[1] | tonumber | floor' <<<"$out" 2>/dev/null) || {
+		echo "Prometheus has no boot time for $NODE" >&2
+		return 1
+	}
+	window=$((up - RESTART_BOOT_GRACE_SECONDS))
+	((window <= 86400)) || window=86400
+	echo "$window"
+}
+
+# {"<pod uid>": n} for each pod with a container (init containers included) that
+# restarted at least RESTART_WARN_24H times in the last $1 seconds
+# (restart_window; n is that container's count), from Prometheus'
+# kube-state-metrics history. A slow crashloop reads Running and ready between
+# crashes, and a node reboot restarts every container on the node, so neither
+# the pod's phase nor its last restart time tells them apart; the count over the
+# window does. On failure prints the reason on stderr and returns 1.
+restart_counts() {
+	local out
+	# By UID, not name: a recreated StatefulSet pod must not inherit its
+	# predecessor's crashes. Init containers count too: a native sidecar's
+	# restarts are only in the init-container series.
+	out=$(prom_query "max by (uid) (floor(increase(kube_pod_container_status_restarts_total[$1s])) or floor(increase(kube_pod_init_container_status_restarts_total[$1s]))) >= $RESTART_WARN_24H") || return 1
 	jq -ce 'select(.status == "success")
 		| [.data.result[] | select(.metric.uid) | {key: .metric.uid, value: (.value[1] | tonumber)}]
 		| from_entries' <<<"$out" 2>/dev/null || {
@@ -545,7 +594,7 @@ restart_counts() {
 # maintenance cycle without failing it. Without Prometheus (it is pinned to
 # timmy) the restart history is skipped with a warning.
 pod_health() {
-	local json bad err_file err rc=0 restarts history=1
+	local json bad err_file err rc=0 restarts history=1 window span=24h
 	err_file=$(mktemp)
 	json=$("$KUBECTL" get pods -A -o json 2>"$err_file") || rc=$?
 	err=$(<"$err_file")
@@ -554,9 +603,15 @@ pod_health() {
 		warn "pod health unavailable (${err//$'\n'/ }); check with: kubectl get pods -A"
 		return 0
 	fi
-	if ! restarts=$(restart_counts 2>"$err_file"); then
+	if ! window=$(restart_window 2>"$err_file") || { ((window >= 60)) && ! restarts=$(restart_counts "$window" 2>"$err_file"); }; then
 		warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
 		restarts='{}' history=0
+	elif ((window < 60)); then
+		warn "restart history skipped: $NODE booted $(dur_label $((window + RESTART_BOOT_GRACE_SECONDS))) ago, and restarts count from $(dur_label "$RESTART_BOOT_GRACE_SECONDS") after its boot (the outage restarted every controller that needs the API server); listing pods by status only. For crashloops, rerun $SELF status in $(dur_label $((60 - window)))"
+		restarts='{}' history=0
+	else
+		span=$(dur_label "$window")
+		((window == 86400)) || span="$span (since $(dur_label "$RESTART_BOOT_GRACE_SECONDS") after $NODE's boot)"
 	fi
 	if ! jq -e '.items | arrays' >/dev/null 2>&1 <<<"$json"; then
 		rm -f "$err_file"
@@ -564,7 +619,7 @@ pod_health() {
 		return 0
 	fi
 	rc=0
-	bad=$(jq -r --argjson restarts "$restarts" --argjson grace "$NOTREADY_GRACE_SECONDS" \
+	bad=$(jq -r --argjson restarts "$restarts" --argjson grace "$NOTREADY_GRACE_SECONDS" --arg span "$span" \
 		"$POD_STATUS_JQ" <<<"$json" 2>"$err_file") || rc=$?
 	err=$(<"$err_file")
 	rm -f "$err_file"
@@ -574,13 +629,17 @@ pod_health() {
 	fi
 	if [[ -z $bad ]]; then
 		if ((history)); then
-			log "all pods healthy (Running and ready, or Completed), none restarting $RESTART_WARN_24H+ times in 24h"
+			log "all pods healthy (Running and ready, or Completed), none restarting $RESTART_WARN_24H+ times in $span"
 		else
 			log "all pods healthy (Running and ready, or Completed)"
 		fi
 		return 0
 	fi
-	warn "pods not healthy (not Running and ready, not Completed, or restarting $RESTART_WARN_24H+ times in 24h):"
+	if ((history)); then
+		warn "pods not healthy (not Running and ready, not Completed, or restarting $RESTART_WARN_24H+ times in $span):"
+	else
+		warn "pods not healthy (not Running and ready, and not Completed):"
+	fi
 	{
 		printf 'NAMESPACE\tNAME\tREADY\tREASON\tRESTARTS\tAGE\n'
 		printf '%s\n' "$bad"
