@@ -2014,12 +2014,154 @@ class ProfileFilterTests(WriteCheckCase):
         ):
             self.assertIsNone(mg.profile_bullet_reason(line), line)
 
-    def test_continuation_lines_go_with_their_bullet(self):
-        kept, removed = mg.filter_profile_content(
-            "# N\n- Merged #5\n  and more detail\n- Lives in X\n"
+    def test_a_line_outside_the_format_keeps_the_write_whole(self):
+        # C1 (homelab#309 rounds 2-5): each body is one a cut could change the parse of
+        # (round 4 and 5 repros included); the first line outside the format is named
+        for body, number in (
+            ("# pop\nLikes tea\n- Merged #5\n---\n- Lives in X\n", 2),  # setext
+            ("Works on homelab.\n1. Fixed #12\n2. Likes Python\n", 1),  # lazy ordered
+            ("# N\n- 1. P1: finding\n", 2),  # an ordered list nested on one line
+            ("# N\n- - Merged #1\n", 2),  # a bullet nested on one line
+            ("# N\n> - P1: finding\n", 2),  # quoted
+            ("# N\n- Merged #5\n  and more detail\n", 3),  # continuation
+            ("# N\n- a\n- Merged #5\n\n    code\n", 5),  # indented code
+            ("- Likes tea\n-\n", 2),  # empty item
+            ("- ***\n", 1),  # a thematic break inside an item
+            ("[a]: /url\n- Uses [a]\n", 1),  # reference definition
+            ("  - indented\n", 1),
+            ("-  two spaces\n", 1),
+            ("-\tTab\n", 1),
+            ("<div>\n- Merged #5\n", 1),
+            ("- a\n\f\n- Merged #5\n", 2),  # \f is text to CommonMark, not blank
+            (" # indented heading\n", 1),
+            ("#5 is not a heading\n", 1),
+        ):
+            kept, removed, unsupported = mg.filter_profile_content(body)
+            self.assertEqual((kept, removed), (body, []), body)
+            self.assertEqual(unsupported[:2], ("line", number), body)
+
+    def test_mixed_markers_keep_the_write_whole(self):
+        # a marker change starts a new list; removing it would merge the two around it
+        body = "- a\n+ Merged #12\n- b\n"
+        self.assertEqual(
+            mg.filter_profile_content(body),
+            (body, [], ("mixed_markers", 2, "+ Merged #12")),
         )
-        self.assertEqual(kept, "# N\n- Lives in X\n")
-        self.assertEqual([r for r, _ in removed], ["pr_or_issue", "continuation"])
+
+    def test_a_blank_line_between_bullets_keeps_the_write_whole(self):
+        # removing the first bullet would turn this loose list tight
+        body = "- Merged #12\n\n- a\n- b\n"
+        self.assertEqual(
+            mg.filter_profile_content(body),
+            (body, [], ("blank_between_bullets", 3, "- a")),
+        )
+
+    def test_blank_lines_beside_headings_are_kept(self):
+        body = "# N\n\n- Lives in X\n- Merged #1\n\n## Work\n\n- Merged #2\n"
+        kept, removed, unsupported = mg.filter_profile_content(body)
+        self.assertIsNone(unsupported)
+        self.assertEqual(kept, "# N\n\n- Lives in X\n\n## Work\n\n")
+        self.assertEqual(
+            removed, [("pr_or_issue", "- Merged #1"), ("pr_or_issue", "- Merged #2")]
+        )
+        self.assertEqual(mg.filter_profile_content(kept), (kept, [], None))
+
+    def test_finding_label_is_read_at_the_bullet(self):
+        kept, _, unsupported = mg.filter_profile_content(
+            "* P1: a finding\n* **P2**: another\n* Prefers P2 triage\n"
+        )
+        self.assertIsNone(unsupported)
+        self.assertEqual(kept, "* Prefers P2 triage\n")
+
+    def test_kept_lines_are_byte_exact(self):
+        for body, want in (
+            (
+                "# N\r\n- Lives\r\n- Merged #5\r\n\r\n## W\r\n",
+                "# N\r\n- Lives\r\n\r\n## W\r\n",
+            ),
+            ("# N\r- Merged #5\r- Likes tea", "# N\r- Likes tea"),
+            ("# N\n- Likes tea\n- Merged #5", "# N\n- Likes tea\n"),
+            # \f and U+2028 are not CommonMark line endings, so they stay inside a line
+            (
+                "# N\f x\n- Lives\N{LINE SEPARATOR} in X\n- Merged #5\n- Likes tea\n",
+                "# N\f x\n- Lives\N{LINE SEPARATOR} in X\n- Likes tea\n",
+            ),
+        ):
+            self.assertEqual(mg.filter_profile_content(body)[0], want, body)
+
+    def test_empty_content_is_left_alone(self):
+        self.assertEqual(mg.filter_profile_content(""), ("", [], None))
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        fs = WFS()
+        records, _ = self.apply(fs, upsert("profile", PROFILE_URI, ""))
+        self.assertEqual(records, [])
+
+    def test_kept_unsupported_is_one_record_per_write_in_every_mode(self):
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for mode in ("1", "shadow"):
+            os.environ["OV_PROFILE_FILTER"] = mode
+            for body, text in (
+                (CLEAN + "- Merged #5\n  more detail\n", "more detail"),
+                (CLEAN + "Prose with no activity\n", "Prose with no activity"),
+            ):
+                fs = WFS()
+                records, _ = self.apply(fs, upsert("profile", uri, body))
+                self.assertEqual(fs.files[uri], body, (mode, body))
+                self.assertEqual(
+                    records,
+                    [
+                        {
+                            "action": "kept_unsupported",
+                            "mode": mode,
+                            "shape": "line",
+                            "line": 3 if "Prose" in body else 4,
+                            "text": text,
+                            "uri": uri,
+                        }
+                    ],
+                    (mode, body),
+                )
+
+    def test_list_level_shapes_reach_the_record(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for body, shape, number in (
+            ("# N\n- a\n+ Merged #12\n", "mixed_markers", 3),
+            ("# N\n- Merged #12\n\n- a\n", "blank_between_bullets", 4),
+        ):
+            fs = WFS()
+            records, _ = self.apply(fs, upsert("profile", uri, body))
+            self.assertEqual(fs.files[uri], body)
+            self.assertEqual(
+                [(r["action"], r["shape"], r["line"]) for r in records],
+                [("kept_unsupported", shape, number)],
+            )
+
+    def test_every_bullet_record_carries_its_mode(self):
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for mode, body, action in (
+            ("1", CLEAN + ACTIVITY, "dropped"),
+            ("shadow", CLEAN + ACTIVITY, "would_drop"),
+            ("1", ACTIVITY, "kept_empty"),
+            ("shadow", ACTIVITY, "kept_empty"),
+        ):
+            os.environ["OV_PROFILE_FILTER"] = mode
+            records, _ = self.apply(WFS(), upsert("profile", uri, body))
+            self.assertEqual(len(records), 4, (mode, body))
+            self.assertEqual(
+                {(r["action"], r["mode"]) for r in records}, {(action, mode)}
+            )
+
+    def test_shadow_records_kept_empty_for_a_write_mode_1_would_keep(self):
+        # Claude round 5, R5.a-3: shadow labelled this would_drop
+        os.environ["OV_PROFILE_FILTER"] = "shadow"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        fs = WFS()
+        records, _ = self.apply(fs, upsert("profile", uri, ACTIVITY))
+        self.assertEqual(fs.files[uri], ACTIVITY)
+        self.assertEqual(
+            {(r["action"], r["mode"]) for r in records}, {("kept_empty", "shadow")}
+        )
 
     def test_shadow_is_the_default_and_writes_every_bullet(self):
         fs = WFS({PROFILE_URI: CLEAN})
@@ -2050,6 +2192,26 @@ class ProfileFilterTests(WriteCheckCase):
         self.assertEqual({r["action"] for r in records}, {"dropped"})
         # the old bullet already in the file is cut as well: the check sees the merged text
         self.assertIn("Merged dotfiles#1", " ".join(r["bullet"] for r in records))
+
+    def test_mode_1_keeps_a_write_it_would_empty(self):
+        # Codex round 1 of homelab#309, P2: an empty body is never re-indexed, so the old
+        # vector and abstract would stay searchable; keep the text, as shadow does
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for body in (ACTIVITY, "\n" + ACTIVITY + "\n"):
+            fs = WFS()
+            records, _ = self.apply(fs, upsert("profile", uri, body))
+            self.assertEqual(fs.files[uri], body)
+            self.assertEqual({r["action"] for r in records}, {"kept_empty"})
+            self.assertEqual(len(records), 4)
+
+    def test_mode_1_still_cuts_down_to_a_heading(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        fs = WFS()
+        records, _ = self.apply(fs, upsert("profile", uri, "# pop\n" + ACTIVITY))
+        self.assertEqual(fs.files[uri], "# pop\n")
+        self.assertEqual({r["action"] for r in records}, {"dropped"})
 
     def test_mode_0_is_off(self):
         os.environ["OV_PROFILE_FILTER"] = "0"
@@ -2426,7 +2588,8 @@ class RecordFailureTests(WriteCheckCase):
                 "OV_PREF_DEDUPE",
             ):
                 os.environ[var] = mode
-            fs = WFS({URI_A: SAME_BODY})
+            # CLEAN keeps text after the cut: a write it would empty is kept whole
+            fs = WFS({URI_A: SAME_BODY, PROFILE_URI: CLEAN})
             self.apply_broken(fs, upsert("profile", PROFILE_URI, Append(ACTIVITY)))
             self.assertEqual("dotfiles#509" in fs.files[PROFILE_URI], mode == "shadow")
             self.apply_broken(

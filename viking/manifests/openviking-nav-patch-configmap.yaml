@@ -2011,13 +2011,18 @@ data:
     ``"would_drop"`` and writes the event anyway.
 
     **Write-time checks** (IMPR-1401, BUG-1283, BUG-1284; section "Write-time checks" below).
-    ``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write,
+    ``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write (only
+    when the profile fits the line format above ``filter_profile_content``: blank lines, ATX
+    headings and one-line bullets with one marker and no blank line between bullets; any
+    other profile is kept whole with one ``kept_unsupported`` record per write, and a write
+    the cut would leave with no text is kept whole and recorded ``kept_empty``),
     ``OV_EVENT_EXCERPT_CHECK`` logs an event whose summary names a ``#N`` its excerpt lacks,
     ``OV_PREF_DEDUPE`` logs a preference equal to another (log only, never a skip), and
     ``OV_PROFILE_PREFETCH_PEER_ONLY`` keeps the user-level singleton out of the extraction
     prefetch when the rendered directories include a peer's (its file may not exist yet). Each is ``0|1|shadow`` with unset and typos meaning
-    shadow, and writes one ``ov-profile-filter`` / ``ov-event-excerpt`` / ``ov-pref-dup`` /
-    ``ov-profile-prefetch`` stderr line per match. A failure to write that line, or any check
+    shadow, and writes ``ov-profile-filter`` / ``ov-event-excerpt`` / ``ov-pref-dup`` /
+    ``ov-profile-prefetch`` stderr lines: one per match, plus the profile filter's one
+    ``kept_unsupported`` line per unsupported write. A failure to write a line, or any check
     failure, never fails a write or a prefetch.
 
     Guarded: applies only to openviking ``v0.5.1.1`` whose ``apply_operations``,
@@ -2799,8 +2804,15 @@ data:
     # the other ``MemoryFileUtils.write`` callers are untouched.
     #
     # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
-    #   each bullet that names a PR or issue number, a compendium item ID, a numbered phase, or
-    #   opens with a review finding label (``P0:``-``P3:``); shadow records ``would_drop``. The
+    #   each list item that names a PR or issue number, a compendium item ID, a numbered
+    #   phase, or opens with a review finding label (``P0:``-``P3:``); shadow records
+    #   ``would_drop``. It cuts only a profile in the format ``filter_profile_content``
+    #   states: every line blank, an ATX heading or a one-line bullet at column 0, one
+    #   marker throughout, no blank line between two bullets. Any other profile is kept
+    #   whole and gets one ``kept_unsupported`` record naming the first line outside the
+    #   format. A write that filtering would leave with no text is kept whole and recorded
+    #   ``kept_empty`` (an empty body is never re-indexed, so the old vector would stay
+    #   searchable). Every record carries the ``mode``. The
     #   user-level ``profile.md`` (a URI with no peer in the parsed placement) is never filtered or logged: it is
     #   the frozen fallback ``profile-inject`` reads for a peer with no profile.
     # * ``OV_EVENT_EXCERPT_CHECK`` (``ov-event-excerpt``): logs an ``events`` write whose summary
@@ -2931,27 +2943,65 @@ data:
         return None
 
 
-    def filter_profile_content(content: str) -> tuple[str, list[tuple[str, str]]]:
-        """``(kept text, [(reason, bullet), ...])``; an indented continuation goes with its bullet."""
-        kept, removed = [], []
-        dropping = False
-        for line in content.splitlines(keepends=True):
+    # The profile format the filter cuts (user pick C1 on homelab#309). Every line is one of:
+    # blank (only spaces and tabs, the CommonMark definition), an ATX heading at column 0, or
+    # a bullet at column 0: one marker, one space, then a letter or digit, optionally after
+    # ``**``, and not an ordered-list marker (``- 1. x`` would nest a list). No such line can
+    # open a multi-line block or continue the line before it, so removing a bullet changes
+    # how no other line parses. Two more conditions close the list-level changes: every
+    # bullet uses the same marker (a marker change starts a new list, which a removal could
+    # merge), and no blank line sits between two bullets (a removal could turn a loose list
+    # tight). Codex rounds 2 to 4 and Claude round 5 found a cut that changed a neighbour
+    # under each earlier rule (a line heuristic, then two markdown-it designs); this format
+    # leaves nothing to parse. A bullet that opens with something other than a letter or
+    # digit (``- #12 x``, ``- `x` ...``) is outside the format, so its profile is kept whole
+    # and logged rather than cut.
+    _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")  # CommonMark line endings
+    _BLANK_LINE = re.compile(r"[ \t]*")
+    _HEADING_LINE = re.compile(r"#{1,6}(?:[ \t].*)?", re.DOTALL)
+    _BULLET_LINE = re.compile(r"([-*+]) (?!\d+[.)](?:[ \t]|$))(?:\*\*)?[^\W_].*", re.DOTALL)
+
+
+    def filter_profile_content(
+        content: str,
+    ) -> tuple[str, list[tuple[str, str]], tuple[str, int, str] | None]:
+        """``(kept text, [(reason, line), ...], unsupported)``.
+
+        When every line fits the format above, each bullet that ``profile_bullet_reason``
+        matches is removed and every other line is kept byte for byte. Otherwise the text is
+        returned whole with no removals, and ``unsupported`` is ``(shape, line number, line)``
+        for the first line outside the format: shape ``line`` (neither blank, heading nor
+        bullet), ``mixed_markers`` or ``blank_between_bullets``.
+        """
+        lines = _LINE.findall(content)
+        marker = None
+        last = None  # "bullet", "heading" or "blank_after_bullet" for the last line seen
+        for number, line in enumerate(lines, 1):
+            body = line.rstrip("\r\n")
+            bullet = _BULLET_LINE.fullmatch(body)
+            if _BLANK_LINE.fullmatch(body):
+                if last == "bullet":
+                    last = "blank_after_bullet"
+                continue
+            if bullet:
+                if marker is not None and bullet.group(1) != marker:
+                    return content, [], ("mixed_markers", number, body)
+                if last == "blank_after_bullet":
+                    return content, [], ("blank_between_bullets", number, body)
+                marker, last = bullet.group(1), "bullet"
+            elif _HEADING_LINE.fullmatch(body):
+                last = "heading"
+            else:
+                return content, [], ("line", number, body)
+        kept: list[str] = []
+        removed: list[tuple[str, str]] = []
+        for line in lines:
             reason = profile_bullet_reason(line)
             if reason:
                 removed.append((reason, line.strip()))
-                dropping = True
-                continue
-            if (
-                dropping
-                and line.strip()
-                and line[:1].isspace()
-                and not PROFILE_BULLET.match(line)
-            ):
-                removed.append(("continuation", line.strip()))
-                continue
-            dropping = False
-            kept.append(line)
-        return "".join(kept), removed
+            else:
+                kept.append(line)
+        return "".join(kept), removed, None
 
 
     def _body_digest(text: str) -> str:
@@ -3047,18 +3097,46 @@ data:
         parsed = parse_memory_uri(memory_file.uri)
         if mode == "0" or parsed is None or parsed.peer is None:
             return  # the user-level profile.md is the frozen fallback: never touched
-        kept, removed = filter_profile_content(memory_file.content or "")
+        kept, removed, unsupported = filter_profile_content(memory_file.content or "")
+        if unsupported:
+            # One record per write, matched bullets or not, so a profile the filter never
+            # cuts shows in the log rather than looking clean.
+            shape, number, line = unsupported
+            emit_record(
+                PROFILE_PREFIX,
+                {
+                    "action": "kept_unsupported",
+                    "mode": mode,
+                    "shape": shape,
+                    "line": number,
+                    "text": _clip(line),
+                    "uri": memory_file.uri,
+                },
+            )
+            return
+        # A write left with no text is not applied (Codex round 1 of homelab#309, P2): the
+        # stock updater derives an empty abstract, EmbeddingMsgConverter.from_context returns
+        # None, and neither an index update nor a delete follows, so the old vector and its
+        # activity-filled abstract stay searchable.
+        cut = bool(kept.strip())
+        if not cut:
+            action = "kept_empty"
+        elif mode == "shadow":
+            action = "would_drop"
+        else:
+            action = "dropped"
         for reason, bullet in removed:
             emit_record(
                 PROFILE_PREFIX,
                 {
-                    "action": "would_drop" if mode == "shadow" else "dropped",
+                    "action": action,
+                    "mode": mode,
                     "reason": reason,
                     "uri": memory_file.uri,
                     "bullet": _clip(bullet),
                 },
             )
-        if removed and mode == "1":
+        if removed and cut and mode == "1":
             memory_file.content = kept
 
 
