@@ -620,17 +620,22 @@ wait_longhorn_healthy() {
 	log "Waiting for all attached Longhorn volumes to be healthy..."
 	# Print each degraded row once (a volume whose state changes is a new row),
 	# and one kubectl warning per stretch of failed reads, numbered after the
-	# first so no line repeats: the gate polls every 15s, and a volume rebuilding
-	# for minutes used to fill the output with copies of the same rows.
-	local bad printed='' unavailable=0 outages=0
+	# first, so no line repeats: the gate polls every 15s, and a volume rebuilding
+	# for minutes used to fill the output with copies of the same rows. kubectl's
+	# own stderr is captured, never passed through; its first line goes into the
+	# warning.
+	local bad printed='' unavailable=0 outages=0 err_file err
+	err_file=$(mktemp)
 	while true; do
-		bad=$(longhorn_unhealthy) || {
+		bad=$(longhorn_unhealthy 2>"$err_file") || {
 			if ((! unavailable)); then
 				outages=$((outages + 1))
+				err=$(head -n 1 "$err_file")
+				err=${err:+ ($err)}
 				if ((outages == 1)); then
-					warn "kubectl unavailable, retrying every 10s..."
+					warn "kubectl unavailable$err, retrying every 10s..."
 				else
-					warn "kubectl unavailable again (outage $outages), retrying every 10s..."
+					warn "kubectl unavailable again (outage $outages)$err, retrying every 10s..."
 				fi
 			fi
 			unavailable=1
@@ -643,6 +648,7 @@ wait_longhorn_healthy() {
 		printed+=$bad$'\n'
 		sleep 15
 	done
+	rm -f "$err_file"
 	log "Longhorn volumes healthy."
 }
 
@@ -1193,10 +1199,13 @@ drain_leftovers() {
 # makes kubectl print `evicting pod <ns>/<name>` and `error when evicting
 # pods/"<name>" -n "<ns>" (will retry after 5s): <reason>` every 5s until
 # DRAIN_TIMEOUT, so a 5m drain used to print ~120 copies. Each pod's first
-# evicting line and first retry line pass through; the rest are counted, and the
+# evicting line and first retry line pass through (both retry formats: a PDB
+# refusal and a pod in a terminating namespace); the rest are counted, and the
 # end prints one line per retried pod with the count and where the pod is now.
 # Every other line, kubectl's own timeout error included, passes through as it
-# arrives (fflush, so a drain watched live still shows progress).
+# arrives (fflush, so a drain watched live still shows progress), but no more
+# than twice whatever its format: the end names each line held back and how many
+# times, so no output line repeats beyond two even for a format not known here.
 #
 # The outcome comes from the cluster, not from kubectl's `pod/<name> evicted`
 # line, which names no namespace. Returns 0, so under pipefail a
@@ -1210,7 +1219,10 @@ drain_filter() {
 		if (!($3 in evicting)) { evicting[$3] = 1; emit($0) }
 		next
 	}
-	/^error when evicting pods\/".*" -n ".*" \(will retry after / {
+	# pods/"<name>" -n "<ns>" and pod "<name>" from terminating namespace "<ns>":
+	# either way the name is the first quoted string and the namespace the second.
+	/^error when evicting pods\/".*" -n ".*" \(will retry after / ||
+	/^error when evicting pod ".*" from terminating namespace ".*" \(will retry after / {
 		split($0, q, "\"")
 		pod = q[4] "/" q[2]
 		if (!(pod in retries)) {
@@ -1222,8 +1234,12 @@ drain_filter() {
 		retries[pod]++
 		next
 	}
-	{ emit($0) }
+	{
+		if (++seen[$0] <= 2) emit($0)
+		else if (seen[$0] == 3) held[++h] = $0
+	}
 	END {
+		for (i = 1; i <= h; i++) printf "    repeated %d more times: %s\n", seen[held[i]] - 2, held[i]
 		for (i = 1; i <= n; i++) printf "%s\t%d\t%s\n", order[i], retries[order[i]], reason[order[i]] > summary
 	}'
 	while IFS=$'\t' read -r pod count reason; do

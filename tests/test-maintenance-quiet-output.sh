@@ -36,6 +36,14 @@ drain)
 		echo 'error: unable to drain node "timmy" due to error: global timeout reached: 5m0s, continuing command...' >&2
 		exit 1
 	fi
+	if [[ \${STUB_DRAIN:-} == other ]]; then
+		for i in 1 2 3 4 5; do
+			echo 'evicting pod doomed/web-0'
+			echo 'error when evicting pod "web-0" from terminating namespace "doomed" (will retry after 5s): pods "web-0" is forbidden: unable to create new content in namespace doomed because it is being terminated' >&2
+			echo 'W1106 07:00:00.000000 12345 warnings.go:70] some future kubectl notice' >&2
+		done
+		exit 0
+	fi
 	echo 'node/timmy cordoned'
 	echo 'Warning: ignoring DaemonSet-managed Pods: kube-system/svclb-traefik-x7k2p, longhorn-system/longhorn-manager-9qz4r' >&2
 	echo 'evicting pod garage/garage-1'
@@ -62,7 +70,7 @@ get)
 	n=\$(cat "\$STUB_VOLUMES_DIR/next" 2>/dev/null || echo 1)
 	f=\$STUB_VOLUMES_DIR/\$n.json
 	[[ -e \$STUB_VOLUMES_DIR/\$((n + 1)).json || -e \$STUB_VOLUMES_DIR/\$((n + 1)).fail ]] && echo \$((n + 1)) >"\$STUB_VOLUMES_DIR/next"
-	[[ -e \$f ]] || exit 1
+	[[ -e \$f ]] || { echo 'The connection to the server 10.0.0.1:6443 was refused - did you specify the right host or port?' >&2; exit 1; }
 	cat "\$f"
 	;;
 esac
@@ -139,6 +147,10 @@ strip() { sed $'s/\033\\[[0-9;]*m//g'; }
 	echo 'timmy 2026-11-06T07:00:00Z' >"$STUB_PODS_DIR/alpha_same-0"
 	: >"$STUB_PODS_DIR/beta_same-0.fail"
 	printf 'EDGES\n%s\nEND\n' "$(STUB_DRAIN=samename "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)"
+	# The terminating-namespace retry format, and a line no rule knows, each 5 times.
+	other=$(STUB_DRAIN=other "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)
+	echo "other_max=$(max_repeat "$other")"
+	printf 'OTHER\n%s\nEND\n' "$other"
 
 	# A list that shrinks as volumes heal ([A,B,C] → [A,B'] → [A]), with a kubectl
 	# outage between, and B changing state on the way.
@@ -186,6 +198,12 @@ assert_has "of two same-named pods, the one that left reads evicted" \
 	"    alpha/same-0: eviction refused 1 times $PDB; evicted in the end" "$samename"
 assert_has "and the one still on the node does not" \
 	"    beta/same-0: eviction refused 1 times $PDB; still on timmy when the drain ended" "$samename"
+assert_eq "a drain in a terminating namespace prints no line more than twice" 2 "$(field other_max)"
+other=$(block OTHER)
+assert_eq "the terminating-namespace retry is printed once" 1 "$(grep -c '^error when evicting pod "web-0" from terminating namespace' <<<"$other")"
+assert_has "and ends as a counted line" "    doomed/web-0: eviction refused 5 times (pods \"web-0\" is forbidden: unable to create new content in namespace doomed because it is being terminated); evicted in the end" "$other"
+assert_eq "an unrecognised line passes through twice" 2 "$(grep -c '^W1106 07:00:00.000000 12345 warnings.go:70\] some future kubectl notice$' <<<"$other")"
+assert_has "and the rest are named and counted" "    repeated 3 more times: W1106 07:00:00.000000 12345 warnings.go:70] some future kubectl notice" "$other"
 edges=$(block EDGES)
 assert_has "a pod accepted but still terminating says so" \
 	"    alpha/same-0: eviction refused 1 times $PDB; evicted, still terminating on timmy" "$edges"
@@ -206,6 +224,8 @@ assert_has "the gate still ends healthy" "Longhorn volumes healthy." "$gate"
 assert_eq "three kubectl outages print no line twice" 1 "$(field flaky_max)"
 flaky=$(block FLAKY)
 assert_eq "each outage is reported once" 3 "$(grep -c 'kubectl unavailable' <<<"$flaky")"
+assert_eq "kubectl's own error is never printed on its own line" 0 "$(grep -c '^The connection to the server' <<<"$flaky")"
+assert_has "its first line is in the warning" "WARN: kubectl unavailable (The connection to the server 10.0.0.1:6443 was refused - did you specify the right host or port?), retrying every 10s..." "$flaky"
 assert_has "a later outage is numbered" "kubectl unavailable again (outage 3)" "$flaky"
 assert_has "the flaky gate still ends healthy" "Longhorn volumes healthy." "$flaky"
 
