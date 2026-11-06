@@ -73,14 +73,17 @@ the summary only, so a decision that appears only in the ChatLog is lost with it
 
 **Write-time checks** (IMPR-1401, BUG-1283, BUG-1284; section "Write-time checks" below).
 ``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write (only
-when every line is blank, an ATX heading or a plain bullet, else ``kept_unsupported``; a
-write the cut would leave with no text is kept whole and recorded ``kept_empty``),
+when the profile fits the line format above ``filter_profile_content``: blank lines, ATX
+headings and one-line bullets with one marker and no blank line between bullets; any
+other profile is kept whole with one ``kept_unsupported`` record per write, and a write
+the cut would leave with no text is kept whole and recorded ``kept_empty``),
 ``OV_EVENT_EXCERPT_CHECK`` logs an event whose summary names a ``#N`` its excerpt lacks,
 ``OV_PREF_DEDUPE`` logs a preference equal to another (log only, never a skip), and
 ``OV_PROFILE_PREFETCH_PEER_ONLY`` keeps the user-level singleton out of the extraction
 prefetch when the rendered directories include a peer's (its file may not exist yet). Each is ``0|1|shadow`` with unset and typos meaning
-shadow, and writes one ``ov-profile-filter`` / ``ov-event-excerpt`` / ``ov-pref-dup`` /
-``ov-profile-prefetch`` stderr line per match. A failure to write that line, or any check
+shadow, and writes ``ov-profile-filter`` / ``ov-event-excerpt`` / ``ov-pref-dup`` /
+``ov-profile-prefetch`` stderr lines: one per match, plus the profile filter's one
+``kept_unsupported`` line per unsupported write. A failure to write a line, or any check
 failure, never fails a write or a prefetch.
 
 Guarded: applies only to openviking ``v0.5.1.1`` whose ``apply_operations``,
@@ -1010,7 +1013,10 @@ def profile_bullet_reason(line: str) -> str | None:
 # bullet uses the same marker (a marker change starts a new list, which a removal could
 # merge), and no blank line sits between two bullets (a removal could turn a loose list
 # tight). Codex rounds 2 to 4 and Claude round 5 found a cut that changed a neighbour
-# under every parser-based rule; this format leaves nothing to parse.
+# under each earlier rule (a line heuristic, then two markdown-it designs); this format
+# leaves nothing to parse. A bullet that opens with something other than a letter or
+# digit (``- #12 x``, ``- `x` ...``) is outside the format, so its profile is kept whole
+# and logged rather than cut.
 _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")  # CommonMark line endings
 _BLANK_LINE = re.compile(r"[ \t]*")
 _HEADING_LINE = re.compile(r"#{1,6}(?:[ \t].*)?", re.DOTALL)

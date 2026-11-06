@@ -291,8 +291,10 @@ spec:
             # profile write (one naming a PR or issue number, an item ID or "Phase N", or
             # opening with a P0-P3 finding label), after the merge. Each removed bullet is
             # one stderr line, ov-profile-filter {"action": "dropped", …}. It cuts only a
-            # profile whose every line is blank, a "#" heading or a one-line bullet; any
-            # other profile is kept whole with one "kept_unsupported" record. A write the
+            # profile whose every line is blank, a "#" heading or a one-line bullet (-, * or
+            # +, one space, then a letter or digit), with one marker throughout and no blank line between
+            # bullets; any other profile is kept whole with one "kept_unsupported" record
+            # per write. A write the
             # cut would leave with no text is kept whole and recorded "kept_empty", since
             # an empty body is never re-indexed. The user-level profile.md is never
             # touched. Shadow from 2026-10-31 (homelab#296) to this change; "shadow" logs

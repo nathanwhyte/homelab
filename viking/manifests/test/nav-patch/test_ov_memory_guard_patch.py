@@ -2122,6 +2122,36 @@ class ProfileFilterTests(WriteCheckCase):
                     (mode, body),
                 )
 
+    def test_list_level_shapes_reach_the_record(self):
+        os.environ["OV_PROFILE_FILTER"] = "1"
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for body, shape, number in (
+            ("# N\n- a\n+ Merged #12\n", "mixed_markers", 3),
+            ("# N\n- Merged #12\n\n- a\n", "blank_between_bullets", 4),
+        ):
+            fs = WFS()
+            records, _ = self.apply(fs, upsert("profile", uri, body))
+            self.assertEqual(fs.files[uri], body)
+            self.assertEqual(
+                [(r["action"], r["shape"], r["line"]) for r in records],
+                [("kept_unsupported", shape, number)],
+            )
+
+    def test_every_bullet_record_carries_its_mode(self):
+        uri = "viking://user/noot/peers/pop/memories/profile.md"
+        for mode, body, action in (
+            ("1", CLEAN + ACTIVITY, "dropped"),
+            ("shadow", CLEAN + ACTIVITY, "would_drop"),
+            ("1", ACTIVITY, "kept_empty"),
+            ("shadow", ACTIVITY, "kept_empty"),
+        ):
+            os.environ["OV_PROFILE_FILTER"] = mode
+            records, _ = self.apply(WFS(), upsert("profile", uri, body))
+            self.assertEqual(len(records), 4, (mode, body))
+            self.assertEqual(
+                {(r["action"], r["mode"]) for r in records}, {(action, mode)}
+            )
+
     def test_shadow_records_kept_empty_for_a_write_mode_1_would_keep(self):
         # Claude round 5, R5.a-3: shadow labelled this would_drop
         os.environ["OV_PROFILE_FILTER"] = "shadow"
