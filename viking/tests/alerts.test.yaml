@@ -519,3 +519,61 @@ tests:
       - expr: count(ALERTS{alertname="OpenVikingLockWatchdogRunFailed"}) or vector(0)
         eval_time: 20m
         exp_samples: [{ labels: "{}", value: 0 }]
+
+  # BUG-1282: openviking_lock_stale is ragfs's cumulative count of expired lock
+  # tokens replaced during acquire, exported as a gauge that resets only with the
+  # process. A server holding a nonzero count has healed itself; only a burst of
+  # takeovers is worth recording. The regex matches the retired `> 0` rule too,
+  # so the first case fails against it.
+  - name: a pod holding a nonzero takeover count never fires
+    # The 2026-11-06 live pod: 3 takeovers at 06:02Z for one dead session client,
+    # 2 more about 4 h later, then flat. The retired rule fired from the first.
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "0 0 3x239 5x240"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 30m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 7h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: the 30-day peak hour of takeovers does not fire
+    # The busiest hour from 2026-10-07 to 2026-11-06 was about 10 takeovers.
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "0x5 2 2 4 4 6 6 8 8 10x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 30m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a burst of takeovers fires at warning and clears after the hour
+    # warning, not info: the Alertmanager route drops info, and a burst should reach Slack.
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "0x5 10 20 30x90"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingStaleLockTakeoverBurst", alertstate="firing", severity="warning"})
+        eval_time: 10m
+        exp_samples: [{ labels: "{}", value: 1 }]
+      - expr: count(ALERTS{alertname="OpenVikingStaleLockTakeoverBurst"}) or vector(0)
+        eval_time: 80m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: a restart does not count the old pod's total as new takeovers
+    # The old pod's series ends at 9; the new pod's starts again from 0.
+    interval: 1m
+    input_series:
+      - series: 'openviking_lock_stale{pod="openviking-a"}'
+        values: "9x30 stale"
+      - series: 'openviking_lock_stale{pod="openviking-b"}'
+        values: "_x31 0 0 3x60"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname=~"OpenVikingStaleLock.*"}) or vector(0)
+        eval_time: 45m
+        exp_samples: [{ labels: "{}", value: 0 }]

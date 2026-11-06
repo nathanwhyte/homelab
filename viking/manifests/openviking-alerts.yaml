@@ -20,14 +20,22 @@ spec:
           annotations:
             summary: "OpenViking reports a service component not ready for 5m"
             description: "Native readiness gauge is 0 — a dependency (vectordb, embedder, VLM) or the server itself is unhealthy."
-        - alert: OpenVikingStaleLocks
-          expr: openviking_lock_stale > 0
-          for: 10m
+        # BUG-1282: openviking_lock_stale is ragfs's stale_tokens_removed, the
+        # cumulative count of expired lock tokens an acquire replaced, exported as
+        # a gauge that resets only with the process
+        # (crates/ragfs/src/metrics/mod.rs:134@v0.5.1.1). Each step is the server
+        # healing itself, so the retired `> 0` rule fired from the first takeover
+        # until the next restart. Only a burst is recorded: the busiest hour from
+        # 2026-10-07 to 2026-11-06 was about 10. increase() suits it because the
+        # count never falls within a pod. Held locks are the job of
+        # OpenVikingWedgedLockFile, OpenVikingLockListingBlind and the watchdog.
+        - alert: OpenVikingStaleLockTakeoverBurst
+          expr: increase(openviking_lock_stale[1h]) > 20
           labels:
             severity: warning
           annotations:
-            summary: "OpenViking reports stale locks for 10m"
-            description: "Potentially stale lock handles — the ERR-1014 signature (poisoned lock_handoff / abandoned client handle). Remedy: kubectl rollout restart deploy/openviking -n viking after the queue drains."
+            summary: "OpenViking replaced {{ $value | humanize }} expired lock tokens in the last hour"
+            description: "Each takeover is the server reclaiming a lock whose client stopped refreshing it, logged as `replaced stale pathlock token during acquire` with the stale_owner. A burst means many clients died or lost storage at once (a Garage roll, a node drain). It is not a held lock and needs no restart; check the openviking container's log for the stale owners."
         # BUG-1138: OpenVikingNativeQueueNotDraining was retired here, not fixed.
         # It had two defects. Its bare sum() spanned BOTH scrape targets — the
         # native /metrics on the openviking container and the ov-exporter sidecar,
