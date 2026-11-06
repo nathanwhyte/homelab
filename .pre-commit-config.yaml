@@ -281,10 +281,10 @@ repos:
       # Which maintenance commands open, keep and close those windows.
       - id: maintenance-window-tests
         name: maintenance window tests
-        entry: bash -c 'bash tests/test-node-maintenance-window.sh && bash tests/test-timmy-offline-quiet.sh && bash tests/test-timmy-offline-pods.sh'
+        entry: bash -c 'bash tests/test-node-maintenance-window.sh && bash tests/test-timmy-offline-quiet.sh && bash tests/test-timmy-offline-pods.sh && bash tests/test-timmy-offline-windows.sh'
         language: system
         pass_filenames: false
-        files: ^(scripts/(maintenance-active\.py|timmy-offline\.sh|node-maintenance\.sh)|tests/test-(node-maintenance-window|timmy-offline-quiet|timmy-offline-pods)\.sh)$
+        files: ^(scripts/(maintenance-active\.py|timmy-offline\.sh|node-maintenance\.sh)|tests/test-(node-maintenance-window|timmy-offline-quiet|timmy-offline-pods|timmy-offline-windows)\.sh)$
       - id: maintenance-memory-tests
         name: maintenance memory and restoration tests
         entry: bash tests/test-node-maintenance-memory.sh
