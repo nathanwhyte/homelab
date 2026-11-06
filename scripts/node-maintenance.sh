@@ -605,19 +605,54 @@ longhorn_unhealthy() {
 			| "\(.metadata.name)\t\(.status.state)/\(.status.robustness)"'
 }
 
+# print_new_rows <prefix> <rows> <printed>: each line of <rows> not already a
+# line of <printed>, with <prefix>. For poll loops that print each distinct row
+# once.
+print_new_rows() {
+	local row
+	while IFS= read -r row; do
+		[[ -n $row ]] || continue
+		grep -qxF -- "$row" <<<"$3" && continue
+		printf '%s%s\n' "$1" "$row"
+	done <<<"$2"
+}
+
 wait_longhorn_healthy() {
 	log "Waiting for all attached Longhorn volumes to be healthy..."
-	local bad
+	# Print each distinct degraded row once (a volume in a new state is a new row;
+	# one back in a state already printed is not printed again, which would let a
+	# flapping volume repeat lines), and one kubectl warning per stretch of failed
+	# reads, numbered after the first, so no line repeats: the gate polls every
+	# 15s, and a volume rebuilding for minutes used to fill the output with copies
+	# of the same rows. kubectl's own stderr is captured, never passed through;
+	# its first line goes into the warning. The capture file has a fixed name in
+	# the state directory, so a Ctrl-C (the usual way out of this untimed wait)
+	# leaves one small file, not one per run.
+	local bad printed='' unavailable=0 outages=0 err_file=$MAINTENANCE_STATE_DIR/longhorn-gate.stderr err
+	mkdir -p "$MAINTENANCE_STATE_DIR"
 	while true; do
-		bad=$(longhorn_unhealthy) || {
-			warn "kubectl unavailable, retrying..."
+		bad=$(longhorn_unhealthy 2>"$err_file") || {
+			if ((! unavailable)); then
+				outages=$((outages + 1))
+				err=$(head -n 1 "$err_file")
+				err=${err:+ ($err)}
+				if ((outages == 1)); then
+					warn "kubectl unavailable$err, retrying every 10s..."
+				else
+					warn "kubectl unavailable again (outage $outages)$err, retrying every 10s..."
+				fi
+			fi
+			unavailable=1
 			sleep 10
 			continue
 		}
+		unavailable=0
 		[[ -z $bad ]] && break
-		printf '%s\n' "$bad" | sed 's/^/    degraded: /'
+		print_new_rows "    degraded: " "$bad" "$printed"
+		printed+=$bad$'\n'
 		sleep 15
 	done
+	rm -f "$err_file"
 	log "Longhorn volumes healthy."
 }
 
@@ -1163,6 +1198,88 @@ drain_leftovers() {
 			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"'
 }
 
+# kubectl drain's output (stdout and stderr merged) with the eviction retries
+# collapsed. A pod a PDB pins (a Longhorn instance-manager holding last replicas)
+# makes kubectl print `evicting pod <ns>/<name>` and `error when evicting
+# pods/"<name>" -n "<ns>" (will retry after 5s): <reason>` every 5s until
+# DRAIN_TIMEOUT, so a 5m drain used to print ~120 copies. Each pod's first
+# evicting line and first retry line pass through (both retry formats: a PDB
+# refusal and a pod in a terminating namespace); the rest are counted, and the
+# end prints one line per retried pod with the count and where the pod is now.
+# Every other line, kubectl's own timeout error included, passes through as it
+# arrives (fflush, so a drain watched live still shows progress), but no more
+# than twice whatever its format: the end names each line held back and how many
+# times, so no output line repeats beyond two even for a format not known here.
+#
+# The outcome comes from the cluster, not from kubectl's `pod/<name> evicted`
+# line, which names no namespace. awk hands the summary rows to bash on stdout
+# behind a \037 marker (no temp file to leave behind on Ctrl-C). Returns 0, so
+# under pipefail a `kubectl drain … | drain_filter <node>` pipeline keeps
+# kubectl's status.
+drain_filter() {
+	local node=$1 started
+	started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	awk '
+	function emit(s) { print s; fflush() }
+	/^evicting pod / {
+		if (!($3 in evicting)) { evicting[$3] = 1; emit($0) }
+		next
+	}
+	# pods/"<name>" -n "<ns>" and pod "<name>" from terminating namespace "<ns>":
+	# either way the name is the first quoted string and the namespace the second.
+	/^error when evicting pods\/".*" -n ".*" \(will retry after / ||
+	/^error when evicting pod ".*" from terminating namespace ".*" \(will retry after / {
+		split($0, q, "\"")
+		pod = q[4] "/" q[2]
+		if (!(pod in retries)) {
+			order[++n] = pod
+			reason[pod] = $0
+			sub(/^[^)]*\): /, "", reason[pod])
+			emit($0)
+		}
+		retries[pod]++
+		next
+	}
+	{
+		if (++seen[$0] <= 2) emit($0)
+		else if (seen[$0] == 3) held[++h] = $0
+	}
+	END {
+		for (i = 1; i <= h; i++) printf "    repeated %d more times: %s\n", seen[held[i]] - 2, held[i]
+		for (i = 1; i <= n; i++) printf "\037%s\t%d\t%s\n", order[i], retries[order[i]], reason[order[i]]
+	}' | {
+		local line rows=() row pod count reason out on_node created deleting outcome
+		while IFS= read -r line; do
+			if [[ $line == $'\037'* ]]; then rows+=("${line#$'\037'}"); else printf '%s\n' "$line"; fi
+		done
+		for row in ${rows[@]+"${rows[@]}"}; do
+			IFS=$'\t' read -r pod count reason <<<"$row"
+			# Empty output: the pod is gone. A pod recreated under the same name lands
+			# elsewhere (the node is cordoned), so another node means evicted, unless
+			# it was created with spec.nodeName set, which bypasses the cordon (a
+			# Longhorn instance-manager): created after the drain began, it was
+			# evicted and recreated, not left behind.
+			if ! out=$("$KUBECTL" get pod -n "${pod%%/*}" "${pod#*/}" --ignore-not-found \
+				-o jsonpath='{.spec.nodeName}|{.metadata.creationTimestamp}|{.metadata.deletionTimestamp}' 2>/dev/null); then
+				outcome="outcome unknown (cannot read the pod)"
+			else
+				IFS='|' read -r on_node created deleting <<<"$out" || true
+				if [[ ${on_node:-} != "$node" ]]; then
+					outcome="evicted in the end"
+				elif [[ -n ${deleting:-} ]]; then
+					outcome="evicted, still terminating on $node"
+				elif [[ ${created:-} > $started ]]; then
+					outcome="evicted, then recreated on $node"
+				else
+					outcome="still on $node when the drain ended"
+				fi
+			fi
+			printf '    %s: eviction refused %d times (%s); %s\n' "$pod" "$count" "$reason" "$outcome"
+		done
+	}
+	return 0
+}
+
 repeat_drain() {
 	local node=$1 owner=$2 leftovers boot_id saved_boot_id cycle
 	# Preserve the planned-outage repeat path: a caller that passes --repeat may
@@ -1171,7 +1288,8 @@ repeat_drain() {
 	# record is not needed, so an empty or missing one is rewritten here.
 	warn "$node is already cordoned — re-draining"
 	require_cycle_state_path "$node"
-	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
+	# pipefail: the pipeline fails with kubectl, whatever the filter returns.
+	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter "$node" ||
 		warn "drain incomplete — assessing what is left on $node"
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	# Unlike a first drain, a repeat always checks leftovers, even after success.
@@ -1372,7 +1490,8 @@ cmd_reboot() {
 	# so a full drain is impossible by design. If the instance-manager is the only
 	# survivor, report the volumes that will blip during the reboot and proceed.
 	local drained=1
-	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" || drained=0
+	# pipefail: the pipeline fails with kubectl, whatever the filter returns.
+	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter "$node" || drained=0
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	if ((! drained)); then
 		warn "drain incomplete — assessing what is left on $node"

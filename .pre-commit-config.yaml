@@ -297,6 +297,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^(scripts/(node-maintenance|timmy-offline)\.sh|tests/test-maintenance-cycle\.py)$
+      # Retry loops (drain evictions, health gate, detach wait) print each line at most twice.
+      - id: maintenance-quiet-output-tests
+        name: maintenance quiet output tests
+        entry: bash tests/test-maintenance-quiet-output.sh
+        language: system
+        pass_filenames: false
+        files: ^(scripts/(node-maintenance|timmy-offline)\.sh|tests/test-maintenance-quiet-output\.sh)$
       - id: helm-deploy-tests
         name: Helm deployment version safety tests
         entry: python3 scripts/test-helm-deploy.py
