@@ -21,9 +21,7 @@ cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 #!/usr/bin/env bash
 # Pods come from $STUB_PODS (STUB_FAIL_PODS=1 fails the read; STUB_PODS_WARN
 # adds a stderr warning to a successful one). Prometheus queries (get --raw) fail
-# with STUB_FAIL_PROM=1; the boot-time query answers timmy's uptime,
-# STUB_UPTIME seconds (default 200000, so the window is a full 24h; `none`
-# answers no series), the coverage query STUB_SCRAPES kube-state-metrics scrapes
+# with STUB_FAIL_PROM=1; the coverage query answers STUB_SCRAPES kube-state-metrics scrapes
 # (default 100000, always enough; `none` answers no series), and the restart
 # query prints $STUB_PROM. Workload reads
 # answer 0 replicas, so up has nothing to wait for; Longhorn has no volumes.
@@ -46,12 +44,6 @@ get)
       else
         echo "{\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[{\"metric\":{},\"value\":[1762412400,\"${STUB_SCRAPES:-100000}\"]}]}}"
       fi
-    elif [[ $3 == *node_boot_time_seconds* ]]; then
-      if [[ ${STUB_UPTIME:-} == none ]]; then
-        echo '{"status":"success","data":{"resultType":"vector","result":[]}}'
-      else
-        echo "{\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[{\"metric\":{},\"value\":[1762412400,\"${STUB_UPTIME:-200000}.25\"]}]}}"
-      fi
     else
       cat "$STUB_PROM"
     fi
@@ -64,6 +56,22 @@ exec) for a in "$@"; do [[ $a != add ]] || echo 0b5c1f0e-7a3d-4c51-9e2b-1d2f3a4b
 esac
 STUB
 chmod +x "$TMPDIR_TEST/kubectl"
+
+# ssh [-o opt]... <host> <command>: logs `ssh <host>: <command>`. timmy's
+# /proc/uptime reads STUB_UPTIME seconds (default 200000, so the restart window
+# is a full 24h); STUB_UPTIME=none fails as an unreachable host.
+cat >"$TMPDIR_TEST/ssh" <<'STUB'
+#!/usr/bin/env bash
+while [[ $1 == -o ]]; do shift 2; done
+echo "ssh $1: ${*:2}" >>"$STUB_LOG"
+if [[ ${STUB_UPTIME:-} == none ]]; then
+  echo "ssh: connect to host $1 port 22: Connection refused" >&2
+  exit 255
+fi
+[[ ${*:2} == 'cat /proc/uptime' ]] && echo "${STUB_UPTIME:-200000}.25 1234567.89"
+STUB
+chmod +x "$TMPDIR_TEST/ssh"
+export SSH=$TMPDIR_TEST/ssh
 
 # node-maintenance.sh stand-in: no cycle recorded, every subcommand succeeds
 # unless STUB_NM_<SUBCOMMAND>_RC says otherwise.
@@ -265,10 +273,10 @@ assert_eq "a crashlooping pod keeps its status, not the count" \
 	"longhorn-system csi-provisioner-6c8b9d7f4-x2k9q 0/1 CrashLoopBackOff 93 19d" "$(row csi-provisioner-6c8b9d7f4-x2k9q "$out")"
 assert_lacks "a pod Prometheus remembers but the cluster no longer has is left out" "garage-1-gone" "$out"
 assert_lacks "a recreated pod does not inherit its predecessor's restarts" "garage-0 " "$out"
+assert_eq "it reads timmy's uptime from timmy itself, once" "ssh timmy-lan: cat /proc/uptime" "$(grep '^ssh ' "$STUB_LOG")"
 queries=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
-assert_eq "it asks Prometheus for timmy's uptime, the window's scrape coverage, then each pod UID's busiest container, init containers included, at the threshold over the window" \
-	"time() - max(node_boot_time_seconds and on (namespace, pod) kube_pod_info{node=\"timmy\"})
-sum(sum_over_time(up{job=\"kube-state-metrics\"}[86400s]))
+assert_eq "it asks Prometheus for the window's scrape coverage, then each pod UID's busiest container, init containers included, at the threshold over the window" \
+	"sum(sum_over_time(up{job=\"kube-state-metrics\"}[86400s]))
 max by (uid) (changes(kube_pod_container_status_restarts_total[86400s]) or changes(kube_pod_init_container_status_restarts_total[86400s])) >= 5" \
 	"$(while IFS= read -r q; do decode "$q"; done <<<"$queries")"
 
@@ -306,14 +314,15 @@ out=$(STUB_UPTIME=600 run up) # 10m: inside the 15m grace
 assert_eq "up inside the grace still succeeds" 0 "${out##*$'\n'}"
 assert_has "it says the history starts after the grace, and when to rerun" \
 	"WARN: restart history skipped: timmy booted 10m ago, and restarts count from 15m after its boot (the outage restarted every controller that needs the API server) over at least 5m; listing pods by status only. For crashloops, rerun $OUTAGE status in 10m" "$out"
-assert_eq "it asks Prometheus only for the boot time" 1 "$(grep -c -- '--raw' "$STUB_LOG")"
+assert_eq "it asks Prometheus nothing" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 assert_has "it still lists pods by status" "CrashLoopBackOff" "$out"
 assert_lacks "and no restart count" "hbjbw" "$out"
 assert_has "the warning claims no restart rule" "WARN: pods not healthy (not Running and ready, and not Completed):" "$out"
 
 reset "$HEALTHY"
 out=$(STUB_UPTIME=none run up)
-assert_has "no boot time for timmy is an unavailable history" "WARN: restart history unavailable (Prometheus has no boot time for timmy)" "$out"
+assert_has "an unreachable timmy is an unavailable history" "WARN: restart history unavailable (cannot read timmy's uptime over ssh: ssh: connect to host timmy-lan port 22: Connection refused)" "$out"
+assert_eq "and Prometheus is not asked" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 
 reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=15m run up)
@@ -324,7 +333,7 @@ assert_eq "and never reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 reset "$HEALTHY"
 out=$(STUB_UPTIME=1100 run up) # a 200s window; 100s still to wait
 assert_has "a window under 5m is skipped, its wait rounded up" "rerun $OUTAGE status in 2m" "$out"
-assert_eq "and only the boot time is asked" 1 "$(grep -c -- '--raw' "$STUB_LOG")"
+assert_eq "and Prometheus is not asked" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 
 reset "$HEALTHY"
 out=$(STUB_UPTIME=1200 run up) # exactly 5m

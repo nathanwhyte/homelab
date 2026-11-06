@@ -62,6 +62,9 @@ def fake_command(tool, args):
         if command == "uname -r":
             print("fixture-kernel")
             return 0
+        if command == "cat /proc/uptime":  # timmy-offline.sh's restart window
+            print("200000.25 1234567.89")
+            return 0
         return unexpected()
 
     args = [arg for arg in args if not arg.startswith("--request-timeout=")]

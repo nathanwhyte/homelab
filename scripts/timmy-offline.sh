@@ -82,6 +82,7 @@ NODE=timmy
 # SSH alias for the printed power-off command, the same "<node><suffix>" rule as
 # node-maintenance.sh: timmy-lan bypasses Tailscale SSH check-mode (GUIDE-1070).
 NODE_SSH=$NODE${NODE_SSH_SUFFIX--lan}
+SSH=${SSH:-ssh} # overridable so the tests can stub it
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
 SCALE_FILE=$STATE_DIR/parked-scales
@@ -545,22 +546,30 @@ PROM_SCRAPE_SECONDS=60
 RESTART_MIN_WINDOW_SECONDS=300
 
 # The restart-history window in seconds: from RESTART_BOOT_GRACE_SECONDS after
-# timmy's boot (node-exporter's node_boot_time_seconds, joined to timmy through
-# its pod) to now, at most 86400. Zero or less while timmy is inside the grace.
-# Prometheus' own gap while timmy was down puts the outage's counter jumps at
-# its first scrape after the boot, inside the grace, so they are not counted.
-# On failure prints the reason on stderr and returns 1.
+# timmy's boot to now, at most 86400. Zero or less while timmy is inside the
+# grace. The uptime is timmy's own /proc/uptime over ssh, read-only: Prometheus'
+# node_boot_time_seconds can still be the pre-boot sample for up to its 5m
+# lookback after a short reboot, which would skip the grace. On failure prints
+# the reason on stderr and returns 1.
 restart_window() {
-	local out up window
+	local out up window err_file err rc=0
 	restart_threshold_ok || return 1
 	# Canonical decimal only: bash arithmetic reads a leading 0 as octal.
 	if [[ ! $RESTART_BOOT_GRACE_SECONDS =~ ^(0|[1-9][0-9]*)$ ]]; then
 		echo "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '$RESTART_BOOT_GRACE_SECONDS'" >&2
 		return 1
 	fi
-	out=$(prom_query "time() - max(node_boot_time_seconds and on (namespace, pod) kube_pod_info{node=\"$NODE\"})") || return 1
-	up=$(jq -er 'select(.status == "success") | .data.result[0].value[1] | tonumber | floor' <<<"$out" 2>/dev/null) || {
-		echo "Prometheus has no boot time for $NODE" >&2
+	err_file=$(mktemp)
+	out=$("$SSH" -o BatchMode=yes -o ConnectTimeout=10 "$NODE_SSH" 'cat /proc/uptime' 2>"$err_file") || rc=$?
+	err=$(<"$err_file")
+	rm -f "$err_file"
+	if ((rc != 0)); then
+		echo "cannot read $NODE's uptime over ssh: ${err//$'\n'/ }" >&2
+		return 1
+	fi
+	up=${out%%[. ]*}
+	[[ $up =~ ^[0-9]+$ ]] || {
+		echo "unexpected /proc/uptime from $NODE: '${out//$'\n'/ }'" >&2
 		return 1
 	}
 	window=$((up - RESTART_BOOT_GRACE_SECONDS))
