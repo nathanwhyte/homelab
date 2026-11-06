@@ -607,15 +607,23 @@ longhorn_unhealthy() {
 
 wait_longhorn_healthy() {
 	log "Waiting for all attached Longhorn volumes to be healthy..."
-	local bad
+	# Print the degraded list and the kubectl warning only when they change: the
+	# gate polls every 15s, and a volume rebuilding for minutes used to fill the
+	# output with copies of the same rows.
+	local bad shown='' unavailable=0
 	while true; do
 		bad=$(longhorn_unhealthy) || {
-			warn "kubectl unavailable, retrying..."
+			((unavailable)) || warn "kubectl unavailable, retrying every 10s..."
+			unavailable=1
 			sleep 10
 			continue
 		}
+		unavailable=0
 		[[ -z $bad ]] && break
-		printf '%s\n' "$bad" | sed 's/^/    degraded: /'
+		if [[ $bad != "$shown" ]]; then
+			printf '%s\n' "$bad" | sed 's/^/    degraded: /'
+			shown=$bad
+		fi
 		sleep 15
 	done
 	log "Longhorn volumes healthy."
@@ -1163,6 +1171,52 @@ drain_leftovers() {
 			| "\(.metadata.namespace)/\(.metadata.name) (\(.status.phase // "unknown"))"'
 }
 
+# kubectl drain's output (stdout and stderr merged) with the eviction retries
+# collapsed. A pod a PDB pins (a Longhorn instance-manager holding last replicas)
+# makes kubectl print `evicting pod <ns>/<name>` and `error when evicting
+# pods/"<name>" -n "<ns>" (will retry after 5s): <reason>` every 5s until
+# DRAIN_TIMEOUT, so a 5m drain used to print ~120 copies. Each pod's first
+# evicting line and first retry line pass through; the rest are counted, and the
+# end prints one line per retried pod with the count and whether it was evicted.
+# Every other line, kubectl's own timeout error included, passes through as it
+# arrives (fflush, so a drain watched live still shows progress).
+drain_filter() {
+	awk '
+	function emit(s) { print s; fflush() }
+	/^evicting pod / {
+		if (!($3 in evicting)) { evicting[$3] = 1; emit($0) }
+		next
+	}
+	/^error when evicting pods\/".*" -n ".*" \(will retry after / {
+		split($0, q, "\"")
+		pod = q[4] "/" q[2]
+		if (!(pod in retries)) {
+			order[++n] = pod
+			reason[pod] = $0
+			sub(/^[^)]*\): /, "", reason[pod])
+			emit($0)
+		}
+		retries[pod]++
+		next
+	}
+	/^pod\/[^ ]+ evicted$/ {
+		name = substr($1, 5)
+		evicted[name] = 1
+		emit($0)
+		next
+	}
+	{ emit($0) }
+	END {
+		for (i = 1; i <= n; i++) {
+			pod = order[i]
+			name = pod
+			sub(/^[^\/]*\//, "", name)
+			printf "    %s: eviction refused %d times (%s); %s\n", pod, retries[pod], reason[pod],
+				(name in evicted) ? "evicted in the end" : "not evicted when the drain ended"
+		}
+	}'
+}
+
 repeat_drain() {
 	local node=$1 owner=$2 leftovers boot_id saved_boot_id cycle
 	# Preserve the planned-outage repeat path: a caller that passes --repeat may
@@ -1171,7 +1225,8 @@ repeat_drain() {
 	# record is not needed, so an empty or missing one is rewritten here.
 	warn "$node is already cordoned — re-draining"
 	require_cycle_state_path "$node"
-	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" ||
+	# pipefail: the pipeline fails with kubectl, whatever the filter returns.
+	"$KUBECTL" drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter ||
 		warn "drain incomplete — assessing what is left on $node"
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	# Unlike a first drain, a repeat always checks leftovers, even after success.
@@ -1372,7 +1427,8 @@ cmd_reboot() {
 	# so a full drain is impossible by design. If the instance-manager is the only
 	# survivor, report the volumes that will blip during the reboot and proceed.
 	local drained=1
-	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" || drained=0
+	# pipefail: the pipeline fails with kubectl, whatever the filter returns.
+	kubectl drain "$node" --ignore-daemonsets --delete-emptydir-data --timeout="$DRAIN_TIMEOUT" 2>&1 | drain_filter || drained=0
 	require_owned_cordon "$node" "$owner" "the cordon changed during the drain"
 	if ((! drained)); then
 		warn "drain incomplete — assessing what is left on $node"
