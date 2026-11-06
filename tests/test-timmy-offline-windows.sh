@@ -113,6 +113,7 @@ out=$(run STUB_REBOOT_NO_CONNECT=1)
 assert_eq "a reboot ssh that never connected fails windows" 1 "${out##*$'\n'}"
 assert_has "it says the reboot is unconfirmed" "could not confirm timmy accepted the reboot (ssh exit 255: ssh: connect to host timmy-lan port 22: Connection refused)" "$out"
 assert_has "it says the next boot is Windows and how to check" "Its next boot is Windows. Check whether it is going down (ssh timmy-lan uptime)" "$out"
+assert_has "and the way back to up" "The reboot after the Windows session returns to Ubuntu; then: " "$out"
 assert_lacks "it does not claim Windows is booting" "timmy is rebooting into Windows" "$out"
 
 reset
@@ -126,6 +127,10 @@ assert_eq "a grub-reboot sudo refuses fails windows" 1 "${out##*$'\n'}"
 assert_has "it says timmy is drained and still on Ubuntu" "it is drained and still on Ubuntu" "$out"
 assert_has "it points at the sudoers grant" "GUIDE-1070 § sudoers" "$out"
 assert_has "it prints the manual command" "sudo grub-reboot \"$ENTRY\" && sudo reboot" "$out"
+# up waits for a boot-ID change, so a no-reboot failure must not offer up alone.
+assert_has "it says up needs a reboot first" "up needs a reboot since down (it checks the boot ID)" "$out"
+assert_has "and gives the Ubuntu reboot before up" "skip Windows and reboot into Ubuntu: ssh -t timmy-lan sudo reboot; then, back on Ubuntu: " "$out"
+assert_lacks "it does not offer up as a direct way back" "or bring it back:" "$out"
 assert_lacks "it never reboots" "/usr/sbin/reboot" "$(<"$STUB_LOG")"
 
 reset "0"
@@ -133,12 +138,16 @@ out=$(run)
 assert_eq "a next_entry that is not the Windows entry fails windows" 1 "${out##*$'\n'}"
 assert_has "it names what grubenv holds" "next boot entry reads 'next_entry=0'" "$out"
 assert_has "and what to run next" "Inspect with: ssh timmy-lan cat /boot/grub/grubenv" "$out"
+assert_has "it says up needs a reboot first" "up needs a reboot since down (it checks the boot ID)" "$out"
+assert_has "and clears the stray entry before the Ubuntu reboot" "sudo grub-editenv - unset next_entry && sudo reboot'; then, back on Ubuntu: " "$out"
+assert_lacks "it does not offer up as a direct way back" "or bring it back:" "$out"
 assert_lacks "it never reboots" "/usr/sbin/reboot" "$(<"$STUB_LOG")"
 
 reset
 rm -f "$STUB_GRUBENV"
 out=$(run)
 assert_eq "an unreadable grubenv fails windows" 1 "${out##*$'\n'}"
+assert_has "it gives the reboot before up" "up needs a reboot since down (it checks the boot ID); if that reboot lands in Windows, the one after returns to Ubuntu; then: " "$out"
 assert_lacks "it never reboots" "/usr/sbin/reboot" "$(<"$STUB_LOG")"
 
 reset
@@ -146,6 +155,7 @@ out=$(run STUB_REBOOT_RC=1)
 assert_eq "a reboot sudo refuses fails windows" 1 "${out##*$'\n'}"
 assert_has "it says the reboot was refused" "reboot refused on timmy (reboot-rc=1)" "$out"
 assert_has "it warns the next boot is Windows" "its NEXT boot, whenever it comes, is Windows" "$out"
+assert_has "and the way back to up" "the reboot after the Windows session returns to Ubuntu; then: " "$out"
 
 help=$(bash "$OUTAGE" --help 2>&1)
 assert_has "--help lists windows" "timmy-offline.sh windows down, then boot timmy into Windows once" "$help"

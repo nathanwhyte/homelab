@@ -665,13 +665,13 @@ cmd_windows() {
 	entry=$(printf '%q' "$WINDOWS_GRUB_ENTRY")
 	log "next boot of $NODE: $WINDOWS_GRUB_ENTRY (once)"
 	"$SSH" -o BatchMode=yes "$NODE_SSH" "sudo -n /usr/sbin/grub-reboot $entry" ||
-		die "grub-reboot failed on $NODE, so it was not rebooted: it is drained and still on Ubuntu. Is the NOPASSWD grant in /etc/sudoers.d/node-maintenance (GUIDE-1070 § sudoers)? Boot Windows by hand: ssh -t $NODE_SSH 'sudo grub-reboot \"$WINDOWS_GRUB_ENTRY\" && sudo reboot', or bring it back: $SELF up"
+		die "grub-reboot failed on $NODE, so it was not rebooted: it is drained and still on Ubuntu. Is the NOPASSWD grant in /etc/sudoers.d/node-maintenance (GUIDE-1070 § sudoers)? $SELF up needs a reboot since down (it checks the boot ID), so either boot Windows by hand: ssh -t $NODE_SSH 'sudo grub-reboot \"$WINDOWS_GRUB_ENTRY\" && sudo reboot', or skip Windows and reboot into Ubuntu: ssh -t $NODE_SSH sudo reboot; then, back on Ubuntu: $SELF up"
 	# grubenv is world-readable: confirm the one-shot entry before rebooting, since
 	# grub-reboot accepts a title that matches no menu entry.
 	next=$("$SSH" -o BatchMode=yes "$NODE_SSH" "grep '^next_entry=' /boot/grub/grubenv") ||
-		die "cannot read $NODE's /boot/grub/grubenv after grub-reboot; not rebooting. Check it, then reboot by hand: ssh -t $NODE_SSH sudo reboot"
+		die "cannot read $NODE's /boot/grub/grubenv after grub-reboot; not rebooting: it is drained and still on Ubuntu, and grub-reboot succeeded, so its next boot is most likely Windows. Check: ssh $NODE_SSH cat /boot/grub/grubenv; then reboot by hand: ssh -t $NODE_SSH sudo reboot. $SELF up needs a reboot since down (it checks the boot ID); if that reboot lands in Windows, the one after returns to Ubuntu; then: $SELF up"
 	[[ $next == "next_entry=$WINDOWS_GRUB_ENTRY" ]] ||
-		die "$NODE's next boot entry reads '$next', not '$WINDOWS_GRUB_ENTRY'; not rebooting: it is drained and still on Ubuntu, and its next boot follows that entry. Inspect with: ssh $NODE_SSH cat /boot/grub/grubenv; then boot Windows by hand: ssh -t $NODE_SSH 'sudo grub-reboot \"$WINDOWS_GRUB_ENTRY\" && sudo reboot', or bring it back: $SELF up"
+		die "$NODE's next boot entry reads '$next', not '$WINDOWS_GRUB_ENTRY'; not rebooting: it is drained and still on Ubuntu, and its next boot follows that entry. Inspect with: ssh $NODE_SSH cat /boot/grub/grubenv. $SELF up needs a reboot since down (it checks the boot ID), so either boot Windows by hand: ssh -t $NODE_SSH 'sudo grub-reboot \"$WINDOWS_GRUB_ENTRY\" && sudo reboot', or clear the entry and reboot into Ubuntu: ssh -t $NODE_SSH 'sudo grub-editenv - unset next_entry && sudo reboot'; then, back on Ubuntu: $SELF up"
 	log "rebooting $NODE"
 	# ssh exits 255 both when the reboot drops the connection and when it never
 	# connected, so its status proves nothing. The remote echoes reboot's own
@@ -681,10 +681,10 @@ cmd_windows() {
 	case $out in
 	*reboot-rc=0*) ;;
 	*reboot-rc=*)
-		die "reboot refused on $NODE (${out//$'\n'/ }); it is drained and still on Ubuntu, and its NEXT boot, whenever it comes, is Windows. Reboot it by hand: ssh -t $NODE_SSH sudo reboot"
+		die "reboot refused on $NODE (${out//$'\n'/ }); it is drained and still on Ubuntu, and its NEXT boot, whenever it comes, is Windows. Reboot it by hand: ssh -t $NODE_SSH sudo reboot; the reboot after the Windows session returns to Ubuntu; then: $SELF up"
 		;;
 	*)
-		die "could not confirm $NODE accepted the reboot (ssh exit $rc: ${out//$'\n'/ }). Its next boot is Windows. Check whether it is going down (ssh $NODE_SSH uptime); if it is still up on Ubuntu, reboot it by hand: ssh -t $NODE_SSH sudo reboot"
+		die "could not confirm $NODE accepted the reboot (ssh exit $rc: ${out//$'\n'/ }). Its next boot is Windows. Check whether it is going down (ssh $NODE_SSH uptime); if it is still up on Ubuntu, reboot it by hand: ssh -t $NODE_SSH sudo reboot. The reboot after the Windows session returns to Ubuntu; then: $SELF up"
 		;;
 	esac
 	log "timmy is rebooting into Windows. The reboot after the Windows session returns to Ubuntu; then:  $SELF up"
