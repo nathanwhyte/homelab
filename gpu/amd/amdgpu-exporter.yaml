@@ -335,6 +335,10 @@ spec:
         - name: exporter
           image: registry.nathanwhyte.dev/homelab/amdgpu-exporter:amdsmi
           command: ["python3", "/app/exporter.py"]
+          # Not the default /dev/termination-log: /dev is the host's, mounted
+          # read-only below, and after a reboot runc cannot create the file
+          # there, so the container fails to start (StartError 128).
+          terminationMessagePath: /tmp/termination-log
           ports:
             - containerPort: 9101
               name: metrics
