@@ -539,7 +539,9 @@ dur_label() {
 	fi
 }
 
-# The shortest restart window worth reading: five of Prometheus' 60s scrapes.
+# Prometheus' scrape interval (the Prometheus resource's scrapeInterval), and
+# the shortest restart window worth reading: five scrapes.
+PROM_SCRAPE_SECONDS=60
 RESTART_MIN_WINDOW_SECONDS=300
 
 # The restart-history window in seconds: from RESTART_BOOT_GRACE_SECONDS after
@@ -566,6 +568,20 @@ restart_window() {
 	echo "$window"
 }
 
+# Whether Prometheus has the window's history: it scraped kube-state-metrics at
+# least 90% of the expected times in the last $1 seconds. Elapsed time alone is
+# not enough: Prometheus or kube-state-metrics can come back after timmy's boot,
+# and a window it barely saw would read as "none restarting". Prints the scrape
+# count; returns 1 when it falls short, or on a query failure (reason on stderr).
+restart_coverage() {
+	local out n need=$(($1 * 9 / 10 / PROM_SCRAPE_SECONDS))
+	out=$(prom_query "sum(sum_over_time(up{job=\"kube-state-metrics\"}[${1}s]))") || return 1
+	n=$(jq -r 'select(.status == "success") | (.data.result[0].value[1] // "0") | tonumber | floor' <<<"$out" 2>/dev/null) || n=0
+	[[ $n =~ ^[0-9]+$ ]] || n=0
+	echo "$n"
+	((n >= need))
+}
+
 restart_threshold_ok() {
 	[[ $RESTART_WARN_24H =~ ^[1-9][0-9]*$ ]] && return 0
 	echo "RESTART_WARN_24H must be a positive integer, got '$RESTART_WARN_24H'" >&2
@@ -588,11 +604,16 @@ restart_counts() {
 	fi
 	# By UID, not name: a recreated StatefulSet pod must not inherit its
 	# predecessor's crashes. Init containers count too: a native sidecar's
-	# restarts are only in the init-container series. The newest sample minus
-	# the oldest in the window, not increase(): increase() extrapolates to the
-	# window's edges, which in a short window turns 3 restarts into 8. A
-	# container's restartCount never drops while its pod (its UID) lives.
-	out=$(prom_query "max by (uid) ((max_over_time(${c}[${1}s]) - min_over_time(${c}[${1}s])) or (max_over_time(${i}[${1}s]) - min_over_time(${i}[${1}s]))) >= $RESTART_WARN_24H") || return 1
+	# restarts are only in the init-container series. changes(), not arithmetic
+	# on the counter: increase() extrapolates to the window's edges (3 restarts
+	# read as 8 in a 3-minute window) and a difference of samples reads a reset
+	# (restartCount can drop to 0 when a node's kubelet loses its state) as
+	# dozens. changes() counts sample-to-sample changes: a reset is one, and a
+	# burst Prometheus did not see (it runs on timmy, so it misses every timmy
+	# outage) is one. Restarts closer than one scrape count once, which only
+	# undercounts a crashloop's first fast retries (CrashLoopBackOff's delay
+	# doubles up to 5m).
+	out=$(prom_query "max by (uid) (changes(${c}[${1}s]) or changes(${i}[${1}s])) >= $RESTART_WARN_24H") || return 1
 	jq -ce 'select(.status == "success")
 		| [.data.result[] | select(.metric.uid) | {key: .metric.uid, value: (.value[1] | tonumber)}]
 		| from_entries' <<<"$out" 2>/dev/null || {
@@ -610,7 +631,7 @@ restart_counts() {
 # maintenance cycle without failing it. Without Prometheus (it is pinned to
 # timmy) the restart history is skipped with a warning.
 pod_health() {
-	local json bad err_file err rc=0 restarts history=1 window span=24h
+	local json bad err_file err rc=0 restarts history=1 window span=24h scrapes
 	err_file=$(mktemp)
 	json=$("$KUBECTL" get pods -A -o json 2>"$err_file") || rc=$?
 	err=$(<"$err_file")
@@ -619,8 +640,17 @@ pod_health() {
 		warn "pod health unavailable (${err//$'\n'/ }); check with: kubectl get pods -A"
 		return 0
 	fi
-	if ! window=$(restart_window 2>"$err_file") ||
-		{ ((window >= RESTART_MIN_WINDOW_SECONDS)) && ! restarts=$(restart_counts "$window" 2>"$err_file"); }; then
+	if ! window=$(restart_window 2>"$err_file"); then
+		warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
+		restarts='{}' history=0
+	elif ((window >= RESTART_MIN_WINDOW_SECONDS)) && ! scrapes=$(restart_coverage "$window" 2>"$err_file"); then
+		if [[ -s $err_file ]]; then
+			warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
+		else
+			warn "restart history incomplete: Prometheus scraped kube-state-metrics ${scrapes:-0} of ~$((window / PROM_SCRAPE_SECONDS)) times in the last $(dur_label "$window"); listing pods by status only. For crashloops, rerun $SELF status once it has caught up"
+		fi
+		restarts='{}' history=0
+	elif ((window >= RESTART_MIN_WINDOW_SECONDS)) && ! restarts=$(restart_counts "$window" 2>"$err_file"); then
 		warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
 		restarts='{}' history=0
 	elif ((window < RESTART_MIN_WINDOW_SECONDS)); then

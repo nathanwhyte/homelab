@@ -23,7 +23,9 @@ cat >"$TMPDIR_TEST/kubectl" <<'STUB'
 # adds a stderr warning to a successful one). Prometheus queries (get --raw) fail
 # with STUB_FAIL_PROM=1; the boot-time query answers timmy's uptime,
 # STUB_UPTIME seconds (default 200000, so the window is a full 24h; `none`
-# answers no series), and the restart query prints $STUB_PROM. Workload reads
+# answers no series), the coverage query STUB_SCRAPES kube-state-metrics scrapes
+# (default 100000, always enough; `none` answers no series), and the restart
+# query prints $STUB_PROM. Workload reads
 # answer 0 replicas, so up has nothing to wait for; Longhorn has no volumes.
 set -euo pipefail
 echo "$*" >>"$STUB_LOG"
@@ -38,7 +40,13 @@ get)
     ;;
   --raw)
     [[ ${STUB_FAIL_PROM:-0} == 0 ]] || { echo 'Error from server (ServiceUnavailable): no endpoints available for service "prom-prometheus:9090"' >&2; exit 1; }
-    if [[ $3 == *node_boot_time_seconds* ]]; then
+    if [[ $3 == *sum_over_time* ]]; then
+      if [[ ${STUB_SCRAPES:-} == none ]]; then
+        echo '{"status":"success","data":{"resultType":"vector","result":[]}}'
+      else
+        echo "{\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[{\"metric\":{},\"value\":[1762412400,\"${STUB_SCRAPES:-100000}\"]}]}}"
+      fi
+    elif [[ $3 == *node_boot_time_seconds* ]]; then
       if [[ ${STUB_UPTIME:-} == none ]]; then
         echo '{"status":"success","data":{"resultType":"vector","result":[]}}'
       else
@@ -258,9 +266,10 @@ assert_eq "a crashlooping pod keeps its status, not the count" \
 assert_lacks "a pod Prometheus remembers but the cluster no longer has is left out" "garage-1-gone" "$out"
 assert_lacks "a recreated pod does not inherit its predecessor's restarts" "garage-0 " "$out"
 queries=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
-assert_eq "it asks Prometheus for timmy's uptime, then each pod UID's busiest container, init containers included, at the threshold over the window" \
+assert_eq "it asks Prometheus for timmy's uptime, the window's scrape coverage, then each pod UID's busiest container, init containers included, at the threshold over the window" \
 	"time() - max(node_boot_time_seconds and on (namespace, pod) kube_pod_info{node=\"timmy\"})
-max by (uid) ((max_over_time(kube_pod_container_status_restarts_total[86400s]) - min_over_time(kube_pod_container_status_restarts_total[86400s])) or (max_over_time(kube_pod_init_container_status_restarts_total[86400s]) - min_over_time(kube_pod_init_container_status_restarts_total[86400s]))) >= 5" \
+sum(sum_over_time(up{job=\"kube-state-metrics\"}[86400s]))
+max by (uid) (changes(kube_pod_container_status_restarts_total[86400s]) or changes(kube_pod_init_container_status_restarts_total[86400s])) >= 5" \
 	"$(while IFS= read -r q; do decode "$q"; done <<<"$queries")"
 
 reset "$HEALTHY" "$REBOOTED"
@@ -272,7 +281,7 @@ reset "$HEALTHY" "$SLOW"
 prom uid-csi-provisioner-85dd8446fb-hbjbw=3
 out=$(RESTART_WARN_24H=3 run up)
 assert_has "RESTART_WARN_24H sets the threshold in the warning" "or restarting 3+ times in 24h" "$out"
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
 assert_has "and in the query" ">= 3" "$(decode "$query")"
 
 # E1: after an outage, restarts count from RESTART_BOOT_GRACE_SECONDS after
@@ -280,7 +289,7 @@ assert_has "and in the query" ">= 3" "$(decode "$query")"
 reset "$HEALTHY" "$SLOW"
 prom uid-csi-provisioner-85dd8446fb-hbjbw=42
 out=$(STUB_UPTIME=11700 run up) # 3h15m: a 3h window
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
 assert_has "a boot 3h15m ago gives a 3h window in the query" "[10800s]" "$(decode "$query")"
 assert_eq "and the row says so" \
 	"longhorn-system csi-provisioner-85dd8446fb-hbjbw 1/1 Running (42 restarts in 3h (since 15m after timmy's boot)) 94 19d" "$(row csi-provisioner-85dd8446fb-hbjbw "$out")"
@@ -319,8 +328,31 @@ assert_eq "and only the boot time is asked" 1 "$(grep -c -- '--raw' "$STUB_LOG")
 
 reset "$HEALTHY"
 out=$(STUB_UPTIME=1200 run up) # exactly 5m
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
 assert_has "a 5m window is read" "[300s]" "$(decode "$query")"
+
+# Elapsed time is not history: a window Prometheus barely scraped (it, or
+# kube-state-metrics, came back late) is incomplete, not "none restarting".
+reset "$HEALTHY" "$SLOW" "$CRASHLOOP"
+prom uid-csi-provisioner-85dd8446fb-hbjbw=42
+out=$(STUB_UPTIME=11700 STUB_SCRAPES=1 run up) # a 3h window, ~180 scrapes expected
+assert_eq "up with an incomplete history still succeeds" 0 "${out##*$'\n'}"
+assert_has "it says the history is incomplete, with the counts" \
+	"WARN: restart history incomplete: Prometheus scraped kube-state-metrics 1 of ~180 times in the last 3h; listing pods by status only." "$out"
+assert_eq "it asks for no restart counts" 0 "$(grep -c 'changes' "$STUB_LOG")"
+assert_lacks "and claims none restarting nowhere" "none restarting" "$out"
+assert_has "it still lists pods by status" "CrashLoopBackOff" "$out"
+
+reset "$HEALTHY"
+out=$(STUB_UPTIME=11700 STUB_SCRAPES=161 run up) # one short of 90%
+assert_has "one scrape short of 90% is incomplete" "scraped kube-state-metrics 161 of ~180 times" "$out"
+reset "$HEALTHY"
+out=$(STUB_UPTIME=11700 STUB_SCRAPES=162 run up)
+assert_has "90% is enough" "none restarting 5+ times in 3h" "$out"
+
+reset "$HEALTHY"
+out=$(STUB_SCRAPES=none run up)
+assert_has "no coverage series is incomplete" "scraped kube-state-metrics 0 of ~1440 times in the last 24h" "$out"
 
 # A leading zero would be octal to bash arithmetic (0600 is 384s).
 reset "$HEALTHY"
@@ -338,7 +370,7 @@ assert_eq "neither reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 
 reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=0 STUB_UPTIME=90000 run up)
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v node_boot_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
 assert_has "the window never reaches past 24h" "[86400s]" "$(decode "$query")"
 
 reset "$HEALTHY" "$SLOW" "$CRASHLOOP"
