@@ -425,26 +425,89 @@ garage_check() {
 	sed -n '/HEALTHY NODES/,$p' <<<"$out" | sed 's/^/    /'
 }
 
-# Pods cluster-wide that are neither Running nor Completed, as kubectl's own table
-# rows (namespace, name, ready, status, restarts, age). The STATUS column, not
-# .status.phase: a crashlooping pod's phase is still Running. A report, never a
-# gate: `up` has already restored service, and an unrelated crashloop (Longhorn's
+# The STATUS `kubectl get pods` prints, derived from the pod JSON the way its
+# printer does (k8s.io/kubernetes pkg/printers/internalversion printPod):
+# Terminating, else the first unfinished init container (Init:<reason> or
+# Init:<i>/<n>; a running native sidecar counts as finished), else the first
+# container with a waiting or terminated reason, else .status.reason (Evicted),
+# else the phase. A crashlooping pod's phase is still Running, so the phase alone
+# would hide it.
+# shellcheck disable=SC2016 # jq program, not shell
+POD_STATUS_JQ='
+def cstate:
+	if .state.waiting.reason then .state.waiting.reason
+	elif .state.terminated then
+		(.state.terminated.reason // (if (.state.terminated.signal // 0) != 0
+			then "Signal:\(.state.terminated.signal)"
+			else "ExitCode:\(.state.terminated.exitCode)" end))
+	else null end;
+def initstate:
+	(.spec.initContainers // []) as $specs
+	| (.status.initContainerStatuses // []) as $st
+	| [$st | to_entries[]
+		| select((.value.state.terminated.exitCode == 0) | not)
+		| select((.value.state.running and (($specs[.key].restartPolicy // "") == "Always")) | not)]
+	| if length == 0 then null
+		else .[0] as $e
+		| if $e.value.state.terminated then
+			"Init:" + ($e.value.state.terminated.reason // "ExitCode:\($e.value.state.terminated.exitCode)")
+		elif ($e.value.state.waiting.reason // "PodInitializing") != "PodInitializing" then
+			"Init:" + $e.value.state.waiting.reason
+		else "Init:\($e.key)/\($st | length)" end
+	end;
+def podstatus:
+	if .metadata.deletionTimestamp then "Terminating"
+	else (initstate // (
+		(.status.containerStatuses // []) as $cs
+		| ([$cs[] | cstate | select(. != null)] | first) as $c
+		| if $c == "Completed" and any($cs[]; .state.running) then "Running"
+			else ($c // .status.reason // .status.phase // "Unknown") end))
+	end;
+def age:
+	try ((now - (.metadata.creationTimestamp | fromdateiso8601)) | floor
+		| if . >= 86400 then "\(. / 86400 | floor)d"
+		elif . >= 3600 then "\(. / 3600 | floor)h"
+		elif . >= 60 then "\(. / 60 | floor)m"
+		else "\(.)s" end)
+	catch "?";
+.items[]
+| podstatus as $s
+| select($s != "Running" and $s != "Completed")
+| (.status.containerStatuses // []) as $cs
+| [.metadata.namespace, .metadata.name,
+	"\([$cs[] | select(.ready)] | length)/\(.spec.containers // [] | length)",
+	$s, ([$cs[].restartCount // 0] | add // 0 | tostring), age]
+| @tsv'
+
+# Pods cluster-wide that are neither Running nor Completed (namespace, name,
+# ready, status, restarts, age), from the pod JSON, never kubectl's table, so a
+# kubectl warning on stderr is never read as a pod. A report, never a gate: `up`
+# has already restored service, and an unrelated crashloop (Longhorn's
 # csi-provisioner at 93 restarts, found by hand on 2026-11-05) should surface at
-# the next maintenance cycle without failing it. Rows with fewer than six fields
-# are not kubectl table rows and are skipped.
+# the next maintenance cycle without failing it.
 pod_health() {
-	local out bad
-	if ! out=$("$KUBECTL" get pods -A --no-headers 2>&1); then
-		warn "pod health unavailable (${out//$'\n'/ }); check with: kubectl get pods -A"
+	local json bad err_file err rc=0
+	err_file=$(mktemp)
+	json=$("$KUBECTL" get pods -A -o json 2>"$err_file") || rc=$?
+	err=$(<"$err_file")
+	rm -f "$err_file"
+	if ((rc != 0)); then
+		warn "pod health unavailable (${err//$'\n'/ }); check with: kubectl get pods -A"
 		return 0
 	fi
-	bad=$(awk 'NF >= 6 && $4 != "Running" && $4 != "Completed"' <<<"$out")
+	if ! bad=$(jq -r "$POD_STATUS_JQ" <<<"$json" 2>/dev/null); then
+		warn "pod health unavailable (kubectl did not return pod JSON); check with: kubectl get pods -A"
+		return 0
+	fi
 	if [[ -z $bad ]]; then
 		log "all pods Running or Completed"
 		return 0
 	fi
-	warn "pods neither Running nor Completed (NAMESPACE NAME READY STATUS RESTARTS AGE):"
-	sed 's/^/    /' <<<"$bad"
+	warn "pods neither Running nor Completed:"
+	{
+		printf 'NAMESPACE\tNAME\tREADY\tSTATUS\tRESTARTS\tAGE\n'
+		printf '%s\n' "$bad"
+	} | column -t -s $'\t' | sed 's/^/    /'
 }
 
 # --- Commands -------------------------------------------------------------------
@@ -570,8 +633,8 @@ cmd_status() {
 	else
 		log "no cross-node volume depends solely on $NODE"
 	fi
-	# Unhealthy Longhorn fails node-maintenance.sh status; list pods anyway, then
-	# keep its exit status.
+	# node-maintenance.sh status fails when it cannot read the nodes or Longhorn
+	# (degraded volumes it only reports); list pods anyway, then keep its status.
 	local rc=0
 	"$NODE_MAINTENANCE" status || rc=$?
 	pod_health
