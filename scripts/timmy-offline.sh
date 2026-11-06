@@ -153,7 +153,8 @@ wait_cross_node_detached() {
 	while ((SECONDS < deadline)); do
 		left=$(cross_node_orphans) || die "cannot read Longhorn state"
 		[[ -z $left ]] && return 0
-		# Each row once, not on every 10s poll.
+		# Each distinct row once, not on every 10s poll (a volume back on a node
+		# already printed is not printed again).
 		while IFS= read -r row; do
 			grep -qxF -- "$row" <<<"$printed" && continue
 			printf '    still attached: %s\n' "$row"

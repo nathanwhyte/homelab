@@ -56,8 +56,13 @@ drain)
 		((i == 3)) && echo 'pod/garage-1 evicted'
 		echo 'error when evicting pods/"$IM" -n "longhorn-system" (will retry after 5s): Cannot evict pod as it would violate the pod'"'"'s disruption budget.' >&2
 	done
+	# kubectl's timeout trailer (k8s.io/kubectl pkg/cmd/drain: the pending pods,
+	# the per-node error, then the pending nodes).
 	echo 'There are pending pods in node "timmy" when an error occurred: error when evicting pods/"$IM" -n "longhorn-system": global timeout reached: 5m0s' >&2
+	echo 'pod/$IM' >&2
 	echo 'error: unable to drain node "timmy" due to error: error when evicting pods/"$IM" -n "longhorn-system": global timeout reached: 5m0s, continuing command...' >&2
+	echo 'There are pending nodes to be drained:' >&2
+	echo ' timmy' >&2
 	exit 1
 	;;
 get)
@@ -78,6 +83,7 @@ STUB
 chmod +x "$TMPDIR_TEST/kubectl"
 export PATH=$TMPDIR_TEST:$PATH KUBECTL=$TMPDIR_TEST/kubectl
 export STUB_LOG=$TMPDIR_TEST/calls.log STUB_VOLUMES_DIR=$TMPDIR_TEST/volumes STUB_PODS_DIR=$TMPDIR_TEST/pods
+export XDG_STATE_HOME=$TMPDIR_TEST/state # the health gate's stderr capture lives there
 mkdir -p "$STUB_PODS_DIR"
 
 PASS=0
@@ -127,8 +133,10 @@ strip() { sed $'s/\033\\[[0-9;]*m//g'; }
 	set +e
 	sleep() { :; }
 
-	# After the drain the instance-manager is still on timmy; garage-1 is gone.
-	echo 'timmy ' >"$STUB_PODS_DIR/longhorn-system_$IM"
+	# Pod reads print <node>|<created>|<deleting>. After the drain the
+	# instance-manager is still on timmy, created long before; garage-1 is gone.
+	old=2026-10-01T00:00:00Z
+	echo "timmy|$old|" >"$STUB_PODS_DIR/longhorn-system_$IM"
 	raw=$("$KUBECTL" drain timmy 2>&1)
 	out=$("$KUBECTL" drain timmy 2>&1 | drain_filter timmy)
 	rc=$?
@@ -140,15 +148,22 @@ strip() { sed $'s/\033\\[[0-9;]*m//g'; }
 
 	# Same-named pods: kubectl's `pod/same-0 evicted` names no namespace. Only
 	# alpha's went (and came back on manu); beta's is still on timmy.
-	echo 'manu ' >"$STUB_PODS_DIR/alpha_same-0"
-	echo 'timmy ' >"$STUB_PODS_DIR/beta_same-0"
+	echo "manu|$old|" >"$STUB_PODS_DIR/alpha_same-0"
+	echo "timmy|$old|" >"$STUB_PODS_DIR/beta_same-0"
 	printf 'SAMENAME\n%s\nEND\n' "$(STUB_DRAIN=samename "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)"
 	# Accepted but still terminating, and a pod that cannot be read.
-	echo 'timmy 2026-11-06T07:00:00Z' >"$STUB_PODS_DIR/alpha_same-0"
+	echo "timmy|$old|2026-11-06T07:00:00Z" >"$STUB_PODS_DIR/alpha_same-0"
 	: >"$STUB_PODS_DIR/beta_same-0.fail"
 	printf 'EDGES\n%s\nEND\n' "$(STUB_DRAIN=samename "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)"
-	# The terminating-namespace retry format, and a line no rule knows, each 5 times.
+	# Evicted, then recreated on timmy with spec.nodeName set (created after the
+	# drain began, which bypasses the cordon).
+	echo "timmy|2099-01-01T00:00:00Z|" >"$STUB_PODS_DIR/alpha_same-0"
+	rm -f "$STUB_PODS_DIR/beta_same-0.fail"
+	printf 'RECREATED\n%s\nEND\n' "$(STUB_DRAIN=samename "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)"
+	# The terminating-namespace retry format, and a line no rule knows, each 5
+	# times, from a drain that succeeds.
 	other=$(STUB_DRAIN=other "$KUBECTL" drain timmy 2>&1 | drain_filter timmy)
+	echo "other_rc=$?"
 	echo "other_max=$(max_repeat "$other")"
 	printf 'OTHER\n%s\nEND\n' "$other"
 
@@ -198,7 +213,12 @@ assert_has "of two same-named pods, the one that left reads evicted" \
 	"    alpha/same-0: eviction refused 1 times $PDB; evicted in the end" "$samename"
 assert_has "and the one still on the node does not" \
 	"    beta/same-0: eviction refused 1 times $PDB; still on timmy when the drain ended" "$samename"
+assert_eq "a successful drain keeps its success through the filter" 0 "$(field other_rc)"
 assert_eq "a drain in a terminating namespace prints no line more than twice" 2 "$(field other_max)"
+assert_has "a pod recreated on the node after the drain began reads as recreated" \
+	"    alpha/same-0: eviction refused 1 times $PDB; evicted, then recreated on timmy" "$(block RECREATED)"
+assert_has "kubectl's pending-pod trailer passes through" "pod/$IM" "$drain"
+assert_has "and its pending-node trailer" "There are pending nodes to be drained:" "$drain"
 other=$(block OTHER)
 assert_eq "the terminating-namespace retry is printed once" 1 "$(grep -c '^error when evicting pod "web-0" from terminating namespace' <<<"$other")"
 assert_has "and ends as a counted line" "    doomed/web-0: eviction refused 5 times (pods \"web-0\" is forbidden: unable to create new content in namespace doomed because it is being terminated); evicted in the end" "$other"
