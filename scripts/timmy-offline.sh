@@ -432,11 +432,12 @@ garage_check() {
 
 # This report's own health rule, not kubectl's STATUS column (whose printer has
 # more branches than a copy here could keep up with). A pod is healthy when it
-# has Succeeded, or is Running, not being deleted, Ready (or not Ready for less
-# than NOTREADY_GRACE_SECONDS, so pods still starting after `up` are left out),
-# with no container restarting RESTART_WARN_24H+ times in 24h ($restarts,
+# is not being deleted and has Succeeded, or is Running, Ready (or its Ready
+# condition has not been True for less than NOTREADY_GRACE_SECONDS, so pods
+# still starting after `up` are left out), with no container problem and no
+# container restarting RESTART_WARN_24H+ times in 24h ($restarts,
 # {"<pod uid>": n} from restart_counts). Any other pod is listed with the first
-# REASON that applies:
+# REASON that applies, in this order:
 #   Terminating                        deletionTimestamp set
 #   Init:<reason>, Init:ExitCode:<n>   an init container (native sidecars included)
 #                                      waiting for a reason other than starting, or
@@ -445,9 +446,12 @@ garage_check() {
 #                                      (CrashLoopBackOff, ImagePullBackOff, Error)
 #   <.status.reason> or <phase>        not Running (Evicted, Pending, Failed, Unknown)
 #   Running (<n> restarts in 24h)      a slow crashloop, Running between crashes
-#   NotReady                           Ready false beyond the grace
+#   NotReady                           Ready not True (False, Unknown or absent)
+#                                      beyond the grace
 # READY counts regular containers and native sidecars; RESTARTS sums every
-# container, init containers included. The reasons are the API's own strings.
+# container, init containers included. <reason> and <.status.reason> are the
+# API's own strings; Terminating, the Init: prefix, ExitCode:<n>, the restart
+# label and NotReady are this report's.
 NOTREADY_GRACE_SECONDS=300
 # shellcheck disable=SC2016 # jq program, not shell
 POD_STATUS_JQ='
