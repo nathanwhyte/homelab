@@ -2012,8 +2012,8 @@ data:
 
     **Write-time checks** (IMPR-1401, BUG-1283, BUG-1284; section "Write-time checks" below).
     ``OV_PROFILE_FILTER`` removes activity-log bullets from a peer's ``profile`` write (only
-    when every list item is one unquoted line, else ``kept_unsupported``; a write the cut
-    would leave with no text is kept whole and recorded ``kept_empty``),
+    when every line is blank, an ATX heading or a plain bullet, else ``kept_unsupported``; a
+    write the cut would leave with no text is kept whole and recorded ``kept_empty``),
     ``OV_EVENT_EXCERPT_CHECK`` logs an event whose summary names a ``#N`` its excerpt lacks,
     ``OV_PREF_DEDUPE`` logs a preference equal to another (log only, never a skip), and
     ``OV_PROFILE_PREFETCH_PEER_ONLY`` keeps the user-level singleton out of the extraction
@@ -2803,11 +2803,13 @@ data:
     # * ``OV_PROFILE_FILTER`` (``ov-profile-filter``): ``1`` removes from a peer's ``profile`` write
     #   each list item that names a PR or issue number, a compendium item ID, a numbered
     #   phase, or opens with a review finding label (``P0:``-``P3:``); shadow records
-    #   ``would_drop``. It cuts only when markdown-it finds every list item to be one line in
-    #   an unquoted list; any other shape is kept whole and recorded ``kept_unsupported``
-    #   with a ``shape`` field. A write that filtering would leave with no text is kept whole
-    #   and recorded ``kept_empty`` (an empty body is never re-indexed, so the old vector
-    #   would stay searchable). The
+    #   ``would_drop``. It cuts only a profile in the format ``filter_profile_content``
+    #   states: every line blank, an ATX heading or a one-line bullet at column 0, one
+    #   marker throughout, no blank line between two bullets. Any other profile is kept
+    #   whole and gets one ``kept_unsupported`` record naming the first line outside the
+    #   format. A write that filtering would leave with no text is kept whole and recorded
+    #   ``kept_empty`` (an empty body is never re-indexed, so the old vector would stay
+    #   searchable). Every record carries the ``mode``. The
     #   user-level ``profile.md`` (a URI with no peer in the parsed placement) is never filtered or logged: it is
     #   the frozen fallback ``profile-inject`` reads for a peer with no profile.
     # * ``OV_EVENT_EXCERPT_CHECK`` (``ov-event-excerpt``): logs an ``events`` write whose summary
@@ -2938,89 +2940,62 @@ data:
         return None
 
 
-    # The line split markdown-it uses: it normalizes \r\n and \r to \n and counts only \n, so
-    # str.splitlines (which also splits on \v, \f, \x1c, U+2028 ...) would shift token maps.
-    _MD_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
-    _MD_PARSER: list = []  # [MarkdownIt] once built; [None] when markdown-it is missing
-
-
-    def _markdown():
-        if not _MD_PARSER:
-            try:
-                from markdown_it import MarkdownIt  # shipped in the v0.5.1.1 image
-
-                _MD_PARSER.append(MarkdownIt("commonmark"))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "ov-memory-guard: markdown-it unavailable (%r); profiles are not filtered",
-                    exc,
-                )
-                _MD_PARSER.append(None)
-        return _MD_PARSER[0]
-
-
-    def _list_items(md, content: str) -> list[tuple[int, int, bool]]:
-        """``[(start, end, quoted), ...]`` for every list item markdown-it finds, nested ones
-        included: its source line range, and whether a blockquote encloses it."""
-        items, quotes = [], 0
-        for token in md.parse(content):
-            if token.type == "blockquote_open":
-                quotes += 1
-            elif token.type == "blockquote_close":
-                quotes -= 1
-            elif token.type == "list_item_open" and token.map:
-                items.append((token.map[0], token.map[1], quotes > 0))
-        return items
+    # The profile format the filter cuts (user pick C1 on homelab#309). Every line is one of:
+    # blank (only spaces and tabs, the CommonMark definition), an ATX heading at column 0, or
+    # a bullet at column 0: one marker, one space, then a letter or digit, optionally after
+    # ``**``, and not an ordered-list marker (``- 1. x`` would nest a list). No such line can
+    # open a multi-line block or continue the line before it, so removing a bullet changes
+    # how no other line parses. Two more conditions close the list-level changes: every
+    # bullet uses the same marker (a marker change starts a new list, which a removal could
+    # merge), and no blank line sits between two bullets (a removal could turn a loose list
+    # tight). Codex rounds 2 to 4 and Claude round 5 found a cut that changed a neighbour
+    # under every parser-based rule; this format leaves nothing to parse.
+    _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")  # CommonMark line endings
+    _BLANK_LINE = re.compile(r"[ \t]*")
+    _HEADING_LINE = re.compile(r"#{1,6}(?:[ \t].*)?", re.DOTALL)
+    _BULLET_LINE = re.compile(r"([-*+]) (?!\d+[.)](?:[ \t]|$))(?:\*\*)?[^\W_].*", re.DOTALL)
 
 
     def filter_profile_content(
         content: str,
-    ) -> tuple[str, list[tuple[str, str]], str | None]:
+    ) -> tuple[str, list[tuple[str, str]], tuple[str, int, str] | None]:
         """``(kept text, [(reason, line), ...], unsupported)``.
 
-        The filter acts only on the shape the extraction model writes: every list item is
-        one source line in an unquoted list. Then each matching item's line is removed and
-        every other line, blank lines included, is kept byte for byte, so no neighbour can
-        change its meaning. Any other shape (an item with a second line, a nested item or a
-        paragraph under it, a quoted list), a missing markdown-it or a line map that does
-        not fit the text keeps the write whole and names why in ``unsupported``; the records
-        then list the items that would have matched. Codex rounds 2 and 3 of homelab#309
-        (P2s) found items whose boundaries a cut got wrong; this shape has no boundary to
-        get wrong (user pick B1).
+        When every line fits the format above, each bullet that ``profile_bullet_reason``
+        matches is removed and every other line is kept byte for byte. Otherwise the text is
+        returned whole with no removals, and ``unsupported`` is ``(shape, line number, line)``
+        for the first line outside the format: shape ``line`` (neither blank, heading nor
+        bullet), ``mixed_markers`` or ``blank_between_bullets``.
         """
-        md = _markdown()
-        if md is None:
-            return content, [], "no_parser"
-        if not content:
-            return content, [], None
-        lines = _MD_LINE.findall(content)
-        try:
-            items = _list_items(md, content)
-        except Exception as exc:  # noqa: BLE001 — a parse failure keeps the write whole
-            logger.warning("ov-memory-guard: profile parse failed (%r); kept whole", exc)
-            return content, [], "parse_error"
-        if "".join(lines) != content or any(end > len(lines) for _, end, _ in items):
-            logger.warning("ov-memory-guard: profile line map mismatch; kept whole")
-            return content, [], "line_map"
-        unsupported = None
-        for start, end, quoted in items:
-            if quoted:
-                unsupported = "quoted_item"
-                break
-            if any(line.strip() for line in lines[start + 1 : end]):
-                unsupported = "multi_line_item"  # a nested item is one too
-                break
-        drop: set[int] = set()
+        lines = _LINE.findall(content)
+        marker = None
+        last = None  # "bullet", "heading" or "blank_after_bullet" for the last line seen
+        for number, line in enumerate(lines, 1):
+            body = line.rstrip("\r\n")
+            bullet = _BULLET_LINE.fullmatch(body)
+            if _BLANK_LINE.fullmatch(body):
+                if last == "bullet":
+                    last = "blank_after_bullet"
+                continue
+            if bullet:
+                if marker is not None and bullet.group(1) != marker:
+                    return content, [], ("mixed_markers", number, body)
+                if last == "blank_after_bullet":
+                    return content, [], ("blank_between_bullets", number, body)
+                marker, last = bullet.group(1), "bullet"
+            elif _HEADING_LINE.fullmatch(body):
+                last = "heading"
+            else:
+                return content, [], ("line", number, body)
+        kept: list[str] = []
         removed: list[tuple[str, str]] = []
-        for start, _end, _quoted in items:
-            reason = profile_bullet_reason(lines[start])
-            if reason and start not in drop:
-                drop.add(start)
-                removed.append((reason, lines[start].strip()))
-        if unsupported:
-            return content, removed, unsupported
-        kept = "".join(line for i, line in enumerate(lines) if i not in drop)
-        return kept, removed, None
+        for line in lines:
+            reason = profile_bullet_reason(line)
+            if reason:
+                removed.append((reason, line.strip()))
+            else:
+                kept.append(line)
+        return "".join(kept), removed, None
 
 
     def _body_digest(text: str) -> str:
@@ -3117,31 +3092,45 @@ data:
         if mode == "0" or parsed is None or parsed.peer is None:
             return  # the user-level profile.md is the frozen fallback: never touched
         kept, removed, unsupported = filter_profile_content(memory_file.content or "")
+        if unsupported:
+            # One record per write, matched bullets or not, so a profile the filter never
+            # cuts shows in the log rather than looking clean.
+            shape, number, line = unsupported
+            emit_record(
+                PROFILE_PREFIX,
+                {
+                    "action": "kept_unsupported",
+                    "mode": mode,
+                    "shape": shape,
+                    "line": number,
+                    "text": _clip(line),
+                    "uri": memory_file.uri,
+                },
+            )
+            return
         # A write left with no text is not applied (Codex round 1 of homelab#309, P2): the
         # stock updater derives an empty abstract, EmbeddingMsgConverter.from_context returns
         # None, and neither an index update nor a delete follows, so the old vector and its
-        # activity-filled abstract stay searchable. Keeping the text matches shadow mode.
-        # A shape the filter does not cut (see filter_profile_content) is kept whole too.
-        apply = mode == "1" and unsupported is None and bool(kept.strip())
-        if mode == "shadow":
-            action = "would_drop"
-        elif unsupported:
-            action = "kept_unsupported"
-        elif apply:
-            action = "dropped"
-        else:
+        # activity-filled abstract stay searchable.
+        cut = bool(kept.strip())
+        if not cut:
             action = "kept_empty"
+        elif mode == "shadow":
+            action = "would_drop"
+        else:
+            action = "dropped"
         for reason, bullet in removed:
-            record = {
-                "action": action,
-                "reason": reason,
-                "uri": memory_file.uri,
-                "bullet": _clip(bullet),
-            }
-            if unsupported:
-                record["shape"] = unsupported
-            emit_record(PROFILE_PREFIX, record)
-        if removed and apply:
+            emit_record(
+                PROFILE_PREFIX,
+                {
+                    "action": action,
+                    "mode": mode,
+                    "reason": reason,
+                    "uri": memory_file.uri,
+                    "bullet": _clip(bullet),
+                },
+            )
+        if removed and cut and mode == "1":
             memory_file.content = kept
 
 
