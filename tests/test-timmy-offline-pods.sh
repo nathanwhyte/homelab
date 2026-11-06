@@ -304,6 +304,9 @@ prom uid-csi-provisioner-85dd8446fb-hbjbw=42
 out=$(STUB_UPTIME=11700 run up) # 3h15m: a 3h window
 query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v sum_over_time)
 assert_has "a boot 3h15m ago gives a 3h window in the query" "[10800s]" "$(decode "$query")"
+assert_eq "and the coverage check reads the same 3h" \
+	"sum(sum_over_time(up{job=\"kube-state-metrics\"}[10800s]))" \
+	"$(decode "$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep sum_over_time)")"
 assert_eq "and the row says so" \
 	"longhorn-system csi-provisioner-85dd8446fb-hbjbw 1/1 Running (42 restarts in 3h (since 15m after timmy's boot)) 94 19d" "$(row csi-provisioner-85dd8446fb-hbjbw "$out")"
 assert_has "the warning names the window" "or restarting 5+ times in 3h (since 15m after timmy's boot)):" "$out"
