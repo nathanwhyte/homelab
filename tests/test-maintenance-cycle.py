@@ -78,7 +78,8 @@ def fake_command(tool, args):
         if resource == "--raw=/readyz":
             print("ok")
         elif resource == "--raw" and "/proxy/api/v1/query?" in args[2]:
-            # pod_health's restart history: no pod restarting often.
+            # pod_health's restart history: an empty answer, so the coverage
+            # check reads 0 scrapes and up lists pods by status only.
             print(json.dumps({"status": "success", "data": {"result": []}}))
         elif resource == "nodes":
             if "json" in args:

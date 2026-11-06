@@ -583,8 +583,11 @@ restart_window() {
 # and a window it barely saw would read as "none restarting". Prints the scrape
 # count; returns 1 when it falls short, or on a query failure (reason on stderr).
 restart_coverage() {
-	# 90% of the expected scrapes, rounded up: a 300s window's 5 scrapes need 5 (4.5).
-	local out n need=$(((${1} * 9 + 10 * PROM_SCRAPE_SECONDS - 1) / (10 * PROM_SCRAPE_SECONDS)))
+	# 90% of the scrapes a complete history is sure to hold, rounded up. A range
+	# selector is left-open, so a w-second window holds floor(w/60) samples for
+	# certain and one more only at some phases: 0.9 * w / 60 asked for 6 of a
+	# 350s window that held 5. A 300s window's 5 need 5 (4.5); 600s's 10 need 9.
+	local out n need=$((((${1} / PROM_SCRAPE_SECONDS) * 9 + 9) / 10))
 	out=$(prom_query "sum(sum_over_time(up{job=\"kube-state-metrics\"}[${1}s]))") || return 1
 	n=$(jq -r 'select(.status == "success") | (.data.result[0].value[1] // "0") | tonumber | floor' <<<"$out" 2>/dev/null) || n=0
 	[[ $n =~ ^[0-9]+$ ]] || n=0

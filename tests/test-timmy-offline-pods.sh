@@ -57,13 +57,17 @@ esac
 STUB
 chmod +x "$TMPDIR_TEST/kubectl"
 
-# ssh [-o opt]... <host> <command>: logs `ssh <host>: <command>`. timmy's
+# ssh [-o opt]... <host> <command>: logs `ssh <-o opt>... <host>: <command>`. timmy's
 # /proc/uptime reads STUB_UPTIME seconds (default 200000, so the restart window
 # is a full 24h); STUB_UPTIME=none fails as an unreachable host.
 cat >"$TMPDIR_TEST/ssh" <<'STUB'
 #!/usr/bin/env bash
-while [[ $1 == -o ]]; do shift 2; done
-echo "ssh $1: ${*:2}" >>"$STUB_LOG"
+opts=()
+while [[ $1 == -o ]]; do
+  opts+=("$1 $2")
+  shift 2
+done
+echo "ssh ${opts[*]} $1: ${*:2}" >>"$STUB_LOG"
 if [[ ${STUB_UPTIME:-} == none ]]; then
   echo "ssh: connect to host $1 port 22: Connection refused" >&2
   exit 255
@@ -273,7 +277,8 @@ assert_eq "a crashlooping pod keeps its status, not the count" \
 	"longhorn-system csi-provisioner-6c8b9d7f4-x2k9q 0/1 CrashLoopBackOff 93 19d" "$(row csi-provisioner-6c8b9d7f4-x2k9q "$out")"
 assert_lacks "a pod Prometheus remembers but the cluster no longer has is left out" "garage-1-gone" "$out"
 assert_lacks "a recreated pod does not inherit its predecessor's restarts" "garage-0 " "$out"
-assert_eq "it reads timmy's uptime from timmy itself, once" "ssh timmy-lan: cat /proc/uptime" "$(grep '^ssh ' "$STUB_LOG")"
+assert_eq "it reads timmy's uptime from timmy itself, once, unable to prompt or hang on connect" \
+	"ssh -o BatchMode=yes -o ConnectTimeout=10 timmy-lan: cat /proc/uptime" "$(grep '^ssh ' "$STUB_LOG")"
 queries=$(sed -n 's|^get --raw /api/v1/namespaces/grafana/services/prom-prometheus:9090/proxy/api/v1/query?query=||p' "$STUB_LOG")
 assert_eq "it asks Prometheus for the window's scrape coverage, then each pod UID's busiest container, init containers included, at the threshold over the window" \
 	"sum(sum_over_time(up{job=\"kube-state-metrics\"}[86400s]))
@@ -289,7 +294,7 @@ reset "$HEALTHY" "$SLOW"
 prom uid-csi-provisioner-85dd8446fb-hbjbw=3
 out=$(RESTART_WARN_24H=3 run up)
 assert_has "RESTART_WARN_24H sets the threshold in the warning" "or restarting 3+ times in 24h" "$out"
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v sum_over_time)
 assert_has "and in the query" ">= 3" "$(decode "$query")"
 
 # E1: after an outage, restarts count from RESTART_BOOT_GRACE_SECONDS after
@@ -297,7 +302,7 @@ assert_has "and in the query" ">= 3" "$(decode "$query")"
 reset "$HEALTHY" "$SLOW"
 prom uid-csi-provisioner-85dd8446fb-hbjbw=42
 out=$(STUB_UPTIME=11700 run up) # 3h15m: a 3h window
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v sum_over_time)
 assert_has "a boot 3h15m ago gives a 3h window in the query" "[10800s]" "$(decode "$query")"
 assert_eq "and the row says so" \
 	"longhorn-system csi-provisioner-85dd8446fb-hbjbw 1/1 Running (42 restarts in 3h (since 15m after timmy's boot)) 94 19d" "$(row csi-provisioner-85dd8446fb-hbjbw "$out")"
@@ -328,6 +333,7 @@ reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=15m run up)
 assert_has "a grace that is not whole seconds is refused" "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '15m'" "$out"
 assert_eq "and never reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
+assert_eq "or timmy" 0 "$(grep -c '^ssh ' "$STUB_LOG")"
 
 # Past the grace but short of five scrapes: still skipped, and the wait rounds up.
 reset "$HEALTHY"
@@ -337,7 +343,7 @@ assert_eq "and Prometheus is not asked" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 
 reset "$HEALTHY"
 out=$(STUB_UPTIME=1200 run up) # exactly 5m
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v sum_over_time)
 assert_has "a 5m window is read" "[300s]" "$(decode "$query")"
 
 # Elapsed time is not history: a window Prometheus barely scraped (it, or
@@ -367,6 +373,15 @@ reset "$HEALTHY"
 out=$(STUB_UPTIME=1200 STUB_SCRAPES=5 run up)
 assert_has "5 of 5 is enough" "none restarting 5+ times in 5m" "$out"
 
+# A range selector is left-open, so a complete 350s window may hold only 5
+# samples; asking for 90% of 350/60 (6) would refuse a full history.
+reset "$HEALTHY"
+out=$(STUB_UPTIME=1250 STUB_SCRAPES=5 run up)
+assert_has "a complete 350s window's 5 scrapes are enough" "none restarting 5+ times in 5m" "$out"
+reset "$HEALTHY"
+out=$(STUB_UPTIME=1250 STUB_SCRAPES=4 run up)
+assert_has "and 4 of them are not" "scraped kube-state-metrics 4 of ~5 times in the last 5m" "$out"
+
 reset "$HEALTHY"
 out=$(STUB_SCRAPES=none run up)
 assert_has "no coverage series is incomplete" "scraped kube-state-metrics 0 of ~1440 times in the last 24h" "$out"
@@ -376,6 +391,7 @@ reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=0600 run up)
 assert_has "a grace with a leading zero is refused" "RESTART_BOOT_GRACE_SECONDS must be a whole number of seconds, got '0600'" "$out"
 assert_eq "before any query" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
+assert_eq "or any ssh" 0 "$(grep -c '^ssh ' "$STUB_LOG")"
 
 # restart_counts checks its own inputs, whoever calls it.
 reset "$HEALTHY"
@@ -387,7 +403,7 @@ assert_eq "neither reaches Prometheus" 0 "$(grep -c -- '--raw' "$STUB_LOG")"
 
 reset "$HEALTHY"
 out=$(RESTART_BOOT_GRACE_SECONDS=0 STUB_UPTIME=90000 run up)
-query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v -e node_boot_time -e sum_over_time)
+query=$(sed -n 's|^get --raw .*query?query=||p' "$STUB_LOG" | grep -v sum_over_time)
 assert_has "the window never reaches past 24h" "[86400s]" "$(decode "$query")"
 
 reset "$HEALTHY" "$SLOW" "$CRASHLOOP"
