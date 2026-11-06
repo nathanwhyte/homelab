@@ -63,10 +63,10 @@
 # node-maintenance.sh finish instead of dying on the missing cycle state.
 #
 # The power-off itself is deliberately manual (needs a TTY for sudo):
-#   ssh -t timmy sudo shutdown -h now
+#   ssh -t timmy-lan sudo shutdown -h now
 # or, for a Windows session (os-prober entry — Windows shares the Ubuntu ESP on
 # nvme0n1p1; boots Windows exactly once, the following reboot returns to Ubuntu):
-#   ssh -t timmy 'sudo grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)" && sudo reboot'
+#   ssh -t timmy-lan 'sudo grub-reboot "Windows Boot Manager (on /dev/nvme0n1p1)" && sudo reboot'
 
 set -euo pipefail
 
@@ -77,6 +77,9 @@ SELF=$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")
 # script (and the real cluster).
 NODE_MAINTENANCE=${NODE_MAINTENANCE:-$SCRIPT_DIR/node-maintenance.sh}
 NODE=timmy
+# SSH alias for the printed power-off command, the same "<node><suffix>" rule as
+# node-maintenance.sh: timmy-lan bypasses Tailscale SSH check-mode (GUIDE-1070).
+NODE_SSH=$NODE${NODE_SSH_SUFFIX--lan}
 STATE_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
 STATE_DIR=$STATE_ROOT/homelab-timmy-offline
 SCALE_FILE=$STATE_DIR/parked-scales
@@ -469,7 +472,7 @@ cmd_down() {
 	fi
 	echo
 	log "timmy is parked, cordoned and drained. Power off when ready:"
-	log "    ssh -t $NODE sudo shutdown -h now"
+	log "    ssh -t $NODE_SSH sudo shutdown -h now"
 	log "When it is back on Ubuntu:  $SELF up"
 }
 
