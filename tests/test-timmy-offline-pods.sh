@@ -239,6 +239,7 @@ out=$(STUB_FAIL_PROM=1 run up)
 assert_eq "up without Prometheus still succeeds" 0 "${out##*$'\n'}"
 assert_has "it warns that the restart history is unavailable" \
 	'WARN: restart history unavailable (Error from server (ServiceUnavailable): no endpoints available for service "prom-prometheus:9090"); listing pods by status only' "$out"
+assert_has "it names the command to rerun once Prometheus is back" "for crashloops, rerun $OUTAGE status once it answers" "$out"
 assert_has "it still lists pods by status" "CrashLoopBackOff" "$out"
 assert_lacks "and lists no slow crashloop it cannot see" "hbjbw" "$out"
 

@@ -540,7 +540,7 @@ pod_health() {
 		return 0
 	fi
 	if ! restarts=$(restart_counts 2>"$err_file"); then
-		warn "restart history unavailable ($(<"$err_file")); listing pods by status only"
+		warn "restart history unavailable ($(<"$err_file")); listing pods by status only. Prometheus restarts with timmy: for crashloops, rerun $SELF status once it answers"
 		restarts='{}' history=0
 	fi
 	rm -f "$err_file"
