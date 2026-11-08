@@ -27,9 +27,11 @@
 # Node tags are live-only Longhorn state (INFO-1154); node_tags records the ones
 # this policy depends on, and the check fails when a listed node lacks its tag.
 
-# Phase 4 flips this to `enforce` once every exempt PVC carries exempt_label.
-# Until then label mismatches are printed and do not fail the check.
-backup_labels: report
+# `enforce`: a recurring-job label that disagrees with a row's backup column
+# fails the check (`report` prints it only). Enforced since every exempt PVC
+# carried exempt_label on 2026-11-08 (IMPR-1478 Phase 4), and backup-daily is
+# applied only while this check exits 0.
+backup_labels: enforce
 exempt_label: recurring-job-group.longhorn.io/manual
 
 node_tags:
@@ -114,14 +116,17 @@ volumes:
     backup: daily
     reason: Garage metadata (small); Garage replicates it as well
   - pvc: copyparty/copyparty-files
-    # Drops to 1 under the large-volume rule (decision 2026-11-08) once its
-    # first backup-daily run is Completed in R2; until then the second replica
-    # is its only off-node copy.
+    # Staged (decision A1, 2026-11-08): its first full backup (162 GiB) runs as
+    # a one-off in an announced quiet window, apart from backup-daily's first
+    # night. Then this row becomes `backup: daily` (PVC label
+    # recurring-job.longhorn.io/backup-daily=enabled in files-pvc.yaml, manual
+    # group label removed), and replicas drops to 1 under the large-volume rule.
+    # Until then the second replica is its only off-node copy.
     replicas: 2
     disk_selector: [hdd]
     node_selector: [ethernet]
-    backup: daily
-    reason: user files (162 GiB); joins backup-daily by job label (out of `default` by its own snapshot job)
+    backup: manual
+    reason: user files (162 GiB); daily snapshots by its own job; R2 enrollment staged
   - pvc: harbor/data-harbor-redis-0
     replicas: 2
     disk_selector: [hdd]

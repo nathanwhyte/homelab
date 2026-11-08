@@ -198,5 +198,138 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(torn_reads, [])
 
 
+def _volume(name, ns, pvc):
+    return {
+        "metadata": {"name": name},
+        "status": {"kubernetesStatus": {"namespace": ns, "pvcName": pvc}},
+    }
+
+
+def _backup(vol, state="Completed", created="2026-11-09T09:00:00Z"):
+    return {
+        "metadata": {"labels": {"backup-volume": vol}},
+        "status": {"state": state, "snapshotCreatedAt": created, "volumeName": vol},
+    }
+
+
+class LonghornFreshnessTests(unittest.TestCase):
+    """IMPR-1478: per-volume freshness from Longhorn Backup CRs."""
+
+    T9 = exporter._parse_rfc3339("2026-11-09T09:00:00Z")
+
+    def test_same_pvc_name_in_two_namespaces_stays_separate(self):
+        volumes = [
+            _volume("pvc-a", "coach", "postgres-data"),
+            _volume("pvc-b", "glossary", "postgres-data"),
+        ]
+        newest, unmatched = exporter.longhorn_freshness(
+            ["coach/postgres-data", "glossary/postgres-data"],
+            volumes,
+            [_backup("pvc-a")],
+        )
+        self.assertEqual(newest["longhorn/coach/postgres-data"], self.T9)
+        self.assertIsNone(newest["longhorn/glossary/postgres-data"])
+        self.assertEqual(unmatched, 0)
+
+    def test_recreated_claim_does_not_inherit_old_backups(self):
+        # The claim was recreated: the PVC now binds pvc-new, and the retained
+        # backups of pvc-old belong to no current volume.
+        newest, unmatched = exporter.longhorn_freshness(
+            ["grafana/grafana-storage"],
+            [_volume("pvc-new", "grafana", "grafana-storage")],
+            [_backup("pvc-old"), _backup("pvc-old", created="2026-11-08T09:00:00Z")],
+        )
+        self.assertIsNone(newest["longhorn/grafana/grafana-storage"])
+        self.assertEqual(unmatched, 2)
+
+    def test_only_completed_backups_count_and_newest_wins(self):
+        newest, _ = exporter.longhorn_freshness(
+            ["llama/cloud-llm-counter-data"],
+            [_volume("pvc-c", "llama", "cloud-llm-counter-data")],
+            [
+                _backup("pvc-c", created="2026-11-07T09:00:00Z"),
+                _backup("pvc-c", created="2026-11-08T09:00:00Z"),
+                _backup("pvc-c", state="InProgress", created="2026-11-10T09:00:00Z"),
+                _backup("pvc-c", state="Error", created="2026-11-11T09:00:00Z"),
+            ],
+        )
+        self.assertEqual(
+            newest["longhorn/llama/cloud-llm-counter-data"],
+            exporter._parse_rfc3339("2026-11-08T09:00:00Z"),
+        )
+
+    def test_row_with_only_failed_backups_is_infinite(self):
+        newest, _ = exporter.longhorn_freshness(
+            ["viking/openviking-data"],
+            [_volume("pvc-o", "viking", "openviking-data")],
+            [_backup("pvc-o", state="Error"), _backup("pvc-o", state="InProgress")],
+        )
+        body = exporter.render(
+            newest, 1.0, {"unmatched": 0, "target_available": 1}, now=self.T9
+        )
+        self.assertIn(
+            'backup_freshness_seconds{app="longhorn/viking/openviking-data"} +Inf', body
+        )
+        self.assertIn(
+            'backup_freshness_max_age_seconds{app="longhorn/viking/openviking-data"} 129600',
+            body,
+        )
+
+    def test_target_availability(self):
+        self.assertEqual(
+            exporter.longhorn_target_available([{"status": {"available": True}}]), 1
+        )
+        self.assertEqual(
+            exporter.longhorn_target_available([{"status": {"available": False}}]), 0
+        )
+        self.assertEqual(exporter.longhorn_target_available([]), 0)
+
+    def test_daily_file_validation(self):
+        import json
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(["coach/postgres-data"], fh)
+        self.assertEqual(exporter.load_longhorn_daily(fh.name), ["coach/postgres-data"])
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(["no-namespace"], fh)
+        with self.assertRaises(ValueError):
+            exporter.load_longhorn_daily(fh.name)
+
+    def test_longhorn_failure_withholds_every_series(self):
+        with (
+            patch.object(exporter, "LONGHORN_DAILY", "/nonexistent/daily.json"),
+            patch.object(exporter, "list_backup_tree", return_value=[]),
+        ):
+            newest, _, longhorn = exporter.collect()
+        self.assertIsNone(newest)
+        self.assertIsNone(longhorn)
+        self.assertIn("backup_freshness_up 0", exporter.render(newest, 1.0, longhorn))
+
+    def test_repo_daily_json_matches_the_policy(self):
+        import json
+
+        root = Path(__file__).resolve().parents[1]
+        proc = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--offline",
+                "-q",
+                str(root / "longhorn/scripts/replica-policy.py"),
+                "--daily-json",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        on_disk = json.loads((root / "grafana/longhorn-backup-daily.json").read_text())
+        self.assertEqual(
+            json.loads(proc.stdout),
+            on_disk,
+            "regenerate: replica-policy.py --daily-json > grafana/longhorn-backup-daily.json",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

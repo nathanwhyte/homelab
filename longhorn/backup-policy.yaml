@@ -1,0 +1,43 @@
+# Daily Longhorn backup of every volume in the `default` recurring-job group to
+# the R2 backup target (IMPR-1478 Phase 4).
+#
+# Which volumes: Longhorn puts a volume with no recurring-job label into
+# `default` implicitly. Volumes that must never be snapshotted or backed up
+# (Loki, Prometheus, Alertmanager per IMPR-1125; caches; test data; media,
+# which has its own rclone sync) carry recurring-job-group.longhorn.io/manual on
+# their PVC instead, a group no RecurringJob belongs to.
+# longhorn/replica-policy.yaml is the record and `replica-policy.py --check`
+# verifies the labels; apply this file only when that check exits 0, or a cron
+# tick can catch a volume whose exemption has not reached its Volume CR.
+#
+# A backup always takes a snapshot first, and Longhorn keeps the latest backup
+# snapshot per job on disk (auto-cleanup-recurring-job-backup-snapshot), which
+# is why the observability volumes must stay out of this group.
+#
+# Time: Longhorn turns this into a CronJob with no timeZone, so the cron runs
+# on kube-controller-manager's clock, which is America/Chicago on timmy
+# (copyparty's `0 4 * * *` fires at 10:00Z in standard time). 02:00 Chicago
+# leaves 90 minutes before the k3s datastore backup (03:30) and two hours before
+# copyparty's 04:00 snapshot; read the first run's duration from the job pod and
+# move the slot if it overlaps them.
+#
+# Traffic: the first run is a full backup of every enrolled volume (about
+# 45 GiB on 2026-11-08), and full-backup-interval repeats a full upload every
+# 7th run. concurrency: 1 serializes this job's volumes but caps no bandwidth.
+# copyparty (162 GiB) joins only after its own first full backup runs in an
+# announced window (decision A1, 2026-11-08).
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-daily
+  namespace: longhorn-system
+spec:
+  cron: "0 2 * * *"
+  task: backup
+  groups: [default]
+  retain: 7
+  concurrency: 1
+  labels:
+    policy: daily
+  parameters:
+    full-backup-interval: "7"

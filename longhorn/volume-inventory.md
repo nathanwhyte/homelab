@@ -6,9 +6,14 @@ backup posture, and `uv run longhorn/scripts/replica-policy.py --check` compares
 it with the cluster; this page adds the size, current placement and the reason a
 detached volume is kept. Read live 2026-11-08, Longhorn 1.12.1.
 
-Backup posture: **daily** is the `backup-daily` RecurringJob (Phase 4, not yet
-live), **manual** is out of every RecurringJob and backed up by hand on request,
-**none** is never backed up by Longhorn.
+Backup posture: **daily** is the `backup-daily` RecurringJob
+([`backup-policy.yaml`](backup-policy.yaml), 02:00 America/Chicago, retain 7),
+**manual** is out of every RecurringJob and backed up by hand on request,
+**none** is never backed up by Longhorn. Exempt volumes carry
+`recurring-job-group.longhorn.io/manual` on their PVC.
+
+**Each morning expect 20 Completed backups**, one per `daily` row (21 once
+copyparty joins). The job pod's `Found N volumes` line should read the same.
 
 ## Attached
 
@@ -16,14 +21,14 @@ live), **manual** is out of every RecurringJob and backed up by hand on request,
 | --- | --- | --- | --- | --- | --- |
 | `coach/postgres-data` | longhorn-db | 2 | manu, wemby | <1 GiB | daily |
 | `compendium/compendium-sync-state-v2` | longhorn-compendium-sync | 2 | manu, timmy | <1 GiB | daily |
-| `copyparty/copyparty-files` | longhorn-hdd-2x | 2 | manu, wemby | 162 GiB | daily |
+| `copyparty/copyparty-files` | longhorn-hdd-2x | 2 → 1 | manu, wemby | 162 GiB | manual → daily after its one-off first backup |
 | `equal-risk/pgdata-postgres-0` | longhorn-db | 3 | manu, timmy, wemby | <1 GiB | daily |
 | `garage/data-garage-0` | longhorn-garage-data | 1 | manu | 4 GiB | daily |
 | `garage/data-garage-1` | longhorn-garage-data | 1 | timmy | 4 GiB | daily |
 | `garage/data-garage-2` | longhorn-garage-data | 1 | manu | 4 GiB | daily |
 | `garage/meta-garage-0` | longhorn-nvme | 2 | timmy, wemby | 2 GiB | daily |
 | `garage/meta-garage-1` | longhorn-nvme | 2 | timmy, wemby | 3 GiB | daily |
-| `garage/meta-garage-2` | longhorn-nvme | 2 | timmy, wemby | 3 GiB | daily |
+| `garage/meta-garage-2` | longhorn-nvme | 2 | manu, timmy | 4.7 GiB of 10 | daily |
 | `grafana/alertmanager-prom-alertmanager-db-…-0` | longhorn-observability | 1 | timmy | <1 GiB | manual |
 | `grafana/grafana-storage` | longhorn-nvme | 2 | manu, timmy | <1 GiB | daily |
 | `grafana/prometheus-prom-prometheus-db-…-0` | longhorn-observability | 1 | timmy | 23 GiB | manual |
@@ -47,6 +52,11 @@ live), **manual** is out of every RecurringJob and backed up by hand on request,
 Large volumes keep one Longhorn replica and take their off-node copy from R2
 (decision 2026-11-08): a second replica streams the whole volume across the LAN
 on every rebuild.
+
+`garage/meta-garage-2` was grown online from 5 to 10 GiB on 2026-11-08 after
+garage-2's LMDB filled it (resync backlog after that day's disturbance). The
+Garage chart's `meta.size` (`garage/garage-values.yaml`) still says 5 GiB, which
+only seeds new claims; meta-garage-0 and -1 stay at 5 GiB with about 1 GiB used.
 
 ## Detached, kept
 

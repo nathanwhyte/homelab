@@ -13,7 +13,10 @@ spec:
       labels:
         app: backup-freshness-exporter
     spec:
-      automountServiceAccountToken: false
+      # IMPR-1478: the token reads Longhorn Backup/Volume/BackupTarget CRs
+      # (read-only Role below, longhorn-system only).
+      serviceAccountName: backup-freshness-exporter
+      automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
@@ -45,6 +48,10 @@ spec:
               value: /tools:/usr/local/bin:/usr/bin:/bin
             - name: RCLONE_CONFIG
               value: /dev/null
+            # Generated from longhorn/replica-policy.yaml (replica-policy.py
+            # --daily-json); shipped in the same ConfigMap as the script.
+            - name: LONGHORN_DAILY
+              value: /app/longhorn-backup-daily.json
           envFrom:
             - secretRef:
                 name: backup-freshness-r2-credentials
@@ -80,6 +87,36 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-freshness-exporter
+  namespace: grafana
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-freshness-exporter
+  namespace: longhorn-system
+rules:
+  - apiGroups: [longhorn.io]
+    resources: [backups, volumes, backuptargets]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-freshness-exporter
+  namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backup-freshness-exporter
+subjects:
+  - kind: ServiceAccount
+    name: backup-freshness-exporter
+    namespace: grafana
 ---
 apiVersion: v1
 kind: Service

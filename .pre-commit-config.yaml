@@ -126,7 +126,7 @@ repos:
         entry: python3 grafana/test-backup-freshness-exporter.py
         language: system
         pass_filenames: false
-        files: ^grafana/(test-)?backup-freshness-exporter\.py$
+        files: ^(grafana/((test-)?backup-freshness-exporter\.py|longhorn-backup-daily\.json)|longhorn/(replica-policy\.yaml|scripts/replica-policy\.py))$
       # IMPR-1331: the Haiku-share reading script. Stdlib only, fakes only.
       - id: ov-haiku-reading-tests
         name: ov-haiku-reading tests

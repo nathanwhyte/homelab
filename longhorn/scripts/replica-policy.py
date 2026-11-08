@@ -339,6 +339,11 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument(
         "--apply", action="store_true", help="patch numberOfReplicas where it differs"
     )
+    mode.add_argument(
+        "--daily-json",
+        action="store_true",
+        help="print the backup: daily PVCs as JSON for the backup-freshness exporter",
+    )
     ap.add_argument("--only", action="append", default=[], metavar="NS/PVC")
     ap.add_argument("--policy", type=Path, default=POLICY)
     ap.add_argument(
@@ -357,6 +362,10 @@ def main(argv: list[str] | None = None) -> int:
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 2
+    if args.daily_json:
+        daily = sorted(r["pvc"] for r in policy["volumes"] if r["backup"] == "daily")
+        print(json.dumps(daily, indent=2))
+        return 0
     unknown = set(args.only) - {r["pvc"] for r in policy["volumes"]}
     if unknown:
         print(f"--only names no policy row: {sorted(unknown)}", file=sys.stderr)
