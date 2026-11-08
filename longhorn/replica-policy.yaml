@@ -1,0 +1,235 @@
+# Intended Longhorn replica placement and backup posture, one row per PVC
+# (IMPR-1478). This file is the authority; the live Volume CR is what the
+# scheduler reads, and longhorn/scripts/replica-policy.py --check reports every
+# row where the two differ.
+#
+# StorageClass parameters are immutable, so a replica count or selector changed
+# after provisioning lives only on the Volume CR, and the PV keeps the
+# provision-time value (BUG-1101). The check prints the PV's count for context
+# and never fails on it.
+#
+# Row fields:
+#   pvc            namespace/name
+#   replicas       spec.numberOfReplicas on the Volume CR
+#   disk_selector  spec.diskSelector, compared as a set (omit to skip)
+#   node_selector  spec.nodeSelector, compared as a set (omit to skip)
+#   allowed_nodes  nodes a healthy replica may sit on (omit to skip). Not a
+#                  scheduling input: node_selector plus node_tags is what keeps
+#                  the scheduler off other nodes; this is the audit.
+#   backup         daily   in the backup-daily RecurringJob (via `default` or
+#                          the job label)
+#                  manual  out of every RecurringJob by exempt_label; backed up
+#                          by hand on request
+#                  none    out of every RecurringJob by exempt_label; never
+#                          backed up (caches, test data, data kept elsewhere)
+#   reason         why the row is what it is
+#
+# Node tags are live-only Longhorn state (INFO-1154); node_tags records the ones
+# this policy depends on, and the check fails when a listed node lacks its tag.
+
+# Phase 4 flips this to `enforce` once every exempt PVC carries exempt_label.
+# Until then label mismatches are printed and do not fail the check.
+backup_labels: report
+exempt_label: recurring-job-group.longhorn.io/manual
+
+node_tags:
+  # Nodes that may hold a stateful volume's replica. wemby is left out because
+  # its NVMe sits at the 25% storage floor (IMPR-1444) and carries the same
+  # `nvme,ssd` disk tags as timmy's, so no disk selector can exclude it alone.
+  stateful: [timmy, manu]
+
+volumes:
+  # --- Stateful, raised from 1 to 2 replicas by IMPR-1478 (timmy + manu) ---
+  - pvc: grafana/grafana-storage
+    replicas: 2 # was 1
+    disk_selector: [ssd] # was [nvme] from longhorn-nvme; manu has no nvme disk
+    node_selector: [stateful]
+    allowed_nodes: [timmy, manu]
+    backup: daily
+    reason: grafana.db SQLite; second replica lets Grafana survive manu or wemby and leave timmy-offline's PARKED list
+  - pvc: omnipendium/omnipendium-db-data
+    replicas: 2 # was 1
+    disk_selector: [ssd] # was [nvme] from longhorn-omnipendium
+    node_selector: [stateful]
+    allowed_nodes: [timmy, manu]
+    backup: daily
+    reason: omnipendium Postgres; covers TASK-1117's R2 half
+  - pvc: llama/cloud-llm-counter-data
+    replicas: 2 # was 1
+    disk_selector: [ssd] # was [] from class `longhorn`
+    node_selector: [stateful]
+    allowed_nodes: [timmy, manu]
+    backup: daily
+    reason: cloud LLM usage counter state
+  - pvc: yt-dlp/media
+    replicas: 2 # was 1 on the CR (hand-lowered, BUG-1101); class says 2
+    disk_selector: [hdd]
+    node_selector: [] # was [wemby] from longhorn-hdd-wemby; widened so manu-hdd can hold the second replica
+    allowed_nodes: [manu, wemby]
+    backup: none
+    reason: yt-dlp archive; own weekly rclone backup to R2 (media/yt-dlp/r2-backup-cronjob.yaml)
+
+  # --- Stateful, already 2+ replicas; placement recorded as-is ---
+  - pvc: coach/postgres-data
+    replicas: 2 # hand-lowered from 3 (BUG-1101)
+    disk_selector: [ssd]
+    backup: daily
+    reason: coach Postgres
+  - pvc: equal-risk/pgdata-postgres-0
+    replicas: 3
+    disk_selector: [ssd]
+    backup: daily
+    reason: equal-risk Postgres (RWO since IMPR-1440); nightly pg_dump also runs
+  - pvc: viking/openviking-data
+    replicas: 2
+    disk_selector: [ssd]
+    backup: daily
+    reason: OpenViking local state
+  - pvc: viking/ov-vectordb-data
+    replicas: 2
+    disk_selector: [ssd]
+    backup: daily
+    reason: OpenViking vector store
+  - pvc: compendium/compendium-sync-state-v2
+    replicas: 2
+    disk_selector: [ssd]
+    backup: daily
+    reason: compendium OV sync state (regenerable, small)
+  - pvc: openwebui/open-webui
+    replicas: 2
+    disk_selector: [ssd]
+    backup: daily
+    reason: OpenWebUI users and chats
+  - pvc: garage/meta-garage-0
+    replicas: 2
+    disk_selector: [nvme]
+    backup: daily
+    reason: Garage metadata (small); Garage replicates it as well
+  - pvc: garage/meta-garage-1
+    replicas: 2
+    disk_selector: [nvme]
+    backup: daily
+    reason: Garage metadata (small); Garage replicates it as well
+  - pvc: garage/meta-garage-2
+    replicas: 2
+    disk_selector: [nvme]
+    backup: daily
+    reason: Garage metadata (small); Garage replicates it as well
+  - pvc: copyparty/copyparty-files
+    replicas: 2
+    disk_selector: [hdd]
+    node_selector: [ethernet]
+    backup: daily
+    reason: user files; joins backup-daily by job label (out of `default` by its own snapshot job)
+  - pvc: harbor/data-harbor-redis-0
+    replicas: 2
+    disk_selector: [hdd]
+    node_selector: [ethernet]
+    backup: daily
+    reason: Harbor
+  - pvc: harbor/data-harbor-trivy-0
+    replicas: 2
+    disk_selector: [hdd]
+    node_selector: [ethernet]
+    backup: daily
+    reason: Harbor
+  - pvc: harbor/database-data-harbor-database-0
+    replicas: 2
+    disk_selector: [hdd]
+    node_selector: [ethernet]
+    backup: daily
+    reason: Harbor
+  - pvc: harbor/harbor-jobservice-rwo
+    replicas: 2
+    disk_selector: [hdd]
+    node_selector: [ethernet]
+    backup: daily
+    reason: Harbor
+  - pvc: harbor/harbor-registry-rwo
+    replicas: 2
+    disk_selector: [hdd]
+    node_selector: [ethernet]
+    backup: daily
+    reason: Harbor image registry
+
+  # --- 1 replica by decision ---
+  - pvc: garage/data-garage-0
+    replicas: 1
+    disk_selector: [ssd]
+    backup: daily
+    reason: Garage replicates 3x itself; daily while the three stay under 20 GiB combined
+  - pvc: garage/data-garage-1
+    replicas: 1
+    disk_selector: [ssd]
+    backup: daily
+    reason: Garage replicates 3x itself; daily while the three stay under 20 GiB combined
+  - pvc: garage/data-garage-2
+    replicas: 1
+    disk_selector: [ssd]
+    backup: daily
+    reason: Garage replicates 3x itself; daily while the three stay under 20 GiB combined
+  - pvc: grafana/storage-loki-0
+    replicas: 1
+    disk_selector: [nvme]
+    allowed_nodes: [timmy]
+    backup: manual
+    reason: strict-local, snapshot-free by IMPR-1125
+  - pvc: grafana/prometheus-prom-prometheus-db-prometheus-prom-prometheus-0
+    replicas: 1
+    disk_selector: [nvme]
+    allowed_nodes: [timmy]
+    backup: manual
+    reason: strict-local, snapshot-free by IMPR-1125
+  - pvc: grafana/alertmanager-prom-alertmanager-db-alertmanager-prom-alertmanager-0
+    replicas: 1
+    disk_selector: [nvme]
+    allowed_nodes: [timmy]
+    backup: manual
+    reason: strict-local, snapshot-free by IMPR-1125
+  - pvc: viking/embedder-cuda-model-cache
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: model cache, re-downloadable
+  - pvc: viking/litellm-redis-data
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: LiteLLM cache
+  - pvc: viking/openviking-test-data
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: ov-test canary data
+  - pvc: viking/ov-vectordb-test-data
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: ov-test canary data
+
+  # --- Detached, kept (longhorn/volume-inventory.md has the owner) ---
+  - pvc: viking/embedder-qwen-model-cache
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: ROCm rollback embedder (Deployment at 0); review 2026-12
+  - pvc: viking/llama-cuda-model-cache
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: llamacpp-cuda-ov at 0, still scaled by viking/tools/ov-vlm.sh and in capacity-auto-resolver's allowlist
+  - pvc: viking/embedder-eg2-model-cache
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: embedder-eg2-cuda Deployment at 0 (TASK-1218 probe); goes with that Deployment
+  - pvc: compendium/compendium-sync-state
+    replicas: 1
+    disk_selector: [ssd]
+    backup: none
+    reason: legacy v1 sync state; compendium/state-migration.md keeps it until a planned node-failover test
+  - pvc: glossary/postgres-data-postgres-0
+    replicas: 2
+    disk_selector: [nvme]
+    backup: manual
+    reason: glossary Postgres data; glossary is scaled to 0, so the claim is detached

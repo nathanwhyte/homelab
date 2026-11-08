@@ -16,6 +16,7 @@ Manifests retained for reference, per the [`mem0`](../mem0/TORN-DOWN.md) and
 | `service/syncthing-gui` | ClusterIP `10.43.59.212`, 80→8384 |
 | `service/syncthing-sync` | **NodePort `32200`** (TCP/UDP) + `32127/UDP` — was exposed on every node |
 | `pvc/syncthing-data` | **50 GiB** on `longhorn-nvme`, Bound 30d. PV reclaim policy was `Delete`, so the Longhorn volume was reclaimed with it |
+| `recurringjob.longhorn.io/syncthing-data-snap-daily` | Missed at the teardown and left running against no volume; deleted 2026-11-08 (IMPR-1478). `snapshot-policy.yaml` stays in the retained kustomization so a restore recreates it with the PVC |
 
 **No backup was taken, deliberately.** Unlike the mem0 teardown — where a
 `pg_dumpall` was archived because the data existed nowhere else — this volume
