@@ -47,10 +47,17 @@ def volume(n=2, disk=("ssd",), node=(), state="attached", labels=None, name="pvc
     }
 
 
-def replica(node, state="running", failed=""):
+def replica(node, state="running", failed="", healthy_at=None):
+    if healthy_at is None:
+        healthy_at = "2026-11-08T00:00:00Z" if state == "running" else ""
     return {
         "metadata": {"name": f"pvc-1-r-{node or 'none'}"},
-        "spec": {"volumeName": "pvc-1", "nodeID": node, "failedAt": failed},
+        "spec": {
+            "volumeName": "pvc-1",
+            "nodeID": node,
+            "failedAt": failed,
+            "healthyAt": healthy_at,
+        },
         "status": {"currentState": state},
     }
 
@@ -112,8 +119,13 @@ class DriftRow(unittest.TestCase):
         self.assertEqual(d.nodes, ["manu", "wemby"])
         self.assertTrue(any("failed replica" in p for p in d.problems))
 
-    def test_rebuilding_or_stopped_replica_on_attached_volume_is_not_healthy(self):
+    def test_stopped_replica_on_attached_volume_is_not_healthy(self):
         d = drift(reps=[replica("timmy"), replica("manu", "stopped")])
+        self.assertIn("1 healthy replica(s) running, policy 2", d.problems)
+
+    def test_rebuilding_replica_is_not_healthy(self):
+        # Running but never RW yet: no healthyAt.
+        d = drift(reps=[replica("timmy"), replica("manu", healthy_at="")])
         self.assertIn("1 healthy replica(s) running, policy 2", d.problems)
 
     def test_unscheduled_replica_is_ignored(self):
@@ -143,6 +155,43 @@ class DriftRow(unittest.TestCase):
     def test_missing_volume_fails(self):
         d = rp.drift_row(ROW, None, None, [], exempt_label=EXEMPT, enforce_labels=True)
         self.assertEqual(d.problems, ["no Longhorn volume bound to this PVC"])
+
+
+class VolumesByPvc(unittest.TestCase):
+    def test_bound_volume_wins_over_released_in_either_order(self):
+        def vol(name, pv_status):
+            return {
+                "metadata": {"name": name},
+                "status": {
+                    "kubernetesStatus": {
+                        "namespace": "compendium",
+                        "pvcName": "state",
+                        "pvStatus": pv_status,
+                    }
+                },
+            }
+
+        old, new = vol("pvc-old", "Released"), vol("pvc-new", "Bound")
+        for order in ([old, new], [new, old]):
+            got = rp.volumes_by_pvc(order)["compendium/state"]
+            self.assertEqual(got["metadata"]["name"], "pvc-new")
+
+
+class ApplyTargets(unittest.TestCase):
+    def test_count_drift_with_matching_selectors_is_patched(self):
+        d = drift(vol=volume(n=1), reps=[replica("timmy")])
+        todo, refused = rp.apply_targets([d])
+        self.assertEqual((len(todo), len(refused)), (1, 0))
+
+    def test_count_drift_with_stale_selector_is_refused(self):
+        # grafana-storage before 3.3: still nvme, so a raise could land on wemby.
+        d = drift(vol=volume(n=1, disk=("nvme",)), reps=[replica("timmy")])
+        todo, refused = rp.apply_targets([d])
+        self.assertEqual((len(todo), len(refused)), (0, 1))
+
+    def test_no_count_drift_is_left_alone(self):
+        d = drift(vol=volume(disk=("nvme",)))
+        self.assertEqual(rp.apply_targets([d]), ([], []))
 
 
 class Labels(unittest.TestCase):

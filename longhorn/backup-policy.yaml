@@ -10,6 +10,14 @@
 # verifies the labels; apply this file only when that check exits 0, or a cron
 # tick can catch a volume whose exemption has not reached its Volume CR.
 #
+# Most exemption labels are live-only: Loki's and Alertmanager's claims come
+# from chart volumeClaimTemplates (immutable on a StatefulSet) and were labelled
+# by hand on 2026-11-08; only Prometheus's is re-applied by a script
+# (grafana/apply-prometheus-filesystem-trim.sh). A recreated claim lands in
+# `default` and is backed up and snapshotted at the next run, so run
+# `replica-policy.py --check` after redeploying the observability stack or any
+# exempt workload, and relabel what it reports.
+#
 # A backup always takes a snapshot first, and Longhorn keeps the latest backup
 # snapshot per job on disk (auto-cleanup-recurring-job-backup-snapshot), which
 # is why the observability volumes must stay out of this group.

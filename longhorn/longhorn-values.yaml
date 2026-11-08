@@ -32,11 +32,39 @@ defaultSettings:
   # just fastReplicaRebuild.
   #
   # The trade is patience on a genuinely dead node: a replacement replica waits
-  # 30 min. That costs nothing for the volumes this protects — copyparty's
-  # replicas are pinned to the only two `hdd` disks (manu, wemby), and wemby's
-  # NVMe disk sits under the 25% free-space minimum, so a replacement has
-  # nowhere to go anyway.
+  # 30 min. Two-replica volumes keep serving from the surviving replica
+  # meanwhile, and large volumes run one replica with R2 as the other copy
+  # (longhorn/replica-policy.yaml), so nothing is left without a copy while it
+  # waits.
   replicaReplenishmentWaitInterval: "1800"
+
+  # The settings below matched live before IMPR-1478 wrote them down (except
+  # nodeDownPodDeletionPolicy), so a reinstall or chart upgrade cannot drift
+  # them back to chart defaults silently.
+  #
+  # When a node is down, force-delete its StatefulSet and Deployment pods once
+  # Kubernetes has evicted them (Terminating past their deletion time), so the
+  # replacements can start. kube-scheduler places a replacement on any node its
+  # constraints allow, and Longhorn attaches the volume there, served by the
+  # surviving replica (over the network unless it is local). A volume whose only
+  # replica was on the dead node still cannot attach, and a pod pinned to that
+  # node stays Pending. The default, do-nothing, leaves pods Terminating until
+  # the node returns, which made second replicas useless for fail-over.
+  nodeDownPodDeletionPolicy: "delete-both-statefulset-and-deployment-pod"
+  # A drain stops before evicting the last healthy replica of a volume.
+  nodeDrainPolicy: "block-if-contains-last-replica"
+  # Recover a volume whose replicas all failed by picking the newest usable one.
+  autoSalvage: "true"
+  # Hard anti-affinity: two replicas of one volume never share a node.
+  replicaSoftAntiAffinity: "false"
+  defaultDataLocality: "disabled"
+  # The scheduling floor that keeps wemby's NVMe (232 GB, ~55 GB free) out of
+  # new placements; volume-inventory.md records the effect.
+  storageMinimalAvailablePercentage: "25"
+  # Create a volume even when fewer nodes than its replica count can take it.
+  allowVolumeCreationWithDegradedAvailability: "true"
+  # Off: orphans are reviewed and deleted by hand (IMPR-1478 Phase 2).
+  orphanResourceAutoDeletion: ""
 
 # Default backup target: Cloudflare R2, written nightly by the backup-daily
 # RecurringJob (longhorn/backup-policy.yaml, IMPR-1478) and by manual backups.

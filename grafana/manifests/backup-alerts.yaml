@@ -90,7 +90,7 @@ spec:
             alertgroup: backup
           annotations:
             summary: "Backup freshness exporter is failing"
-            description: "The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable."
+            description: "The exporter cannot list R2 or the Longhorn CRs, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter's logs, its ServiceMonitor, R2 credentials and its longhorn-system Role. The failed source's freshness rows are missing."
         - alert: BackupFreshnessExporterStale
           expr: time() - backup_freshness_last_run_timestamp_seconds{namespace="grafana", job="backup-freshness-exporter"} > 43200
           for: 1h

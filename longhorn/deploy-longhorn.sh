@@ -12,6 +12,12 @@ HELM_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/helm-deplo
 # chart version and passes it back explicitly, making this an "apply my values"
 # tool. Upgrading the chart is a separate, deliberate Helm operation
 # (longhorn/upgrading.md).
+#
+# A values-only change (a defaultSettings key) does not need this script, which
+# also applies storage.yaml, the secret, the middleware and the Ingress whole.
+# Run the Helm step alone from the repo root, diff first:
+#   python3 scripts/helm-deploy.py longhorn longhorn-system longhorn/longhorn --diff -f longhorn/longhorn-values.yaml
+# then the same command without --diff (IMPR-1478).
 case "${1:-}" in
 --dry-run)
 	[[ $# -eq 1 ]] || exit 2

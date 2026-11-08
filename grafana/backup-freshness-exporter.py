@@ -196,11 +196,19 @@ def longhorn_freshness(
     claim's retained backups, or a recreated claim's old volume) is counted as
     unmatched and never stands in for the current volume.
     """
-    by_pvc = {}
+    # A Released volume left by a recreated claim on a Retain class still names
+    # the claim; the Bound one is the current volume whatever the list order.
+    by_pvc: dict[str, str] = {}
+    bound: set[str] = set()
     for v in volumes:
         ks = (v.get("status") or {}).get("kubernetesStatus") or {}
         if ks.get("namespace") and ks.get("pvcName"):
-            by_pvc[f"{ks['namespace']}/{ks['pvcName']}"] = v["metadata"]["name"]
+            key = f"{ks['namespace']}/{ks['pvcName']}"
+            is_bound = ks.get("pvStatus") == "Bound"
+            if key not in by_pvc or (is_bound and key not in bound):
+                by_pvc[key] = v["metadata"]["name"]
+            if is_bound:
+                bound.add(key)
     current = {v["metadata"]["name"] for v in volumes}
     completed: dict[str, list[float]] = {}
     unmatched = 0
@@ -242,30 +250,49 @@ def collect_longhorn(path: str):
 def collect():
     """Validate the complete listing before publishing a successful sample.
 
-    Returns (newest, last_run, longhorn): newest maps app to its newest backup
-    time, or None when the sample failed; longhorn is the Longhorn source's
-    extra gauges, or None when that source is not configured.
+    Each source (the R2 dump listing, the Longhorn CRs) is all-or-nothing on
+    its own, and one failing does not withhold the other's rows; either failing
+    sets ok to False, which backup_freshness_up reports.
+
+    Returns (newest, last_run, longhorn, ok): newest maps app to its newest
+    backup time, or is None when every source failed; longhorn is the Longhorn
+    source's extra gauges, or None when it failed or is not configured.
     """
+    newest: dict[str, float | None] = {}
+    succeeded = 0
+    ok = True
     try:
         objects = list_backup_tree()
-        newest = {
-            entry["app"]: newest_modtime(objects, entry["segment"])
-            for entry in DECLARED
-        }
-        longhorn = None
-        if LONGHORN_DAILY:
-            lh_newest, longhorn = collect_longhorn(LONGHORN_DAILY)
-            newest.update(lh_newest)
-        return newest, time.time(), longhorn
+        newest.update(
+            {
+                entry["app"]: newest_modtime(objects, entry["segment"])
+                for entry in DECLARED
+            }
+        )
+        succeeded += 1
     except Exception as exc:
         # Do not log provider output, which may contain credential details.
         print(
             f"Backup listing failed: {type(exc).__name__}", file=sys.stderr, flush=True
         )
-        return None, time.time(), None
+        ok = False
+    longhorn = None
+    if LONGHORN_DAILY:
+        try:
+            lh_newest, longhorn = collect_longhorn(LONGHORN_DAILY)
+            newest.update(lh_newest)
+            succeeded += 1
+        except Exception as exc:
+            print(
+                f"Longhorn listing failed: {type(exc).__name__}",
+                file=sys.stderr,
+                flush=True,
+            )
+            ok = False
+    return (newest if succeeded else None), time.time(), longhorn, ok
 
 
-def render(newest, last_run, longhorn=None, now=None):
+def render(newest, last_run, longhorn=None, ok=None, now=None):
     now = time.time() if now is None else now
     lines: list[str] = []
     if newest is not None:
@@ -284,7 +311,8 @@ def render(newest, last_run, longhorn=None, now=None):
             f"backup_freshness_longhorn_target_available {longhorn['target_available']}"
         )
 
-    lines.append(f"backup_freshness_up {int(newest is not None)}")
+    up = newest is not None if ok is None else ok
+    lines.append(f"backup_freshness_up {int(up)}")
     lines.append(f"backup_freshness_last_run_timestamp_seconds {last_run:.3f}")
 
     header = (

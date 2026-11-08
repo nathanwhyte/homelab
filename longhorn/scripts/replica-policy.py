@@ -52,6 +52,7 @@ class Drift:
     nodes: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    selector_drift: bool = False
 
     @property
     def ok(self) -> bool:
@@ -116,17 +117,27 @@ def drift_row(
         ("node_selector", "nodeSelector"),
     ):
         if key in row and _set(spec.get(field_name)) != _set(row[key]):
+            d.selector_drift = True
             d.problems.append(
                 f"{field_name} {sorted(_set(spec.get(field_name)))}, policy {sorted(_set(row[key]))}"
             )
 
+    # On an attached volume a replica counts only once it has finished a
+    # rebuild: a rebuilding replica is already `running` (its engine mode is WO)
+    # but has no spec.healthyAt until it turns RW.
     attached = status.get("state") == "attached"
     healthy = [
         r
         for r in replicas
         if r.get("spec", {}).get("nodeID")
         and not r.get("spec", {}).get("failedAt")
-        and (not attached or r.get("status", {}).get("currentState") == "running")
+        and (
+            not attached
+            or (
+                r.get("status", {}).get("currentState") == "running"
+                and r.get("spec", {}).get("healthyAt")
+            )
+        )
     ]
     failed = [r for r in replicas if r.get("spec", {}).get("failedAt")]
     d.nodes = sorted(r["spec"]["nodeID"] for r in healthy)
@@ -196,16 +207,35 @@ def kubectl_json(*args: str) -> dict:
     return json.loads(out.stdout)
 
 
+def volumes_by_pvc(volumes: list[dict]) -> dict[str, dict]:
+    """Map namespace/pvc to its Volume, preferring the Bound one.
+
+    A recreated claim on a Retain class leaves the old volume Released but
+    still naming the claim; list order must not decide which one is checked.
+    """
+    by_pvc: dict[str, dict] = {}
+    for v in volumes:
+        ks = v.get("status", {}).get("kubernetesStatus") or {}
+        if not (ks.get("namespace") and ks.get("pvcName")):
+            continue
+        key = f"{ks['namespace']}/{ks['pvcName']}"
+        held = by_pvc.get(key)
+        held_bound = (
+            held is not None
+            and (held.get("status", {}).get("kubernetesStatus") or {}).get("pvStatus")
+            == "Bound"
+        )
+        if held is None or (ks.get("pvStatus") == "Bound" and not held_bound):
+            by_pvc[key] = v
+    return by_pvc
+
+
 def load_live() -> tuple[dict, dict, dict, list[dict]]:
     volumes = kubectl_json("-n", NS, "get", "volumes.longhorn.io")["items"]
     replicas = kubectl_json("-n", NS, "get", "replicas.longhorn.io")["items"]
     pvs = kubectl_json("get", "pv")["items"]
     nodes = kubectl_json("-n", NS, "get", "nodes.longhorn.io")["items"]
-    by_pvc = {}
-    for v in volumes:
-        ks = v.get("status", {}).get("kubernetesStatus") or {}
-        if ks.get("namespace") and ks.get("pvcName"):
-            by_pvc[f"{ks['namespace']}/{ks['pvcName']}"] = v
+    by_pvc = volumes_by_pvc(volumes)
     reps: dict[str, list[dict]] = {}
     for r in replicas:
         reps.setdefault(r["spec"]["volumeName"], []).append(r)
@@ -285,9 +315,27 @@ def wait_healthy(volume: str, timeout: int) -> bool:
     return False
 
 
+def apply_targets(drifts: list[Drift]) -> tuple[list[Drift], list[Drift]]:
+    """Split count drift into rows safe to patch and rows refused.
+
+    A row whose disk or node selector still differs from the policy is refused:
+    Longhorn would place the new replica under the old selectors, which is how
+    a replica lands on wemby's NVMe. Fix the selectors by hand first.
+    """
+    counted = [d for d in drifts if d.have is not None and d.have != d.want]
+    return (
+        [d for d in counted if not d.selector_drift],
+        [d for d in counted if d.selector_drift],
+    )
+
+
 def apply(policy: dict, only: list[str], yes: bool, timeout: int) -> int:
     drifts, _ = evaluate(policy, only)
-    todo = [d for d in drifts if d.have is not None and d.have != d.want]
+    todo, refused = apply_targets(drifts)
+    for d in refused:
+        print(f"{d.pvc}: selectors differ from the policy; fix them first, refusing")
+    if refused:
+        return 2
     if not todo:
         print("no replica count to change")
         return 0

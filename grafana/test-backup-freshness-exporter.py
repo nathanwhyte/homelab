@@ -198,10 +198,16 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(torn_reads, [])
 
 
-def _volume(name, ns, pvc):
+def _volume(name, ns, pvc, pv_status="Bound"):
     return {
         "metadata": {"name": name},
-        "status": {"kubernetesStatus": {"namespace": ns, "pvcName": pvc}},
+        "status": {
+            "kubernetesStatus": {
+                "namespace": ns,
+                "pvcName": pvc,
+                "pvStatus": pv_status,
+            }
+        },
     }
 
 
@@ -241,6 +247,20 @@ class LonghornFreshnessTests(unittest.TestCase):
         )
         self.assertIsNone(newest["longhorn/grafana/grafana-storage"])
         self.assertEqual(unmatched, 2)
+
+    def test_released_old_volume_never_stands_in_whatever_the_order(self):
+        # Retain class: the old volume survives Released and still names the claim.
+        old = _volume("pvc-old", "compendium", "state", pv_status="Released")
+        new = _volume("pvc-new", "compendium", "state")
+        backups = [
+            _backup("pvc-old", created="2026-11-01T09:00:00Z"),
+            _backup("pvc-new"),
+        ]
+        for volumes in ([old, new], [new, old]):
+            newest, _ = exporter.longhorn_freshness(
+                ["compendium/state"], volumes, backups
+            )
+            self.assertEqual(newest["longhorn/compendium/state"], self.T9)
 
     def test_only_completed_backups_count_and_newest_wins(self):
         newest, _ = exporter.longhorn_freshness(
@@ -296,15 +316,34 @@ class LonghornFreshnessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             exporter.load_longhorn_daily(fh.name)
 
-    def test_longhorn_failure_withholds_every_series(self):
+    def test_longhorn_failure_keeps_r2_rows_and_reports_down(self):
         with (
             patch.object(exporter, "LONGHORN_DAILY", "/nonexistent/daily.json"),
             patch.object(exporter, "list_backup_tree", return_value=[]),
         ):
-            newest, _, longhorn = exporter.collect()
-        self.assertIsNone(newest)
+            newest, _, longhorn, ok = exporter.collect()
         self.assertIsNone(longhorn)
-        self.assertIn("backup_freshness_up 0", exporter.render(newest, 1.0, longhorn))
+        self.assertFalse(ok)
+        self.assertEqual(set(newest), {e["app"] for e in exporter.DECLARED})
+        body = exporter.render(newest, 1.0, longhorn, ok)
+        self.assertIn("backup_freshness_up 0", body)
+        self.assertNotIn('app="longhorn/', body)
+
+    def test_r2_failure_keeps_longhorn_rows_and_reports_down(self):
+        rows = {"longhorn/coach/postgres-data": self.T9}
+        gauges = {"unmatched": 0, "target_available": 1}
+        with (
+            patch.object(exporter, "LONGHORN_DAILY", "/x.json"),
+            patch.object(exporter, "list_backup_tree", side_effect=RuntimeError),
+            patch.object(exporter, "collect_longhorn", return_value=(rows, gauges)),
+        ):
+            newest, _, longhorn, ok = exporter.collect()
+        self.assertEqual(newest, rows)
+        self.assertEqual(longhorn, gauges)
+        self.assertFalse(ok)
+        body = exporter.render(newest, 1.0, longhorn, ok, now=self.T9)
+        self.assertIn("backup_freshness_up 0", body)
+        self.assertIn("backup_freshness_longhorn_target_available 1", body)
 
     def test_repo_daily_json_matches_the_policy(self):
         import json
