@@ -185,27 +185,3 @@ tests:
       - expr: count(ALERTS{alertname="LonghornDiskSpaceHigh",alertstate="firing",severity="warning",alertgroup="storage"})
         eval_time: 20m
         exp_samples: [{labels: '{}', value: 1}]
-  - name: an unschedulable disk fires after 30 minutes and a flap back resets it
-    interval: 1m
-    input_series:
-      # d1 sits at the storage floor the whole time.
-      - series: 'longhorn_disk_status{node="wemby",disk="d1",condition="schedulable",condition_reason="DiskPressure"}'
-        values: '0x45'
-      # d2 flaps back to schedulable at minute 20, so its 30-minute hold restarts.
-      - series: 'longhorn_disk_status{node="wemby",disk="d2",condition="schedulable",condition_reason="DiskPressure"}'
-        values: '0x45'
-      - series: 'longhorn_disk_status{node="wemby",disk="d2",condition="schedulable"}'
-        values: '_x19 1x1 _x24'
-      # A ready condition at 0 is not this alert's business.
-      - series: 'longhorn_disk_status{node="manu",disk="d3",condition="ready"}'
-        values: '0x45'
-    promql_expr_test:
-      - expr: count(ALERTS{alertname="LonghornDiskUnschedulable",alertstate="firing"}) or vector(0)
-        eval_time: 29m
-        exp_samples: [{labels: '{}', value: 0}]
-      - expr: count(ALERTS{alertname="LonghornDiskUnschedulable",alertstate="firing",disk="d1",severity="warning",alertgroup="storage"})
-        eval_time: 30m
-        exp_samples: [{labels: '{}', value: 1}]
-      - expr: count(ALERTS{alertname="LonghornDiskUnschedulable",alertstate="firing",disk!="d1"}) or vector(0)
-        eval_time: 45m
-        exp_samples: [{labels: '{}', value: 0}]

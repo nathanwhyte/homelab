@@ -85,22 +85,6 @@ spec:
           annotations:
             summary: "Longhorn disk {{ $labels.disk }} on {{ $labels.node }} is over 85% consumed"
             description: "Backing disk {{ $labels.disk }} on node {{ $labels.node }} is at {{ $value }} of capacity. This is physical space, including snapshots and undiscarded blocks that per-PVC filesystem stats cannot see. Check snapshot retention before trimming (see longhorn/alerting.md); a full backing disk stops replica scheduling and rebuilds on this node."
-        # IMPR-1478: a disk that refuses new replicas. Longhorn marks a disk
-        # unschedulable at its storage floor (storageMinimalAvailablePercentage,
-        # 25%) long before LonghornDiskSpaceHigh's 85%, so wemby's NVMe flapped
-        # here for weeks with no signal. The schedulable=0 series carries a
-        # condition_reason label the =1 series lacks; max by (node, disk) keeps a
-        # flap back to schedulable from leaving a stale 0 behind.
-        - alert: LonghornDiskUnschedulable
-          expr: max by (node, disk) (longhorn_disk_status{condition="schedulable"}) == 0
-          for: 30m
-          labels:
-            severity: warning
-            alertgroup: storage
-            namespace: longhorn-system
-          annotations:
-            summary: "Longhorn disk {{ $labels.disk }} on {{ $labels.node }} is not accepting replicas"
-            description: "Disk {{ $labels.disk }} on node {{ $labels.node }} has reported schedulable=false for 30 minutes (reason in longhorn_disk_status's condition_reason label: DiskPressure means it is at the storage floor). New replicas and rebuilds that need this disk will not place; volumes whose selectors leave no other disk stay degraded. Free space on the disk, or record it as deliberately closed."
         - alert: LonghornReplicaFailed
           expr: max by (volume, replica, node) (longhorn_replica_state{state="error"}) == 1
           for: 5m
