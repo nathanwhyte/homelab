@@ -61,13 +61,6 @@ volumes:
     allowed_nodes: [timmy, manu]
     backup: daily
     reason: cloud LLM usage counter state
-  - pvc: yt-dlp/media
-    replicas: 2 # was 1 on the CR (hand-lowered, BUG-1101); class says 2
-    disk_selector: [hdd]
-    node_selector: [] # was [wemby] from longhorn-hdd-wemby; widened so manu-hdd can hold the second replica
-    allowed_nodes: [manu, wemby]
-    backup: none
-    reason: yt-dlp archive; own weekly rclone backup to R2 (media/yt-dlp/r2-backup-cronjob.yaml)
 
   # --- Stateful, already 2+ replicas; placement recorded as-is ---
   - pvc: coach/postgres-data
@@ -100,27 +93,35 @@ volumes:
     disk_selector: [ssd]
     backup: daily
     reason: OpenWebUI users and chats
+  # diskSelector widened from [nvme] (longhorn-nvme) to [ssd] on 2026-11-08: with
+  # wemby's NVMe at its storage floor, an nvme-only volume whose wemby replica
+  # failed had no disk left for a replacement (meta-garage-2 sat degraded after
+  # the 2026-11-08 disturbance). timmy's NVMe is tagged nvme,ssd, so existing
+  # replicas stay legal; manu's SSD becomes eligible.
   - pvc: garage/meta-garage-0
     replicas: 2
-    disk_selector: [nvme]
+    disk_selector: [ssd]
     backup: daily
     reason: Garage metadata (small); Garage replicates it as well
   - pvc: garage/meta-garage-1
     replicas: 2
-    disk_selector: [nvme]
+    disk_selector: [ssd]
     backup: daily
     reason: Garage metadata (small); Garage replicates it as well
   - pvc: garage/meta-garage-2
     replicas: 2
-    disk_selector: [nvme]
+    disk_selector: [ssd]
     backup: daily
     reason: Garage metadata (small); Garage replicates it as well
   - pvc: copyparty/copyparty-files
+    # Drops to 1 under the large-volume rule (decision 2026-11-08) once its
+    # first backup-daily run is Completed in R2; until then the second replica
+    # is its only off-node copy.
     replicas: 2
     disk_selector: [hdd]
     node_selector: [ethernet]
     backup: daily
-    reason: user files; joins backup-daily by job label (out of `default` by its own snapshot job)
+    reason: user files (162 GiB); joins backup-daily by job label (out of `default` by its own snapshot job)
   - pvc: harbor/data-harbor-redis-0
     replicas: 2
     disk_selector: [hdd]
@@ -153,6 +154,17 @@ volumes:
     reason: Harbor image registry
 
   # --- 1 replica by decision ---
+  # Large volumes keep one Longhorn replica and get their off-node copy from R2
+  # instead (decision 2026-11-08, IMPR-1478): a second replica means streaming the
+  # whole volume across the LAN on every rebuild, and a 101 GiB transfer through
+  # wemby on 2026-11-08 coincided with a Garage and OpenViking disturbance.
+  - pvc: yt-dlp/media
+    replicas: 1 # the StorageClass says 2 (hand-lowered on the CR, BUG-1101); the CR is the authority
+    disk_selector: [hdd]
+    node_selector: [wemby]
+    allowed_nodes: [wemby]
+    backup: none
+    reason: 138 GiB yt-dlp archive; its off-node copy is the weekly rclone sync to R2 (media/yt-dlp/r2-backup-cronjob.yaml), not a second replica
   - pvc: garage/data-garage-0
     replicas: 1
     disk_selector: [ssd]
