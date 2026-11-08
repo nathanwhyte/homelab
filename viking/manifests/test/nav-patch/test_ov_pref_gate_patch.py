@@ -243,11 +243,14 @@ class ArchiveTests(_Phase2Applied):
                     "diff": True,
                     "extractions": 3,
                     "messages": 6,
+                    "profile_action": "would_skip",
                     "roles": {"assistant": 4, "user": 2, "user_text": 0},
                     "session_id": "cc-35c37c51__subagent-ab4c",
                     "writes": {
+                        "identity": [],
                         "preferences": [],
                         "profile": ["viking://p/profile.md", "viking://p/2.md"],
+                        "soul": [],
                     },
                 }
             ],
@@ -267,10 +270,92 @@ class ArchiveTests(_Phase2Applied):
                 )
 
     def test_off_passes_through_silently(self):
-        with patch.dict(os.environ, {"OV_PREF_GATE": "0"}):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "0", "OV_PROFILE_GATE": "0"}):
             calls, records = _phase(SUBAGENT_ARCHIVE)
         self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
         self.assertEqual(records, [])
+
+    def test_profile_enforce_removes_both_gated_types(self):
+        compressor = _Compressor(
+            results=[_result(updates=[("events", "viking://e/1.md")])]
+        )
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "1"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE, compressor=compressor)
+        for call in calls:
+            self.assertEqual(
+                call["allowed_memory_types"],
+                set(ALL_TYPES) - {"preferences", "profile"},
+            )
+        self.assertEqual(
+            [(r["action"], r["profile_action"]) for r in records],
+            [("skipped", "skipped")],
+        )
+
+    def test_each_switch_acts_alone(self):
+        cases = [
+            # (OV_PREF_GATE, OV_PROFILE_GATE, removed, action, profile_action)
+            ("1", "shadow", {"preferences"}, "skipped", "would_skip"),
+            ("shadow", "1", {"profile"}, "would_skip", "skipped"),
+            ("0", "1", {"profile"}, "off", "skipped"),
+            ("1", "0", {"preferences"}, "skipped", "off"),
+        ]
+        for pref, prof, removed, action, profile_action in cases:
+            env = {"OV_PREF_GATE": pref, "OV_PROFILE_GATE": prof}
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
+                calls, records = _phase(SUBAGENT_ARCHIVE)
+                self.assertEqual(
+                    calls[0]["allowed_memory_types"], set(ALL_TYPES) - removed
+                )
+                self.assertEqual(
+                    [(r["action"], r["profile_action"]) for r in records],
+                    [(action, profile_action)],
+                )
+
+    def test_profile_shadow_alone_logs_without_changing_extraction(self):
+        compressor = _Compressor(
+            results=[_result(updates=[("profile", "viking://p/profile.md")])]
+        )
+        env = {"OV_PREF_GATE": "0", "OV_PROFILE_GATE": "shadow"}
+        with patch.dict(os.environ, env, clear=True):
+            calls, records = _phase(SUBAGENT_ARCHIVE, compressor=compressor)
+        self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
+        self.assertEqual(
+            [
+                (r["action"], r["profile_action"], r["writes"]["profile"])
+                for r in records
+            ],
+            [("off", "would_skip", ["viking://p/profile.md"])],
+        )
+
+    def test_unknown_profile_switch_value_means_shadow(self):
+        env = {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "yes"}
+        with patch.dict(os.environ, env, clear=True):
+            calls, records = _phase(SUBAGENT_ARCHIVE)
+        self.assertEqual(
+            calls[0]["allowed_memory_types"], set(ALL_TYPES) - {"preferences"}
+        )
+        self.assertEqual(records[0]["profile_action"], "would_skip")
+
+    def test_typed_archive_passes_through_with_both_switches_on(self):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "1"}):
+            calls, records = _phase(TYPED_ARCHIVE + SUBAGENT_ARCHIVE)
+        self.assertTrue(all(c["allowed_memory_types"] is None for c in calls))
+        self.assertEqual(records, [])
+
+    def test_identity_and_soul_writes_are_logged_not_gated(self):
+        compressor = _Compressor(
+            results=[
+                _result(
+                    adds=[("identity", "viking://p/identity.md")],
+                    updates=[("soul", "viking://u/soul.md")],
+                )
+            ]
+        )
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "1"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE, compressor=compressor)
+        self.assertTrue({"identity", "soul"} <= calls[0]["allowed_memory_types"])
+        self.assertEqual(records[0]["writes"]["identity"], ["viking://p/identity.md"])
+        self.assertEqual(records[0]["writes"]["soul"], ["viking://u/soul.md"])
 
     def test_resumed_run_with_nothing_left_to_extract_logs_nothing(self):
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
@@ -290,6 +375,27 @@ class ArchiveTests(_Phase2Applied):
             calls, records = _phase(SUBAGENT_ARCHIVE, policy={"events"})
         self.assertEqual(calls[0]["allowed_memory_types"], {"events"})
         self.assertEqual(records, [])
+
+    def test_policy_with_profile_but_not_preferences_loses_profile(self):
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "1"}):
+            calls, records = _phase(SUBAGENT_ARCHIVE, policy={"events", "profile"})
+        self.assertEqual(calls[0]["allowed_memory_types"], {"events"})
+        self.assertEqual(
+            [(r["action"], r["profile_action"]) for r in records],
+            [("not_offered", "skipped")],
+        )
+
+    def test_shipped_config_never_reports_an_unoffered_preference_as_skipped(self):
+        # Prod's settings with a policy that never held preferences: extraction is
+        # unchanged and the line must not add to a Loki count of "action": "skipped".
+        env = {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "shadow"}
+        with patch.dict(os.environ, env, clear=True):
+            calls, records = _phase(SUBAGENT_ARCHIVE, policy={"events", "profile"})
+        self.assertEqual(calls[0]["allowed_memory_types"], {"events", "profile"})
+        self.assertEqual(
+            [(r["action"], r["profile_action"]) for r in records],
+            [("not_offered", "would_skip")],
+        )
 
     def test_failed_batch_is_recorded_and_still_logs_once(self):
         compressor = _Compressor(errors=[TimeoutError("vlm")])
@@ -356,7 +462,10 @@ class LoneCallTests(_Phase2Applied):
         with patch.dict(os.environ, {"OV_PREF_GATE": "1"}):
             _, _, records = _run(self.wrapped, SUBAGENT_ARCHIVE)
         self.assertFalse(records[0]["diff"])
-        self.assertEqual(records[0]["writes"], {"preferences": [], "profile": []})
+        self.assertEqual(
+            records[0]["writes"],
+            {"identity": [], "preferences": [], "profile": [], "soul": []},
+        )
 
     def test_failed_extraction_logs_and_reraises(self):
         compressor = _Compressor(errors=[TimeoutError("vlm")])
@@ -420,9 +529,17 @@ class GuardTests(unittest.TestCase):
                 patch.object(gate, "EXPECTED_SHA256", self._digest(_original)),
                 patch.object(gate, "EXPECTED_PHASE2_SHA256", self._digest(_phase2)),
             ):
-                with patch.dict(os.environ, {"OV_PREF_GATE": "0"}):
+                with patch.dict(
+                    os.environ, {"OV_PREF_GATE": "0", "OV_PROFILE_GATE": "0"}
+                ):
                     self.assertFalse(gate.apply(module))
                     self.assertFalse(gate.apply_session(session_module))
+                # One switch on is enough to install the patch (IMPR-1479).
+                with patch.dict(
+                    os.environ, {"OV_PREF_GATE": "0", "OV_PROFILE_GATE": "shadow"}
+                ):
+                    self.assertTrue(gate.apply(module))
+                    self.assertTrue(gate.apply_session(session_module))
                 self.assertTrue(gate.apply(module))
                 self.assertTrue(gate.apply_session(session_module))
                 self.assertTrue(gate._state["phase2_applied"])

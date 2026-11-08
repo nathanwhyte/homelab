@@ -1,4 +1,7 @@
-"""Skip preference extraction for an archive with no typed user text on v0.5.1.1 (IMPR-1404).
+"""Skip preference and profile extraction for an archive with no typed user text on v0.5.1.1.
+
+IMPR-1404 gated ``preferences``; IMPR-1479 adds ``profile`` under its own switch, so each
+type can run in shadow while the other enforces.
 
 ``SessionCompressorV3._extract_user_memories`` sends every enabled ``stage: user`` schema
 to the model in one call, ``preferences`` included, whatever the archive holds. The
@@ -14,14 +17,14 @@ extraction batches (ov_extract_patch caps a batch at 60 messages) or drops the b
 resumed archive already finished. Its wrapper checks that full list: when no ``user``
 message has a non-blank text part (the same test the extractor uses to render a line, so
 a tool-result-only ``user`` turn does not count), every ``_extract_user_memories`` call
-for that archive runs with ``preferences`` removed from ``allowed_memory_types``. That one
-argument is OpenViking's own per-session ``memory_policy.memory_types`` seam: the
-isolation handler then leaves the schema out of the prompt, the prefetch and the
-resolver, so the model is never asked for a preference. Every other memory type extracts
-as before. An archive with typed user text, or one whose policy already excludes
-``preferences``, passes through untouched. A call outside Phase 2 (the manual
-``/extract`` endpoint, which passes the whole session unbatched) is judged on its own
-messages.
+for that archive runs with each enforced gated type (``preferences``, ``profile``) removed
+from ``allowed_memory_types``. That one argument is OpenViking's own per-session
+``memory_policy.memory_types`` seam: the isolation handler then leaves the schema out of
+the prompt, the prefetch and the resolver, so the model is never asked for that type.
+Every type that is not gated, or whose switch is not ``1``, extracts as before. An archive
+with typed user text passes through untouched, and so does one whose policy offers no
+gated type with its switch on. A call outside Phase 2 (the manual ``/extract`` endpoint,
+which passes the whole session unbatched) is judged on its own messages.
 
 Each Phase 2 run of a gated archive that makes at least one user-memory extraction call
 writes one stderr line when it finishes. A resumed run whose extraction batches all
@@ -29,17 +32,29 @@ finished on an earlier attempt extracts nothing and writes none; the earlier run
 the archive. The line is ``ov-pref-gate
 {"action": …, "session_id": …, "archive_uri": …, "messages": …, "roles": …,
 "extractions": …, "writes": …}``, plus ``"errors"`` when an extraction call raised.
-``writes`` lists the ``preferences`` and ``profile`` URIs the archive's extraction
-results added or updated. ``profile`` is watched because the bundled ``profile.yaml``
-routes preference-like facts to PREFERENCES, and with that schema gone the model may file
-them in ``profile.md`` instead, where ``ov-pref-audit.py`` does not look. Modes
-(``OV_PREF_GATE``, read once per archive): ``1`` skips (``"action": "skipped"``), ``0`` is
-off, and anything else, unset included, only logs (``"action": "would_skip"``), so a typo
-never changes what is extracted.
+``writes`` lists the ``preferences``, ``profile``, ``identity`` and ``soul`` URIs the
+archive's extraction results added or updated. ``profile`` was first only watched, because
+the bundled ``profile.yaml`` routes preference-like facts to PREFERENCES and with that
+schema gone the model may file them in ``profile.md`` instead. IMPR-1401's second gate then
+traced profile bullets to such archives (subagent and tool-result-only sessions), so
+IMPR-1479 gates ``profile`` too. ``identity`` and ``soul`` are watched, not gated, for the
+same reason one step on: with ``profile`` gone the facts may move there, and IMPR-1401's
+workbook canary wrote one fact into all three.
+
+Each gated type has its own switch, read once per archive: ``OV_PREF_GATE`` for
+``preferences`` and ``OV_PROFILE_GATE`` for ``profile``. ``1`` removes the type, ``0`` is off,
+and anything else, unset included, only logs, so a typo never changes what is extracted.
+The line reports ``preferences`` as ``"action"`` (kept from IMPR-1404 for the Loki queries
+that read it) and ``profile`` as ``"profile_action"``: ``skipped``, ``would_skip`` or
+``off``, or ``not_offered`` when no gated call's policy held the type, so a
+``"skipped"`` count only counts archives that were offered it. In shadow, ``writes.profile`` lists the profile writes enforce mode would have
+prevented. An archive is gated, and logged, when any switch is not ``0``; with both ``0``
+the patch is not installed.
 
 When the policy is ``None`` (every type), enforce mode passes the enabled names of the
 deployment's default registry (``get_default_registry()``, ``memory_type_registry.py``
-L322) minus ``preferences``. v0.5.1.1 resolves an account registry per extraction
+L322) minus each type whose switch is ``1``. A type the policy already excludes is never
+re-added. v0.5.1.1 resolves an account registry per extraction
 (``resolve_account_memory_registry``, ``compressor_v3.py`` L692-L697); it holds one
 schema per default schema, so the names match, but an account template that enables a
 type the default leaves disabled is not seen here.
@@ -70,7 +85,11 @@ EXPECTED_PHASE2_SHA256 = (
     "d64ddfa93c3d0d33c665f372c746f22f9bca9f670c7c4542d4e68f3e1527e9d2"
 )
 GATED_TYPE = "preferences"
-WATCHED_TYPES = (GATED_TYPE, "profile")
+PROFILE_TYPE = "profile"
+# Logged on every gated archive's line; only the types in SWITCHES are ever removed.
+WATCHED_TYPES = (GATED_TYPE, PROFILE_TYPE, "identity", "soul")
+# Each gated memory type and the switch that controls it (IMPR-1404, IMPR-1479).
+SWITCHES = {GATED_TYPE: "OV_PREF_GATE", PROFILE_TYPE: "OV_PROFILE_GATE"}
 PREFIX = "ov-pref-gate "
 logger = logging.getLogger("ov_pref_gate_patch")
 
@@ -79,17 +98,30 @@ _state = {"phase2_applied": False}
 _ARCHIVE = contextvars.ContextVar("ov_pref_gate_archive", default=None)
 
 
-def read_mode() -> str:
+def read_mode(var: str = "OV_PREF_GATE") -> str:
     """``1``, ``0`` or ``shadow``; skipping needs an explicit ``1``."""
-    raw = os.environ.get("OV_PREF_GATE", "shadow").strip().lower()
+    raw = os.environ.get(var, "shadow").strip().lower()
     if raw in ("0", "1", "shadow"):
         return raw
-    if raw not in _MODE_WARNED:
-        _MODE_WARNED.add(raw)
+    if (var, raw) not in _MODE_WARNED:
+        _MODE_WARNED.add((var, raw))
         logger.warning(
-            "ov-pref-gate: OV_PREF_GATE=%r is not 0, 1 or shadow; using shadow", raw
+            "ov-pref-gate: %s=%r is not 0, 1 or shadow; using shadow", var, raw
         )
     return "shadow"
+
+
+def read_modes() -> dict:
+    """The mode of every gated type, read now."""
+    return {memory_type: read_mode(var) for memory_type, var in SWITCHES.items()}
+
+
+def all_off(modes: dict) -> bool:
+    return all(mode == "0" for mode in modes.values())
+
+
+def _action(mode: str) -> str:
+    return {"1": "skipped", "0": "off"}.get(mode, "would_skip")
 
 
 def _has_text(message) -> bool:
@@ -144,10 +176,10 @@ def emit(record: dict) -> None:
 class Gate:
     """One gating decision and its outcome: an archive's Phase 2, or a lone call."""
 
-    def __init__(self, archive_uri, session_id, messages, mode):
+    def __init__(self, archive_uri, session_id, messages, modes):
         self.archive_uri = archive_uri
         self.session_id = session_id
-        self.mode = mode
+        self.modes = dict(modes)
         self.typed = has_typed_user_text(messages)
         self.messages = len(messages or [])
         self.roles = role_counts(messages)
@@ -155,13 +187,29 @@ class Gate:
         self.diff = False
         self.errors = []
         self.writes = {memory_type: [] for memory_type in WATCHED_TYPES}
+        # The gated types any gated call offered: an action is only reported for these.
+        self.offered = set()
+
+    def _offered(self, allowed):
+        """The gated types this call offers, with their switch not ``0``."""
+        return {
+            memory_type
+            for memory_type, mode in self.modes.items()
+            if mode != "0" and (allowed is None or memory_type in allowed)
+        }
 
     def gates(self, messages, allowed) -> bool:
-        return (
-            bool(messages)
-            and not self.typed
-            and (allowed is None or GATED_TYPE in allowed)
-        )
+        return bool(messages) and not self.typed and bool(self._offered(allowed))
+
+    def removed(self, allowed) -> set:
+        """The offered types whose switch is ``1``: what this call drops."""
+        return {t for t in self._offered(allowed) if self.modes[t] == "1"}
+
+    def action(self, memory_type) -> str:
+        mode = self.modes[memory_type]
+        if mode != "0" and memory_type not in self.offered:
+            return "not_offered"
+        return _action(mode)
 
     def record_result(self, result) -> None:
         with contextlib.suppress(Exception):
@@ -173,11 +221,12 @@ class Gate:
 
     def record(self) -> dict:
         record = {
-            "action": "skipped" if self.mode == "1" else "would_skip",
+            "action": self.action(GATED_TYPE),
             "archive_uri": self.archive_uri,
             "diff": self.diff,
             "extractions": self.extractions,
             "messages": self.messages,
+            "profile_action": self.action(PROFILE_TYPE),
             "roles": self.roles,
             "session_id": self.session_id,
             "writes": self.writes,
@@ -194,7 +243,7 @@ def gating(original, all_types):
     @functools.wraps(original)
     async def _extract_user_memories(self, *args, **kwargs):
         archive = _ARCHIVE.get()
-        if archive is None and read_mode() == "0":
+        if archive is None and all_off(read_modes()):
             return await original(self, *args, **kwargs)
         try:
             bound = signature.bind(self, *args, **kwargs)
@@ -208,17 +257,19 @@ def gating(original, all_types):
         elif _state["phase2_applied"]:
             # A call outside Phase 2 (or for another archive) is judged on its own messages.
             gate = Gate(
-                archive_uri, bound.arguments.get("session_id"), messages, read_mode()
+                archive_uri, bound.arguments.get("session_id"), messages, read_modes()
             )
             lone = True
         else:
             # Phase 2 batches cannot be told from a lone call: leave extraction stock.
             return await original(self, *args, **kwargs)
-        if gate.mode == "0" or not gate.gates(messages, allowed):
+        if not gate.gates(messages, allowed):
             return await original(self, *args, **kwargs)
-        if gate.mode == "1":
+        gate.offered |= gate._offered(allowed)
+        removed = gate.removed(allowed)
+        if removed:
             types = set(all_types()) if allowed is None else set(allowed)
-            bound.arguments["allowed_memory_types"] = types - {GATED_TYPE}
+            bound.arguments["allowed_memory_types"] = types - removed
         gate.extractions += 1
         try:
             result = await original(*bound.args, **bound.kwargs)
@@ -243,7 +294,7 @@ def archive_scope(original):
 
     @functools.wraps(original)
     async def _run_memory_extraction(self, *args, **kwargs):
-        mode = read_mode()
+        modes = read_modes()
         try:
             bound = signature.bind(self, *args, **kwargs)
         except TypeError:
@@ -252,7 +303,7 @@ def archive_scope(original):
             bound.arguments.get("archive_uri"),
             getattr(self, "session_id", None),
             bound.arguments.get("messages"),
-            mode,
+            modes,
         )
         token = _ARCHIVE.set(gate)
         try:
@@ -280,8 +331,10 @@ def _version():
 
 
 def apply(module):
-    if read_mode() == "0":
-        logger.warning("ov-pref-gate-patch: disabled by OV_PREF_GATE=0")
+    if all_off(read_modes()):
+        logger.warning(
+            "ov-pref-gate-patch: disabled by OV_PREF_GATE=0 and OV_PROFILE_GATE=0"
+        )
         return False
     cls = getattr(module, "SessionCompressorV3", None)
     original = getattr(cls, "_extract_user_memories", None)
@@ -305,11 +358,10 @@ def apply(module):
         return registry().list_names(include_disabled=False)
 
     cls._extract_user_memories = gating(original, all_types)
+    modes = read_modes()
     logger.warning(
-        "ov-pref-gate-patch: applied in %s mode; %s skipped for archives with no typed "
-        "user text (pid %d)",
-        read_mode(),
-        GATED_TYPE,
+        "ov-pref-gate-patch: applied; for archives with no typed user text: %s (pid %d)",
+        ", ".join(f"{t} {_action(m)}" for t, m in modes.items()),
         os.getpid(),
     )
     return True
@@ -317,7 +369,7 @@ def apply(module):
 
 def apply_session(module):
     """Install the per-archive half on ``Session._run_memory_extraction``."""
-    if read_mode() == "0":
+    if all_off(read_modes()):
         return False
     cls = getattr(module, "Session", None)
     original = getattr(cls, "_run_memory_extraction", None)
