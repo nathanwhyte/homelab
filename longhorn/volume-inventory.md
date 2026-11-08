@@ -25,7 +25,7 @@ live), **manual** is out of every RecurringJob and backed up by hand on request,
 | `garage/meta-garage-1` | longhorn-nvme | 2 | timmy, wemby | 3 GiB | daily |
 | `garage/meta-garage-2` | longhorn-nvme | 2 | timmy, wemby | 3 GiB | daily |
 | `grafana/alertmanager-prom-alertmanager-db-…-0` | longhorn-observability | 1 | timmy | <1 GiB | manual |
-| `grafana/grafana-storage` | longhorn-nvme | 1 → 2 | timmy | <1 GiB | daily |
+| `grafana/grafana-storage` | longhorn-nvme | 2 | manu, timmy | <1 GiB | daily |
 | `grafana/prometheus-prom-prometheus-db-…-0` | longhorn-observability | 1 | timmy | 23 GiB | manual |
 | `grafana/storage-loki-0` | longhorn-observability | 1 | timmy | 9 GiB | manual |
 | `harbor/data-harbor-redis-0` | longhorn-harbor | 2 | manu, wemby | <1 GiB | daily |
@@ -33,8 +33,8 @@ live), **manual** is out of every RecurringJob and backed up by hand on request,
 | `harbor/database-data-harbor-database-0` | longhorn-harbor | 2 | manu, wemby | <1 GiB | daily |
 | `harbor/harbor-jobservice-rwo` | longhorn-harbor | 2 | manu, wemby | <1 GiB | daily |
 | `harbor/harbor-registry-rwo` | longhorn-harbor | 2 | manu, wemby | 7 GiB | daily |
-| `llama/cloud-llm-counter-data` | longhorn | 1 → 2 | manu | <1 GiB | daily |
-| `omnipendium/omnipendium-db-data` | longhorn-omnipendium | 1 → 2 | timmy | <1 GiB | daily |
+| `llama/cloud-llm-counter-data` | longhorn | 2 | manu, timmy | <1 GiB | daily |
+| `omnipendium/omnipendium-db-data` | longhorn-omnipendium | 2 | manu, timmy | <1 GiB | daily |
 | `openwebui/open-webui` | longhorn-ssd | 2 | manu, timmy | 1 GiB | daily |
 | `viking/embedder-cuda-model-cache` | longhorn-ssd | 1 | manu | 5 GiB | none |
 | `viking/litellm-redis-data` | longhorn-ssd | 1 | manu | <1 GiB | none |
@@ -42,10 +42,11 @@ live), **manual** is out of every RecurringJob and backed up by hand on request,
 | `viking/openviking-test-data` | longhorn-ssd | 1 | manu | <1 GiB | none |
 | `viking/ov-vectordb-data` | longhorn-ssd | 2 | manu, timmy | 14 GiB | daily |
 | `viking/ov-vectordb-test-data` | longhorn-ssd | 1 | manu | <1 GiB | none |
-| `yt-dlp/media` | longhorn-hdd-wemby | 1 → 2 | wemby | 138 GiB | none (own weekly rclone to R2) |
+| `yt-dlp/media` | longhorn-hdd-wemby | 1 | wemby | 138 GiB | none (own weekly rclone to R2) |
 
-`1 → 2` marks the four volumes Phase 3 raises; see the policy file for the new
-selectors.
+Large volumes keep one Longhorn replica and take their off-node copy from R2
+(decision 2026-11-08): a second replica streams the whole volume across the LAN
+on every rebuild.
 
 ## Detached, kept
 

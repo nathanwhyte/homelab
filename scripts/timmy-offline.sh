@@ -12,15 +12,15 @@
 #   timmy-offline.sh status  what is parked/suspended/silenced, what is cordoned, Longhorn health,
 #                            unhealthy pods
 #
-# Why this exists on top of node-maintenance.sh: three Longhorn volumes are
-# attached on manu/wemby but their ONLY replica lives on timmy's disk
-# (garage/data-garage-0, garage/data-garage-2,
-# viking/embedder-cuda-model-cache as of 2026-09-18; viking/reranker-model-cache
-# went with the reranker's retirement). Powering timmy off while
-# those pods run yanks the iSCSI backing device out from under them — the exact
-# LMDB-corruption path from BUG-1033. `down` scales those workloads to zero so
-# every such volume detaches cleanly before the drain; `up` restores the saved
-# replica counts after timmy is Ready and Longhorn is healthy.
+# Why this exists on top of node-maintenance.sh: a Longhorn volume attached on
+# manu or wemby whose ONLY replica lives on timmy's disk loses its iSCSI backing
+# device when timmy powers off — the exact LMDB-corruption path from BUG-1033.
+# `down` scales the owners of such volumes (PARKED below) to zero so every such
+# volume detaches cleanly before the drain; `up` restores the saved replica
+# counts after timmy is Ready and Longhorn is healthy. Which volumes qualify
+# moves with replica placement, so `status` prints the live set
+# (cross_node_orphans) rather than this comment naming them; the intended
+# placement is longhorn/replica-policy.yaml.
 #
 # `down` also passes --spin-down to node-maintenance.sh drain, which scales the
 # memory-heavy services (viking/openviking, viking/ov-vectordb) to 0 *before*
@@ -128,21 +128,19 @@ QUIESCED_CRONJOBS=(
 	viking/ovlock-janitor            # needs OpenViking and Garage, both down
 )
 
-# Workloads whose Longhorn volume lives only on timmy while the pod runs elsewhere,
-# plus garage-1 (on timmy) because Garage should stop as a unit, not one node at a time.
-# omnipendium-db, cloud-llm-counter and Grafana are NOT pinned to timmy: the drain
-# reschedules them onto manu/wemby, where Longhorn happily attaches their timmy-only
-# volume over iSCSI (seen 2026-09-02). Grafana joined on 2026-11-03: its RWO
-# grafana-storage claim (2026-10-28) has its only replica on timmy. Left out, `down`
-# refuses at wait_cross_node_detached (before the drain) when Grafana already runs
-# on manu/wemby, or at the post-drain check when the drain moves it there.
+# Workloads `down` scales to zero: Garage, which should stop as a unit rather than
+# one node at a time (garage-1 runs on timmy and two data volumes have one replica
+# each), and embedder-qwen-cuda, whose model cache has one replica.
+# omnipendium-db, cloud-llm-counter and Grafana left on 2026-11-08 (IMPR-1478):
+# each volume now keeps a second replica off timmy (nodeSelector `stateful`, timmy
+# plus manu), so the drain moves them and they keep serving through the outage.
+# If cross_node_orphans lists one of them again, its second replica is gone; `down`
+# then refuses at wait_cross_node_detached, and the fix is to restore the replica
+# (longhorn/scripts/replica-policy.py --check), not to park the workload again.
 # Format: kind/namespace/name
 PARKED=(
 	statefulset/garage/garage
 	deployment/viking/embedder-qwen-cuda
-	deployment/omnipendium/omnipendium-db
-	deployment/llama/cloud-llm-counter
-	deployment/grafana/kube-prometheus-stack-grafana
 )
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }

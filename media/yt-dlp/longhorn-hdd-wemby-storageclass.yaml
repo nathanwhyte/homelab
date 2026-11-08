@@ -8,7 +8,9 @@
 # `numberOfReplicas: "2"` below only seeds new volumes and never got a
 # second copy placed. StorageClass parameters are immutable, so the
 # value stays matching the live object. The R2 backup (r2-backup-cronjob)
-# is the only other copy of the media.
+# is the only other copy of the media, by decision (2026-11-08, IMPR-1478):
+# large volumes take R2 rather than a second replica. The live Volume CR is
+# the authority for the count; longhorn/replica-policy.yaml records it.
 #
 # Why a dedicated SC: the existing `longhorn-hdd` SC has no
 # wemby-specific nodeSelector, so it would land on either manu-hdd or
