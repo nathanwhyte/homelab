@@ -9,7 +9,8 @@
 # the same way. The values file sets `deploymentStrategy: Recreate`, which an
 # RWO volume needs (a rolling update would wait on the old pod's attachment).
 # Copy procedure: grafana/rwo-migrator.yaml. The old RWX claim
-# `grafana-storage-rwx` is retained, unreferenced, for rollback.
+# `grafana-storage-rwx` was deleted 2026-11-08 (IMPR-1478) after a final R2
+# backup, `impr1478-final-grafana-storage-rwx`; restore from it to roll back.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

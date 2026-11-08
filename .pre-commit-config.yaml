@@ -310,6 +310,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^(scripts/((test-)?helm-deploy|sts-partition-roll)\.py|(?:grafana|harbor|openwebui|dashboard|garage)/deploy-[^/]+\.sh)$
+      # IMPR-1478: the Longhorn replica-policy drift seam, and the policy file's validity.
+      - id: replica-policy-tests
+        name: Longhorn replica-policy tests
+        entry: uv run --offline --no-project --with pyyaml python3 longhorn/tests/test-replica-policy.py
+        language: system
+        pass_filenames: false
+        files: ^longhorn/(replica-policy\.yaml|scripts/replica-policy\.py|tests/test-replica-policy\.py)$
       - id: arc-deploy-tests
         name: ARC CPU trial deployment safety tests
         entry: python3 arc/test-deploy-arc.py
