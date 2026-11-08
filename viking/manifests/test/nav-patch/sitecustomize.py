@@ -74,16 +74,19 @@ off switch; a patch failure never breaks the import):
                         at the file's ``modTime`` (``ReindexExecutor._upsert_context``
                         + ``EmbeddingMsgConverter.from_context``, stacked on the
                         event-abstract hooks).
-  * ov_pref_gate_patch — IMPR-1404: an archive with no ``user`` message carrying
-                        typed text (every subagent session) extracts with
-                        ``preferences`` removed from its allowed memory types, so
-                        assistant text never becomes a user preference; one
+  * ov_pref_gate_patch — IMPR-1404, IMPR-1479: an archive with no ``user`` message
+                        carrying typed text (every subagent session) extracts with
+                        ``preferences`` and ``profile`` removed from its allowed
+                        memory types, each under its own switch, so assistant text
+                        never becomes a user preference or profile line; one
                         ``ov-pref-gate {json}`` stderr line per Phase 2 run that
                         extracted from a gated archive lists the
-                        ``preferences`` and ``profile`` writes it still made
+                        ``preferences``, ``profile``, ``identity`` and ``soul``
+                        writes it still made
                         (decided per archive in ``Session._run_memory_extraction``,
                         applied in ``SessionCompressorV3._extract_user_memories``;
-                        ``OV_PREF_GATE``: ``1`` skips, ``0`` off, anything else logs only).
+                        ``OV_PREF_GATE`` and ``OV_PROFILE_GATE``: ``1`` skips, ``0``
+                        off, anything else logs only).
   * ov_vectordb_agg_patch — BUG-1268: the ov-vectordb service (this loader is on its
                         PYTHONPATH too) serves ``POST /api/vikingdb/data/aggregate``,
                         the server's vector count, so ``ov status`` stops reading
@@ -100,7 +103,7 @@ off switch; a patch failure never breaks the import):
                         neither raises "bound to a different event loop" nor stalls
                         (``PrivacySanitizer.__init__``).
 
-Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0``, ``OV_HTTP_UPDATE_PATCH=0``, ``OV_SANITIZER_LOCK_PATCH=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
+Rollback of one patch: its env switch (``OV_S3_CACHE_PATCH=0``, ``OV_EXTRACT_PATCH=0``, ``OV_CHATLOG_PATCH=0``, ``OV_MEMORY_GUARD=0``, ``OV_EVENT_NOISE_FILTER=0``, ``OV_EVENT_ABSTRACT_PATCH=0``, ``OV_GREP_SCOPE_PATCH=0``, ``OV_RECALL_TIME_PATCH=0``, ``OV_PREF_GATE=0`` with ``OV_PROFILE_GATE=0``,``OV_HTTP_UPDATE_PATCH=0``, ``OV_SANITIZER_LOCK_PATCH=0``, ``OV_VECTORDB_AGG_PATCH=0`` on ov-vectordb; ``OV_NAV_PATCH=0``
 only after the model-built overview template is restored, see the Deployment).
 
 Retired at v0.5.1.1 (IMPR-1412): ``ov_fetch_items_patch`` (BUG-1218, fixed upstream

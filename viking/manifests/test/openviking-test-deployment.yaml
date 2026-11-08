@@ -150,6 +150,9 @@ spec:
             # exercises the skip ("action": "skipped"), not only the shadow log.
             - name: OV_PREF_GATE
               value: "1"
+            # IMPR-1479 profile gate, as prod runs it (shadow until its soak is read).
+            - name: OV_PROFILE_GATE
+              value: "shadow"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
