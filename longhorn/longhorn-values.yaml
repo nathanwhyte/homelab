@@ -42,10 +42,14 @@ defaultSettings:
   # nodeDownPodDeletionPolicy), so a reinstall or chart upgrade cannot drift
   # them back to chart defaults silently.
   #
-  # When a node goes NotReady, force-delete its StatefulSet and Deployment pods
-  # whose RWO volume is attached there, so they reschedule onto a node with the
-  # second replica. The default, do-nothing, leaves them Terminating until the
-  # node returns, which made second replicas useless for fail-over.
+  # When a node is down, force-delete its StatefulSet and Deployment pods once
+  # Kubernetes has evicted them (Terminating past their deletion time), so the
+  # replacements can start. kube-scheduler places a replacement on any node its
+  # constraints allow, and Longhorn attaches the volume there, served by the
+  # surviving replica (over the network unless it is local). A volume whose only
+  # replica was on the dead node still cannot attach, and a pod pinned to that
+  # node stays Pending. The default, do-nothing, leaves pods Terminating until
+  # the node returns, which made second replicas useless for fail-over.
   nodeDownPodDeletionPolicy: "delete-both-statefulset-and-deployment-pod"
   # A drain stops before evicting the last healthy replica of a volume.
   nodeDrainPolicy: "block-if-contains-last-replica"
