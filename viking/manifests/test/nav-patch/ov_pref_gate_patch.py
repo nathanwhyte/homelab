@@ -350,9 +350,7 @@ def apply(module):
     cls._extract_user_memories = gating(original, all_types)
     modes = read_modes()
     logger.warning(
-        "ov-pref-gate-patch: applied in %s mode; for archives with no typed user text: "
-        "%s (pid %d)",
-        modes[GATED_TYPE],
+        "ov-pref-gate-patch: applied; for archives with no typed user text: %s (pid %d)",
         ", ".join(f"{t} {_action(m)}" for t, m in modes.items()),
         os.getpid(),
     )
