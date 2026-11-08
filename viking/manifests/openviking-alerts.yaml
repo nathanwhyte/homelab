@@ -38,7 +38,8 @@ spec:
         # increase() was rejected because it extrapolates past the samples
         # (exactly 20 read as 20.17, 10 sparse ones as 25), so it can count more
         # than happened. The summary prints the value as an integer, since
-        # humanize rounds up (12345 as 12.35k).
+        # humanize rounds to four significant digits and so can round up
+        # (12345 as 12.35k).
         #
         # Threshold: the highest value of this expression sampled every 5 min
         # from 2026-10-07 to 2026-11-06 was 10. Held locks are the job of

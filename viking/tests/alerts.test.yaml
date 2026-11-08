@@ -653,8 +653,9 @@ tests:
               description: "Each replacement is an acquire taking over a lock token whose timestamp was older than the lock expiry, logged as `replaced stale pathlock token during acquire` with its stale_owner. The count is of tokens, not owners: one owner can leave several (a path lock and per-file locks). The stale_owner values in the openviking container's log name the owners to look into. This is not a held lock, and a restart does not address it."
 
   - name: a rise whose earlier sample aged out of the window is not counted
-    # A scrape gap of nearly an hour: the rise of 21 lands at 59m30s, and by the
-    # 60m evaluation the 100 sample is outside the 1h window.
+    # A scrape gap of nearly an hour: the rise of 21 lands at 59m (sample 118 at
+    # 30s), and at the 60m evaluation the 100 sample at 0s is outside the 1h
+    # window, which is left-open (t-1h, t] since Prometheus 3.
     interval: 30s
     input_series:
       - series: 'openviking_lock_stale{pod="openviking-a"}'
