@@ -1,0 +1,22 @@
+[
+  "coach/postgres-data",
+  "compendium/compendium-sync-state-v2",
+  "equal-risk/pgdata-postgres-0",
+  "garage/data-garage-0",
+  "garage/data-garage-1",
+  "garage/data-garage-2",
+  "garage/meta-garage-0",
+  "garage/meta-garage-1",
+  "garage/meta-garage-2",
+  "grafana/grafana-storage",
+  "harbor/data-harbor-redis-0",
+  "harbor/data-harbor-trivy-0",
+  "harbor/database-data-harbor-database-0",
+  "harbor/harbor-jobservice-rwo",
+  "harbor/harbor-registry-rwo",
+  "llama/cloud-llm-counter-data",
+  "omnipendium/omnipendium-db-data",
+  "openwebui/open-webui",
+  "viking/openviking-data",
+  "viking/ov-vectordb-data"
+]

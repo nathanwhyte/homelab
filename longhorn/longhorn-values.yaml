@@ -38,7 +38,8 @@ defaultSettings:
   # nowhere to go anyway.
   replicaReplenishmentWaitInterval: "1800"
 
-# Default backup target for manual off-cluster backups to Cloudflare R2.
+# Default backup target: Cloudflare R2, written nightly by the backup-daily
+# RecurringJob (longhorn/backup-policy.yaml, IMPR-1478) and by manual backups.
 # Credentials live in the longhorn-r2-backup-target secret.
 defaultBackupStore:
   backupTarget: "s3://homelab@auto/cluster/homelab-k3s/longhorn/"

@@ -26,6 +26,16 @@ environment (RCLONE_CONFIG_R2_*). The `yt-dlp/r2-credentials` secret already
 carries exactly those keys for the weekly media backup; copy it into the
 namespace that runs this exporter, or export the same variables on a host.
 
+Longhorn source (IMPR-1478): when LONGHORN_DAILY names a JSON list of
+"<namespace>/<pvc>" strings (generated from longhorn/replica-policy.yaml's
+`backup: daily` rows by `replica-policy.py --daily-json`), the exporter also
+reads backups.longhorn.io and volumes.longhorn.io through the in-cluster API and
+emits backup_freshness_seconds{app="longhorn/<namespace>/<pvc>"} per row. The
+per-volume Backup CRs are the signal, not the recurring Job's exit status:
+Longhorn 1.12.1's recurring-job binary can exit 0 when one volume's backup
+fails. A Backup names only its Longhorn volume (`backup-volume` label), so the
+row joins through the Volume whose status.kubernetesStatus carries the PVC.
+
 Output is Prometheus text format on stdout (or a file given as argv[1]).
 With --serve, expose /metrics on port 9811 and refresh the listing every 5m.
 """
@@ -36,10 +46,12 @@ import datetime
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
+import ssl
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 
 # ── DECLARED BACKUP LIST ──────────────────────────────────────────────────
 # Single source of truth for which databases must be backed up and how often.
@@ -74,6 +86,14 @@ DECLARED = [
 R2_REMOTE = "r2"
 R2_BUCKET = "homelab"
 BACKUP_ROOT = "backups/cluster/homelab-k3s/rebuild-exports/"
+
+# Longhorn source. The daily RecurringJob runs once a day; 36h leaves room for a
+# slow run without waiting a full second day to notice a missed one.
+LONGHORN_DAILY = os.environ.get("LONGHORN_DAILY", "")
+LONGHORN_MAX_AGE_SECONDS = 36 * 3600
+LONGHORN_NS = "longhorn-system"
+K8S_API = "https://kubernetes.default.svc"
+SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount"
 
 
 def _parse_rfc3339(value: str) -> float:
@@ -138,43 +158,144 @@ def newest_modtime(objects: list[dict], segment: str) -> float | None:
     return max(times) if times else None
 
 
+def load_longhorn_daily(path: str) -> list[str]:
+    """The declared daily Longhorn PVCs, as "<namespace>/<pvc>" strings."""
+    with open(path) as fh:
+        rows = json.load(fh)
+    if not isinstance(rows, list) or not all(
+        isinstance(r, str) and r.count("/") == 1 for r in rows
+    ):
+        raise ValueError("LONGHORN_DAILY must be a JSON list of namespace/pvc strings")
+    return rows
+
+
+def k8s_list(path: str) -> list[dict]:
+    """GET a list from the API server with the pod's service-account token."""
+    with open(f"{SA_DIR}/token") as fh:
+        token = fh.read().strip()
+    ctx = ssl.create_default_context(cafile=f"{SA_DIR}/ca.crt")
+    req = urllib.request.Request(
+        f"{K8S_API}{path}", headers={"Authorization": f"Bearer {token}"}
+    )
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+        body = json.load(resp)
+    items = body.get("items")
+    if not isinstance(items, list):
+        raise ValueError(f"no items list at {path}")
+    return items
+
+
+def longhorn_freshness(
+    daily: list[str], volumes: list[dict], backups: list[dict]
+) -> tuple[dict[str, float | None], int]:
+    """Newest Completed backup time per daily PVC, and the count of unmatched backups.
+
+    The join is two steps: the PVC row matches the Volume whose
+    status.kubernetesStatus names it, and that Volume's name matches a Backup's
+    `backup-volume` label. A Backup of a volume that no longer exists (a deleted
+    claim's retained backups, or a recreated claim's old volume) is counted as
+    unmatched and never stands in for the current volume.
+    """
+    by_pvc = {}
+    for v in volumes:
+        ks = (v.get("status") or {}).get("kubernetesStatus") or {}
+        if ks.get("namespace") and ks.get("pvcName"):
+            by_pvc[f"{ks['namespace']}/{ks['pvcName']}"] = v["metadata"]["name"]
+    current = {v["metadata"]["name"] for v in volumes}
+    completed: dict[str, list[float]] = {}
+    unmatched = 0
+    for b in backups:
+        labels = (b.get("metadata") or {}).get("labels") or {}
+        status = b.get("status") or {}
+        vol = labels.get("backup-volume") or status.get("volumeName")
+        if vol not in current:
+            unmatched += 1
+            continue
+        created = status.get("snapshotCreatedAt")
+        if status.get("state") == "Completed" and created:
+            completed.setdefault(vol, []).append(_parse_rfc3339(created))
+    newest = {}
+    for pvc in daily:
+        times = completed.get(by_pvc.get(pvc, ""), [])
+        newest[f"longhorn/{pvc}"] = max(times) if times else None
+    return newest, unmatched
+
+
+def longhorn_target_available(targets: list[dict]) -> int:
+    """1 when every BackupTarget reports available, else 0 (none counts as 0)."""
+    return int(
+        bool(targets)
+        and all((t.get("status") or {}).get("available") is True for t in targets)
+    )
+
+
+def collect_longhorn(path: str):
+    daily = load_longhorn_daily(path)
+    base = f"/apis/longhorn.io/v1beta2/namespaces/{LONGHORN_NS}"
+    newest, unmatched = longhorn_freshness(
+        daily, k8s_list(f"{base}/volumes"), k8s_list(f"{base}/backups")
+    )
+    available = longhorn_target_available(k8s_list(f"{base}/backuptargets"))
+    return newest, {"unmatched": unmatched, "target_available": available}
+
+
 def collect():
-    """Validate the complete listing before publishing a successful sample."""
+    """Validate the complete listing before publishing a successful sample.
+
+    Returns (newest, last_run, longhorn): newest maps app to its newest backup
+    time, or None when the sample failed; longhorn is the Longhorn source's
+    extra gauges, or None when that source is not configured.
+    """
     try:
         objects = list_backup_tree()
         newest = {
             entry["app"]: newest_modtime(objects, entry["segment"])
             for entry in DECLARED
         }
-        return newest, time.time()
+        longhorn = None
+        if LONGHORN_DAILY:
+            lh_newest, longhorn = collect_longhorn(LONGHORN_DAILY)
+            newest.update(lh_newest)
+        return newest, time.time(), longhorn
     except Exception as exc:
         # Do not log provider output, which may contain credential details.
         print(
             f"Backup listing failed: {type(exc).__name__}", file=sys.stderr, flush=True
         )
-        return None, time.time()
+        return None, time.time(), None
 
 
-def render(newest, last_run, now=None):
+def render(newest, last_run, longhorn=None, now=None):
     now = time.time() if now is None else now
     lines: list[str] = []
     if newest is not None:
-        for entry in DECLARED:
-            app = entry["app"]
-            max_age = entry["interval_hours"] * 3600 * 2  # 2x interval
-            timestamp = newest[app]
+        max_ages = {
+            entry["app"]: entry["interval_hours"] * 3600 * 2  # 2x interval
+            for entry in DECLARED
+        }
+        for app, timestamp in newest.items():
+            max_age = max_ages.get(app, LONGHORN_MAX_AGE_SECONDS)
             age = "+Inf" if timestamp is None else f"{max(0, now - timestamp):.3f}"
             lines.append(f'backup_freshness_seconds{{app="{app}"}} {age}')
             lines.append(f'backup_freshness_max_age_seconds{{app="{app}"}} {max_age}')
+    if longhorn is not None:
+        lines.append(f"backup_freshness_unmatched_backups {longhorn['unmatched']}")
+        lines.append(
+            f"backup_freshness_longhorn_target_available {longhorn['target_available']}"
+        )
 
     lines.append(f"backup_freshness_up {int(newest is not None)}")
     lines.append(f"backup_freshness_last_run_timestamp_seconds {last_run:.3f}")
 
     header = (
-        "# HELP backup_freshness_seconds Age in seconds of the newest R2 backup object per declared database.\n"
+        "# HELP backup_freshness_seconds Age in seconds of the newest backup per declared database or Longhorn volume.\n"
         "# TYPE backup_freshness_seconds gauge\n"
-        "# HELP backup_freshness_max_age_seconds Freshness threshold (2x the declared interval) per database.\n"
+        "# HELP backup_freshness_max_age_seconds Freshness threshold per declared database (2x its interval) or Longhorn volume (36h).\n"
         "# TYPE backup_freshness_max_age_seconds gauge\n"
+        "# HELP backup_freshness_unmatched_backups Longhorn backups whose volume no longer exists.\n"
+        "# TYPE backup_freshness_unmatched_backups gauge\n"
+        "# HELP backup_freshness_longhorn_target_available 1 if every Longhorn BackupTarget reports available.\n"
+        "# TYPE backup_freshness_longhorn_target_available gauge\n"
         "# HELP backup_freshness_up 1 if the freshness check completed successfully, 0 otherwise.\n"
         "# TYPE backup_freshness_up gauge\n"
         "# HELP backup_freshness_last_run_timestamp_seconds Unix time of the last exporter run.\n"

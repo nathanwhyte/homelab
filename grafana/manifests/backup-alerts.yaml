@@ -36,7 +36,7 @@ spec:
           # start-time window a 10-day-old failure that has since recovered
           # would fire forever. Scope to Jobs started in the last 24h.
           expr: |
-            (kube_job_status_failed{job_name=~"(postgres-backup|k3s-datastore-backup|yt-dlp-r2-backup)-.*"} > 0)
+            (kube_job_status_failed{job_name=~"(postgres-backup|k3s-datastore-backup|yt-dlp-r2-backup|backup-daily)-.*"} > 0)
               and on (namespace, job_name)
             (time() - kube_job_status_start_time < 86400)
           for: 5m
@@ -65,7 +65,19 @@ spec:
             alertgroup: backup
           annotations:
             summary: "Backup for {{ $labels.app }} is stale ({{ $value }}s old)"
-            description: "The newest R2 backup object for {{ $labels.app }} is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob."
+            description: "The newest backup for {{ $labels.app }} is older than its threshold (2x the declared interval for a database dump; 36h for a longhorn/<namespace>/<pvc> volume). Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). For a Longhorn volume, check `kubectl -n longhorn-system get backups.longhorn.io -l backup-volume=<volume>` and the backup-daily Job's log: the Job can exit 0 while one volume's backup fails."
+        - alert: LonghornBackupTargetUnavailable
+          # IMPR-1478: the R2 backup target behind backup-daily. Longhorn exports
+          # no target-availability metric, so the freshness exporter reads the
+          # BackupTarget CR. Absent while the Longhorn source is unconfigured.
+          expr: max by (namespace, job) (backup_freshness_longhorn_target_available) == 0
+          for: 30m
+          labels:
+            severity: critical
+            alertgroup: backup
+          annotations:
+            summary: "Longhorn backup target is unavailable"
+            description: "A Longhorn BackupTarget has reported available=false for 30 minutes, so no volume backup can run. Check `kubectl -n longhorn-system get backuptargets.longhorn.io -o yaml` and the longhorn-r2-backup-target secret."
         - alert: BackupFreshnessExporterDown
           expr: |
             (max by (namespace, job) (backup_freshness_up{namespace="grafana", job="backup-freshness-exporter"}) == 0)

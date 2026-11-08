@@ -27,7 +27,8 @@ if ! kubectl get secret alertmanager-slack-bot-token -n grafana >/dev/null 2>&1;
 	exit 1
 fi
 kubectl -n grafana create configmap backup-freshness-exporter \
-	--from-file="$GRAFANA_DIR/backup-freshness-exporter.py" --dry-run=client -o yaml |
+	--from-file="$GRAFANA_DIR/backup-freshness-exporter.py" \
+	--from-file="$GRAFANA_DIR/longhorn-backup-daily.json" --dry-run=client -o yaml |
 	kubectl apply "${dry_run[@]}" -f -
 kubectl apply "${dry_run[@]}" -f "$GRAFANA_DIR/manifests/backup-freshness-exporter.yaml"
 kubectl apply "${dry_run[@]}" -f "$GRAFANA_DIR/manifests/backup-alerts.yaml"

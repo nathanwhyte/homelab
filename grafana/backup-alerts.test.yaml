@@ -32,7 +32,7 @@ tests:
           - exp_labels: {app: missing, severity: critical, alertgroup: backup}
             exp_annotations:
               summary: Backup for missing is stale (+Infs old)
-              description: The newest R2 backup object for missing is older than 2x its declared interval. Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). Check the freshness exporter and the backup CronJob.
+              description: "The newest backup for missing is older than its threshold (2x the declared interval for a database dump; 36h for a longhorn/<namespace>/<pvc> volume). Either the backup job is failing (BUG-1014) or there is no backup job at all (BUG-1086). For a Longhorn volume, check `kubectl -n longhorn-system get backups.longhorn.io -l backup-volume=<volume>` and the backup-daily Job's log: the Job can exit 0 while one volume's backup fails."
   - interval: 1m
     input_series:
       - series: 'kube_job_status_failed{namespace="kube-system",job_name="k3s-datastore-backup-drill"}'
@@ -111,3 +111,43 @@ tests:
       - eval_time: 782m
         alertname: BackupFreshnessExporterDown
         exp_alerts: []
+  # IMPR-1478: the Longhorn backup target goes unavailable for 30 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'backup_freshness_longhorn_target_available{namespace="grafana",job="backup-freshness-exporter"}'
+        values: '1x10 0x40'
+    alert_rule_test:
+      - eval_time: 39m
+        alertname: LonghornBackupTargetUnavailable
+        exp_alerts: []
+      - eval_time: 41m
+        alertname: LonghornBackupTargetUnavailable
+        exp_alerts:
+          - exp_labels:
+              namespace: grafana
+              job: backup-freshness-exporter
+              severity: critical
+              alertgroup: backup
+            exp_annotations:
+              summary: Longhorn backup target is unavailable
+              description: A Longhorn BackupTarget has reported available=false for 30 minutes, so no volume backup can run. Check `kubectl -n longhorn-system get backuptargets.longhorn.io -o yaml` and the longhorn-r2-backup-target secret.
+  # A failed Longhorn backup-daily Job is a backup Job failure like the others.
+  - interval: 1m
+    input_series:
+      - series: 'kube_job_status_failed{namespace="longhorn-system",job_name="backup-daily-29901234",reason="BackoffLimitExceeded"}'
+        values: '1x20'
+      - series: 'kube_job_status_start_time{namespace="longhorn-system",job_name="backup-daily-29901234"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BackupCronJobFailed
+        exp_alerts:
+          - exp_labels:
+              namespace: longhorn-system
+              job_name: backup-daily-29901234
+              reason: BackoffLimitExceeded
+              severity: critical
+              alertgroup: backup
+            exp_annotations:
+              summary: Backup job backup-daily-29901234 failed in longhorn-system
+              description: "A backup Job started in the last 24h has failed (BackoffLimitExceeded). Check `kubectl -n longhorn-system describe job backup-daily-29901234` and the pod logs. This is the BUG-1014 signature: pg_dump succeeded but the upload step failed."

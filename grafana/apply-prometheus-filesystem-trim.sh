@@ -42,15 +42,20 @@ esac
 [[ -f "$MANIFEST" ]] || { echo "Missing $MANIFEST" >&2; exit 1; }
 
 # Longhorn replaces a volume's recurring-job selection with its PVC source
-# labels once `source=enabled`. Preserve the inherited default group explicitly
-# while adding this direct job. The trim job itself has `groups: []`, so it does
+# labels once `source=enabled`. The trim job itself has `groups: []`, so it does
 # not select the other volumes in that group.
+#
+# IMPR-1478: Prometheus is in the `manual` group, never `default`, because the
+# `default` group carries the backup-daily RecurringJob and a backup always
+# takes a snapshot first (IMPR-1125 keeps this volume snapshot-free). This
+# script used to add `default` back explicitly; it now removes it.
 kubectl apply -f "$MANIFEST"
 wait_for_pvc
 kubectl -n "$NAMESPACE" label pvc "$PVC" \
   recurring-job.longhorn.io/source=enabled \
-  recurring-job-group.longhorn.io/default=enabled \
+  recurring-job-group.longhorn.io/manual=enabled \
   "recurring-job.longhorn.io/$JOB=enabled" \
+  recurring-job-group.longhorn.io/default- \
   --overwrite
 
 echo "Applied $JOB and labelled $NAMESPACE/$PVC for its filesystem-trim schedule."
