@@ -23,7 +23,7 @@ copyparty joins). The job pod's `Found N volumes` line should read the same.
 | `compendium/compendium-sync-state-v2` | longhorn-compendium-sync | 2 | manu, timmy | <1 GiB | daily |
 | `copyparty/copyparty-files` | longhorn-hdd-2x | 2 → 1 | manu, wemby | 162 GiB | manual → daily after its one-off first backup |
 | `equal-risk/pgdata-postgres-0` | longhorn-db | 3 | manu, timmy, wemby | <1 GiB | daily |
-| `garage/data-garage-0` | longhorn-garage-data | 1 | manu | 4 GiB | daily |
+| `garage/data-garage-0` | longhorn-garage-data | 1 | wemby (moved local to garage-0 at 21:50Z by best-effort locality) | 4 GiB | daily |
 | `garage/data-garage-1` | longhorn-garage-data | 1 | timmy | 4 GiB | daily |
 | `garage/data-garage-2` | longhorn-garage-data | 1 | manu | 4 GiB | daily |
 | `garage/meta-garage-0` | longhorn-nvme | 2 | timmy, wemby | 2 GiB | daily |
@@ -76,7 +76,7 @@ Every detached volume must have a row here (IMPR-1478 acceptance criterion).
 | --- | --- | --- |
 | `equal-risk/postgres-data-postgres-0` (RWX) | `impr1478-final-equal-risk-rwx` | replaced by `pgdata-postgres-0` on 2026-10-28 (IMPR-1440) |
 | `grafana/grafana-storage-rwx` (RWX) | `impr1478-final-grafana-storage-rwx` | replaced by `grafana-storage` on 2026-10-28 (IMPR-1440) |
-| `viking/wemby-model-cache` | `impr1478-final-wemby-model-cache` | `embedder-llamacpp` deleted 2026-07-04 |
+| `viking/wemby-model-cache` | `impr1478-final-wemby-model-cache` | `embedder-llamacpp` deleted 2026-07-04; `viking/manifests/wemby-model-cache-pvc.yaml` removed |
 | `llama/llama-model-cache` (125 GiB, 101 used) | none, by decision | unmounted model cache; its backup attempt saturated the LAN and disturbed Garage, so it was deleted without one. `llama/pvc.yaml` removed |
 | RecurringJob `syncthing-data-snap-daily` | — | its PVC was deleted 2026-07-25 |
 | Orphan `orphan-932684c7…` | — | engine-instance orphan on wemby |

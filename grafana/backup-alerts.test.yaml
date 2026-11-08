@@ -61,7 +61,7 @@ tests:
           - exp_labels: {namespace: grafana, job: backup-freshness-exporter, severity: warning, alertgroup: backup}
             exp_annotations:
               summary: Backup freshness exporter is failing
-              description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.
+              description: The exporter cannot list R2 or the Longhorn CRs, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter's logs, its ServiceMonitor, R2 credentials and its longhorn-system Role. The failed source's freshness rows are missing.
   - interval: 1m
     input_series:
       - series: 'up{namespace="grafana",job="backup-freshness-exporter"}'
@@ -73,7 +73,7 @@ tests:
           - exp_labels: {namespace: grafana, job: backup-freshness-exporter, severity: warning, alertgroup: backup}
             exp_annotations:
               summary: Backup freshness exporter is failing
-              description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.
+              description: The exporter cannot list R2 or the Longhorn CRs, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter's logs, its ServiceMonitor, R2 credentials and its longhorn-system Role. The failed source's freshness rows are missing.
   - interval: 1m
     alert_rule_test:
       - eval_time: 31m
@@ -86,7 +86,7 @@ tests:
               alertgroup: backup
             exp_annotations:
               summary: Backup freshness exporter is failing
-              description: The exporter cannot list R2, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter, its ServiceMonitor and R2 credentials. Freshness coverage is unavailable.
+              description: The exporter cannot list R2 or the Longhorn CRs, cannot be scraped, or has no scrape target. Check grafana/backup-freshness-exporter's logs, its ServiceMonitor, R2 credentials and its longhorn-system Role. The failed source's freshness rows are missing.
   # A healthy HTTP server with a frozen refresh worker must alert as stale.
   - interval: 1m
     input_series:
