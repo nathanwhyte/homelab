@@ -380,7 +380,22 @@ class ArchiveTests(_Phase2Applied):
         with patch.dict(os.environ, {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "1"}):
             calls, records = _phase(SUBAGENT_ARCHIVE, policy={"events", "profile"})
         self.assertEqual(calls[0]["allowed_memory_types"], {"events"})
-        self.assertEqual(records[0]["profile_action"], "skipped")
+        self.assertEqual(
+            [(r["action"], r["profile_action"]) for r in records],
+            [("not_offered", "skipped")],
+        )
+
+    def test_shipped_config_never_reports_an_unoffered_preference_as_skipped(self):
+        # Prod's settings with a policy that never held preferences: extraction is
+        # unchanged and the line must not add to a Loki count of "action": "skipped".
+        env = {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "shadow"}
+        with patch.dict(os.environ, env, clear=True):
+            calls, records = _phase(SUBAGENT_ARCHIVE, policy={"events", "profile"})
+        self.assertEqual(calls[0]["allowed_memory_types"], {"events", "profile"})
+        self.assertEqual(
+            [(r["action"], r["profile_action"]) for r in records],
+            [("not_offered", "would_skip")],
+        )
 
     def test_failed_batch_is_recorded_and_still_logs_once(self):
         compressor = _Compressor(errors=[TimeoutError("vlm")])

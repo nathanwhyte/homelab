@@ -17,14 +17,14 @@ extraction batches (ov_extract_patch caps a batch at 60 messages) or drops the b
 resumed archive already finished. Its wrapper checks that full list: when no ``user``
 message has a non-blank text part (the same test the extractor uses to render a line, so
 a tool-result-only ``user`` turn does not count), every ``_extract_user_memories`` call
-for that archive runs with ``preferences`` removed from ``allowed_memory_types``. That one
-argument is OpenViking's own per-session ``memory_policy.memory_types`` seam: the
-isolation handler then leaves the schema out of the prompt, the prefetch and the
-resolver, so the model is never asked for a preference. Every other memory type extracts
-as before. An archive with typed user text, or one whose policy already excludes
-``preferences``, passes through untouched. A call outside Phase 2 (the manual
-``/extract`` endpoint, which passes the whole session unbatched) is judged on its own
-messages.
+for that archive runs with each enforced gated type (``preferences``, ``profile``) removed
+from ``allowed_memory_types``. That one argument is OpenViking's own per-session
+``memory_policy.memory_types`` seam: the isolation handler then leaves the schema out of
+the prompt, the prefetch and the resolver, so the model is never asked for that type.
+Every type that is not gated, or whose switch is not ``1``, extracts as before. An archive
+with typed user text passes through untouched, and so does one whose policy offers no
+gated type with its switch on. A call outside Phase 2 (the manual ``/extract`` endpoint,
+which passes the whole session unbatched) is judged on its own messages.
 
 Each Phase 2 run of a gated archive that makes at least one user-memory extraction call
 writes one stderr line when it finishes. A resumed run whose extraction batches all
@@ -46,7 +46,8 @@ Each gated type has its own switch, read once per archive: ``OV_PREF_GATE`` for
 and anything else, unset included, only logs, so a typo never changes what is extracted.
 The line reports ``preferences`` as ``"action"`` (kept from IMPR-1404 for the Loki queries
 that read it) and ``profile`` as ``"profile_action"``: ``skipped``, ``would_skip`` or
-``off``. In shadow, ``writes.profile`` lists the profile writes enforce mode would have
+``off``, or ``not_offered`` when no gated call's policy held the type, so a
+``"skipped"`` count only counts archives that were offered it. In shadow, ``writes.profile`` lists the profile writes enforce mode would have
 prevented. An archive is gated, and logged, when any switch is not ``0``; with both ``0``
 the patch is not installed.
 
@@ -186,6 +187,8 @@ class Gate:
         self.diff = False
         self.errors = []
         self.writes = {memory_type: [] for memory_type in WATCHED_TYPES}
+        # The gated types any gated call offered: an action is only reported for these.
+        self.offered = set()
 
     def _offered(self, allowed):
         """The gated types this call offers, with their switch not ``0``."""
@@ -202,6 +205,12 @@ class Gate:
         """The offered types whose switch is ``1``: what this call drops."""
         return {t for t in self._offered(allowed) if self.modes[t] == "1"}
 
+    def action(self, memory_type) -> str:
+        mode = self.modes[memory_type]
+        if mode != "0" and memory_type not in self.offered:
+            return "not_offered"
+        return _action(mode)
+
     def record_result(self, result) -> None:
         with contextlib.suppress(Exception):
             writes = watched_writes(result)
@@ -212,12 +221,12 @@ class Gate:
 
     def record(self) -> dict:
         record = {
-            "action": _action(self.modes[GATED_TYPE]),
+            "action": self.action(GATED_TYPE),
             "archive_uri": self.archive_uri,
             "diff": self.diff,
             "extractions": self.extractions,
             "messages": self.messages,
-            "profile_action": _action(self.modes[PROFILE_TYPE]),
+            "profile_action": self.action(PROFILE_TYPE),
             "roles": self.roles,
             "session_id": self.session_id,
             "writes": self.writes,
@@ -256,6 +265,7 @@ def gating(original, all_types):
             return await original(self, *args, **kwargs)
         if not gate.gates(messages, allowed):
             return await original(self, *args, **kwargs)
+        gate.offered |= gate._offered(allowed)
         removed = gate.removed(allowed)
         if removed:
             types = set(all_types()) if allowed is None else set(allowed)
