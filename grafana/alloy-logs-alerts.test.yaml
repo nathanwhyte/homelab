@@ -5,9 +5,10 @@ evaluation_interval: 1m
 # retry; at the 5m backoff cap a stuck batch retries about every 256-300 s.
 # loki_write_sent_entries_total rises only when a push gets a 2xx.
 tests:
-  # 1. Stuck sender, nothing sent since the pod started (no sent series): one
-  #    retry every 5 minutes for 2 hours. Fires once the 10m increase has
-  #    stayed above 0 for 30 minutes.
+  # 1. Stuck sender with no sent series at all (defensive: Alloy creates the
+  #    sent counter at 0 with the retry counter): one retry every 5 minutes
+  #    for 2 hours. Fires once the 10m increase has stayed above 0 for 30
+  #    minutes.
   - interval: 1m
     input_series:
       - series: 'loki_write_batch_retries_total{namespace="grafana",pod="k8s-monitoring-alloy-logs-w6p5l",host="loki-gateway.grafana.svc.cluster.local",tenant=""}'
@@ -22,8 +23,8 @@ tests:
               summary: "alloy-logs collector k8s-monitoring-alloy-logs-w6p5l has been retrying Loki pushes for 30m+ with nothing sent"
               description: "k8s-monitoring-alloy-logs-w6p5l has retried a loki.write batch, and sent no entries to Loki, in every 10m window for over 30 minutes. Its share of pod logs and its node's journal are queued behind the retried batch. Alloy logs a retry only at debug level, so check whether loki-gateway and loki-0 are up first. If they are, a 5xx or 429 on every attempt (Loki's own logs) means Loki is refusing one batch; restarting the pod frees the sender and drops what is queued. BUG-1293."
 
-  # 2. Stuck sender after earlier successful sends: the sent counter exists but
-  #    stays flat. Fires like case 1.
+  # 2. Stuck sender whose sent counter exists but stays flat (the usual shape,
+  #    whether or not anything was sent before). Fires like case 1.
   - interval: 1m
     input_series:
       - series: 'loki_write_batch_retries_total{namespace="grafana",pod="k8s-monitoring-alloy-logs-w6p5l",host="loki-gateway.grafana.svc.cluster.local",tenant=""}'

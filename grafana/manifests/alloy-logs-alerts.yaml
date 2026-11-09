@@ -30,9 +30,11 @@ spec:
           # One alert per collector pod. The retry increase over 10m stays
           # above 0 while the collector retries a batch at least once every
           # 10 min (at the 5m backoff cap each wait is 256-300 s). "unless"
-          # drops a pod that also sent entries in that window; a pod whose
-          # sent counter does not exist yet (nothing sent since start) is
-          # kept.
+          # drops a pod that also sent entries in that window. Alloy creates
+          # both counters at 0 when it queues a tenant's first entry, before
+          # any send or retry (client/shards.go:372-374,387-399), so a pod
+          # that has sent nothing since start is matched by its flat sent
+          # counter; a missing sent series is also kept.
           expr: |
             sum by (namespace, pod) (
               increase(loki_write_batch_retries_total{namespace="grafana", pod=~"k8s-monitoring-alloy-logs-.+"}[10m])

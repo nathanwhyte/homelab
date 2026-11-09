@@ -64,28 +64,32 @@ if ! kubectl get secret alertmanager-slack-bot-token -n "$NAMESPACE" >/dev/null 
 	exit 1
 fi
 
-if [ ! -f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml" ]; then
-	echo "kube-prometheus-stack-values.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/helm/k8s-monitoring-values.yaml" ]; then
-	echo "k8s-monitoring-values.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/helm/loki-values.yaml" ]; then
-	echo "loki-values.yaml file not found!"
-	exit 1
-fi
-
-# Pairs with maxBackoffRetries in helm/k8s-monitoring-values.yaml (BUG-1293).
-# The PodMonitor scrapes the alloy-logs collectors so the alert has its metric.
-# Checked before any cluster change: the k8s-monitoring upgrade below without
-# these two would leave the longer blocking retries with no alert.
-for manifest in alloy-logs-podmonitor.yaml alloy-logs-alerts.yaml; do
-	if [ ! -f "$GRAFANA_DIR/manifests/$manifest" ]; then
-		echo "$manifest file not found!"
+# Every file this script passes to kubectl, helm-deploy.py or bash, checked
+# here, before the first cluster change, so a missing one stops the deploy
+# before anything is half-applied. Some files only work as a pair: the
+# k8s-monitoring values set maxBackoffRetries, which needs the alloy-logs
+# PodMonitor and alert (BUG-1293), and disable KubeJobFailed, which
+# job-failure-alerts.yaml replaces (BUG-1197). Add a new input here, not next
+# to the step that uses it. Paths are relative to $GRAFANA_DIR.
+REQUIRED_FILES=(
+	helm/kube-prometheus-stack-values.yaml
+	helm/k8s-monitoring-values.yaml
+	helm/loki-values.yaml
+	manifests/storageclass-longhorn-observability.yaml
+	manifests/pvc.yaml
+	manifests/rbac.yaml
+	manifests/node-power-alerts.yaml
+	manifests/backup-alerts.yaml
+	manifests/job-failure-alerts.yaml
+	manifests/alloy-logs-podmonitor.yaml
+	manifests/alloy-logs-alerts.yaml
+	apply-prometheus-filesystem-trim.sh
+	deploy-backup-alerts.sh
+	../longhorn/deploy-storage-alerts.sh
+)
+for file in "${REQUIRED_FILES[@]}"; do
+	if [ ! -f "$GRAFANA_DIR/$file" ]; then
+		echo "$file file not found!"
 		exit 1
 	fi
 done
@@ -94,11 +98,6 @@ done
 # volumeClaimTemplates request `longhorn-observability`, and a PVC naming a class
 # that does not exist stays Pending indefinitely rather than failing loudly.
 # Applying it here keeps a fresh/rebuilt cluster working without manual steps.
-if [ ! -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml" ]; then
-	echo "storageclass-longhorn-observability.yaml file not found!"
-	exit 1
-fi
-
 echo -e "\nApplying longhorn-observability StorageClass..."
 kubectl apply -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml"
 
@@ -122,33 +121,6 @@ echo -e "\nDeploying loki..."
 python3 "$HELM_DEPLOY" loki "$NAMESPACE" \
 	grafana/loki \
 	-f "$GRAFANA_DIR/helm/loki-values.yaml"
-
-if [ ! -f "$GRAFANA_DIR/manifests/rbac.yaml" ]; then
-	echo "rbac.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/manifests/pvc.yaml" ]; then
-	echo "pvc.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" ]; then
-	echo "node-power-alerts.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/manifests/backup-alerts.yaml" ]; then
-	echo "backup-alerts.yaml file not found!"
-	exit 1
-fi
-
-# Replaces the chart's KubeJobFailed, which the values file disables (BUG-1197).
-# Deploy both together: the values without this file leaves no failed-Job alert.
-if [ ! -f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" ]; then
-	echo "job-failure-alerts.yaml file not found!"
-	exit 1
-fi
 
 # The grafana namespace no longer runs its own cloudflared connector. Its tunnel
 # was deleted 2026-03-28 in the consolidation into the cluster-wide `homelab`
