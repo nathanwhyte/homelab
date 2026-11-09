@@ -84,8 +84,9 @@ data:
   # To pin OpenViking to gemma by hand: `viking/scripts/ov-vlm-swap.py gemma --apply`.
   #
   # memory.custom_templates_dir loads openviking-memory-templates over the bundled
-  # memory schemas (BUG-1260: preferences come only from [user] messages). The
-  # deployment mounts that ConfigMap at this path.
+  # memory schemas (BUG-1260: preferences come only from [user] messages;
+  # IMPR-1480: identity and soul disabled). The deployment mounts that ConfigMap at
+  # this path.
   ov.conf: |
     {
       "default_account": "default",
