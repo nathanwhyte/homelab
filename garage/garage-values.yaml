@@ -227,8 +227,9 @@ affinity:
 #
 # 2026-11-09 (BUG-1293): RUST_LOG keeps the image's own filter (garage=info,
 # Dockerfile:4@v2.5.0) and sets one module, garage_api_common::generic_server,
-# to warn. That module logs every API request and every 4xx at info
-# (generic_server.rs:170,216); those lines were 94.5%, 98.3% and 99.5% of
+# to warn. That module logs every API request (admin /health and /metrics
+# already at debug) and every 4xx at info (generic_server.rs:167-170,216);
+# those lines were 94.5%, 98.3% and 99.5% of
 # garage-0/1/2's lines over 6 h on 2026-11-09, about 157k lines/h from
 # garage-2, which rotated its kubelet log file past what a Loki outage could
 # catch up. The module's info lines for server start, drain and exit go too
