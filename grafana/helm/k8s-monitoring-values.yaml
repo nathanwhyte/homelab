@@ -39,6 +39,13 @@ nodeLogs:
   # Send to Loki (explicit so logs flow to the provisioned Loki datasource)
   destinations:
     - loki
+  # BUG-1293: drop lines older than 312h, near Loki's 336h age limit; see
+  # podLogs below.
+  extraLogProcessingStages: |
+    stage.drop {
+      older_than          = "312h"
+      drop_counter_reason = "too_old"
+    }
 
 # Collector is automatically set to alloy-logs
 
@@ -48,6 +55,24 @@ podLogs:
   gatherMethod: kubernetesApi
   destinations:
     - loki
+  # BUG-1293: a collector that takes over a pod without a saved position (they
+  # live in /tmp/alloy, lost on restart) reads the pod's whole current log
+  # file, up to 50Mi (kube-system/kubelet-container-logs.conf). For a quiet pod
+  # that reaches back weeks. Loki refuses entries older than 336h
+  # (loki-values.yaml reject_old_samples_max_age) with a 400, and Alloy drops
+  # the whole batch: on 2026-11-09 timmy's collector had 37 batches refused.
+  # Drop old lines here instead, at 312h rather than 336h: a 24h margin for
+  # time spent queued and retrying, which makes an age refusal less likely
+  # but does not rule it out (several batches can queue, each with its own
+  # retry budget). Lines 312-336h old are dropped although Loki would accept
+  # them; its 24h retention (loki-values.yaml retention_period) deletes them
+  # soon after anyway. Counted in
+  # loki_process_dropped_lines_total{reason="too_old"}.
+  extraLogProcessingStages: |
+    stage.drop {
+      older_than          = "312h"
+      drop_counter_reason = "too_old"
+    }
 
 # Collectors
 alloy-singleton:
