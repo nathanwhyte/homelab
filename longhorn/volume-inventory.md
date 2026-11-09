@@ -53,10 +53,11 @@ Large volumes keep one Longhorn replica and take their off-node copy from R2
 (decision 2026-11-08): a second replica streams the whole volume across the LAN
 on every rebuild.
 
-`garage/meta-garage-2` was grown online from 5 to 10 GiB on 2026-11-08 after
-garage-2's LMDB filled it (resync backlog after that day's disturbance). The
-Garage chart's `meta.size` (`garage/garage-values.yaml`) still says 5 GiB, which
-only seeds new claims; meta-garage-0 and -1 stay at 5 GiB with about 1 GiB used.
+`garage/meta-garage-2` was grown online from 5 to 10 GiB, then to 20 GiB, on
+2026-11-08 as garage-2's LMDB file grew; a `db.lmdb` rebuild from peers on
+2026-11-09 brought it back to 0.74 GiB, and Longhorn cannot shrink it, so it
+stays 20 GiB. The Garage chart's `meta.size` (`garage/garage-values.yaml`) only
+seeds new claims; meta-garage-0 and -1 stay at 5 GiB with about 1 GiB used.
 
 ## Detached, kept
 
