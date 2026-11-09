@@ -285,8 +285,12 @@ class ScriptDryRunTests(unittest.TestCase):
             binary.mkdir()
             (binary / "helm").write_text(FAKE_HELM)
             (binary / "helm").chmod(0o755)
+            # The one read allowed: deploy-garage.sh's claim-template check, which
+            # finds no live StatefulSet here (--ignore-not-found prints nothing).
             (binary / "kubectl").write_text(
-                "#!/bin/sh\necho 'kubectl must not run during Helm dry-run' >&2\nexit 99\n"
+                "#!/bin/sh\n"
+                'case "$*" in "-n garage get statefulset garage -o json --ignore-not-found") exit 0 ;; esac\n'
+                "echo 'kubectl must not run during Helm dry-run' >&2\nexit 99\n"
             )
             (binary / "kubectl").chmod(0o755)
             chart = directory / "garage"
@@ -957,7 +961,11 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ['TEST_LOG'], 'a') as log:
     log.write(json.dumps(['kubectl'] + args) + '\n')
-if 'get' in args and 'statefulset' in args and any(a.startswith('-o') or a == 'jsonpath={.spec.replicas}' for a in args):
+if '--ignore-not-found' in args and 'get' in args:
+    # deploy-garage.sh's claim-template read: no live StatefulSet, or a failed read.
+    if os.environ.get('KUBECTL_GET_FAILS'):
+        sys.exit('Error from server (Forbidden)')
+elif 'get' in args and 'statefulset' in args and any(a.startswith('-o') or a == 'jsonpath={.spec.replicas}' for a in args):
     print('3')
 elif args[:2] == ['create', '--dry-run=client']:
     sys.stdin.read()
@@ -1083,6 +1091,24 @@ class GarageScriptTests(unittest.TestCase):
         self.assertIn("helm upgrade failed", result.stderr)
         applies = [c for c in self.commands() if c[0] == "kubectl" and "apply" in c]
         self.assertEqual(applies, [])
+
+    def test_unreadable_statefulset_stops_before_helm(self):
+        # A failed read of the live StatefulSet must not pass as a first install.
+        self.environment["KUBECTL_GET_FAILS"] = "1"
+        for args in (("--dry-run",), ("--upgrade-chart", "--dry-run")):
+            with self.subTest(args=args):
+                result = self.run_script(*args)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(
+                    "Could not read the live garage StatefulSet", result.stderr
+                )
+        self.assertFalse(
+            [
+                c
+                for c in self.commands()
+                if c[0] == "helm" and c[1] in ("upgrade", "diff")
+            ]
+        )
 
     def test_upgrade_without_the_flag_is_refused(self):
         self.environment["DEPLOYED"] = "0.9.2"
