@@ -222,8 +222,9 @@ tests:
   # Client delivery alerts read the shipper's since-last-delivery gauges
   # (dotfiles bin/ov-telemetry-push.py folds them from the hook logs; which
   # runs count, and what a skip, failure or delivery does, is tested there).
-  # Each openviking restart starts new series under a new pod label, and a
-  # dead pod's last value is held by last_over_time for 10m.
+  # Each openviking restart starts new series under a new pod label; when a
+  # pod's scrape target goes away Prometheus marks its series stale (modelled
+  # with `stale`).
   - name: recalls with no counted delivery fire at 11, not at 10
     interval: 1m
     input_series:
@@ -270,8 +271,12 @@ tests:
       - series: 'openviking_client_recalls_since_delivery{machine="pop", harness="claude-code", pod="openviking-a"}'
         values: "11x20 0x40"
     promql_expr_test:
-      - expr: count(ALERTS{alertname=~"OpenVikingClient(SessionStart|RecallDelivery)Flat"}) or vector(0)
-        eval_time: 45m
+      # Checked where a hold past the reset would have fired (for: 30m).
+      - expr: count(ALERTS{alertname=~"OpenVikingClient(SessionStart|RecallDelivery)Flat",alertstate="firing"}) or vector(0)
+        eval_time: 30m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname=~"OpenVikingClient(SessionStart|RecallDelivery)Flat",alertstate="firing"}) or vector(0)
+        eval_time: 31m
         exp_samples: [{ labels: "{}", value: 0 }]
 
   # The 2026-11-08/09 false positive: counters on three pods, one of which
@@ -296,33 +301,42 @@ tests:
         eval_time: 26h
         exp_samples: [{ labels: "{}", value: 0 }]
 
-  - name: a dead pod's held count after a delivery on the new pod stays quiet
-    # Pod a reported 7 and stopped at 4.5m; pod b reports 0 from 5m. The
-    # max holds 7 until a's last sample is 10m old, short of for: 30m.
-    interval: 30s
+  - name: a delivery on the new pod clears a condition pending at the restart
+    # Round-4 review: pod a reports 6 from 0m, its target goes away at 26m
+    # (Prometheus writes a stale marker), and pod b reports 0 (an injection)
+    # from 26m. A range such as max over last_over_time([10m]) kept a's 6 and
+    # fired at 30m; the instant read sees only b.
+    interval: 1m
     input_series:
       - series: 'openviking_client_session_start_runs_since_inject{machine="pop", harness="claude-code", pod="openviking-a"}'
-        values: "7x9 _x110"
+        values: "6x25 stale"
       - series: 'openviking_client_session_start_runs_since_inject{machine="pop", harness="claude-code", pod="openviking-b"}'
-        values: "_x10 0x109"
+        values: "_x26 0x40"
     promql_expr_test:
-      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat"}) or vector(0)
-        eval_time: 59m
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"}) or vector(0)
+        eval_time: 30m
+        exp_samples: [{ labels: "{}", value: 0 }]
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"}) or vector(0)
+        eval_time: 31m
         exp_samples: [{ labels: "{}", value: 0 }]
 
   - name: a count that carries across a pod restart still fires, once
-    # The alert carries only machine and harness, so the restart neither
-    # resets for: 30m nor opens a second alert.
+    # Pod a's target goes away at 20m; pod b's first push lands at 25m. The
+    # gap resets the pending clock, and the alert carries only machine and
+    # harness, so it fires once, 30m after b's first sample.
     interval: 30s
     input_series:
       - series: 'openviking_client_session_start_runs_since_inject{machine="pop", harness="claude-code", pod="openviking-a"}'
-        values: "7x39 _x80"
+        values: "7x39 stale"
       - series: 'openviking_client_session_start_runs_since_inject{machine="pop", harness="claude-code", pod="openviking-b"}'
-        values: "_x40 8x79"
+        values: "_x50 8x80"
     promql_expr_test:
       - expr: count by (machine) (ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"})
-        eval_time: 35m
+        eval_time: 56m
         exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat",alertstate="firing"}) or vector(0)
+        eval_time: 54m
+        exp_samples: [{ labels: "{}", value: 0 }]
 
   - name: a long but sub-threshold lock never fires
     interval: 1m

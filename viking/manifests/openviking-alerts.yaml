@@ -204,7 +204,9 @@ spec:
         # order: session-start runs since the last injection, and recall runs
         # that neither skipped, failed nor delivered since the last one that
         # delivered tokens and entries. A rebuild of its state refolds the
-        # same lines, so it reproduces them. Deriving these from the
+        # current log file, so it reproduces them unless the log rotated since
+        # the last delivery, when it reads lower (a later alert, never a false
+        # one). Deriving these from the
         # cumulative totals in PromQL failed every way it was tried (homelab
         # PR fixing the 2026-11-08/09 false positive, three review rounds):
         # a per-series join matched a flat series left by a pod that lived
@@ -214,14 +216,19 @@ spec:
         # pod, and activity at the subquery's step edges.
         #
         # Every pod restart starts new series under a new pod label (the
-        # exporter holds pushes in memory). max by (machine, harness) over
-        # last_over_time([10m]) takes whichever pod's value is fresh; a dead
-        # pod's last value is held 10m (two pushes), short of for: 30m, so a
-        # delivery reported to the new pod clears it in time. A shipper that
-        # predates the gauges sends none, which leaves no series to alert on.
+        # exporter holds pushes in memory and serves them on every scrape).
+        # The rules read the gauge at the instant, never over a range: when a
+        # pod's scrape target goes away Prometheus marks its series stale, and
+        # the Deployment is Recreate, so only the live pod's series is read and
+        # a dead pod's last value can never outvote a delivery reported to the
+        # new one (a range such as max over last_over_time([10m]) kept the
+        # dead pod's higher value and could fire a condition already pending
+        # at the restart). Until the new pod's first push there is no series,
+        # which resets the pending clock. A shipper that predates the gauges
+        # sends none, which leaves no series to alert on.
         - alert: OpenVikingClientRecallDeliveryFlat
           expr: >-
-            max by (machine, harness) (last_over_time(openviking_client_recalls_since_delivery[10m])) >= 11
+            max by (machine, harness) (openviking_client_recalls_since_delivery) >= 11
           for: 30m
           labels:
             severity: warning
@@ -232,7 +239,7 @@ spec:
         # recalls for days without a new session start.
         - alert: OpenVikingClientSessionStartFlat
           expr: >-
-            max by (machine, harness) (last_over_time(openviking_client_session_start_runs_since_inject[10m])) >= 6
+            max by (machine, harness) (openviking_client_session_start_runs_since_inject) >= 6
           for: 30m
           labels:
             severity: warning
