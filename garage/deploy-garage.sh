@@ -36,9 +36,11 @@ ensure_chart_ref() {
 
 # A StatefulSet's volumeClaimTemplates are immutable, so a values change to a
 # persistence size or class makes the Helm upgrade fail partway through. Compare
-# the rendered templates with the live StatefulSet first and stop with the fix.
-# The fix deletes only the StatefulSet object: its pods and PVCs keep running,
-# and the next flagless run recreates it and adopts them. This script never runs it.
+# the rendered templates with the live StatefulSet first and stop before Helm.
+# Recreating the StatefulSet is a manual procedure that depends on the release
+# state and chart version, so the script names the runbook rather than composing
+# a command (three review rounds on homelab#326 found states a composed command
+# got wrong). It never deletes anything itself.
 check_claim_templates() {
 	local live rendered tool
 	for tool in jq yq; do
@@ -58,35 +60,10 @@ check_claim_templates() {
 		echo "garage-values.yaml changes the StatefulSet's volumeClaimTemplates, which Kubernetes refuses to update." >&2
 		echo "  live:     $live" >&2
 		echo "  rendered: $rendered" >&2
-		# The fix is printed as one exact command line, built from state rather than
-		# from how this run was invoked, so no flag (--dry-run, --upgrade-chart)
-		# carries over into the recovery. Only a flagless run recreates the
-		# StatefulSet: --upgrade-chart's hold step reads the live StatefulSet first
-		# and fails when it is gone, --dry-run changes nothing, and the flagless
-		# path refuses a chart-version change (helm-deploy.py). So when the
-		# deployed chart differs from this checkout's, the upgrade runs first.
-		local deployed_chart checkout_chart script
-		# Carry the environment overrides, the inputs that are not flags, explicitly.
-		local self_dir
-		self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-		script="$self_dir/deploy-garage.sh"
-		[[ "$GARAGE_DIR" == "$self_dir" ]] || script="GARAGE_DIR=$(printf '%q' "$GARAGE_DIR") $script"
-		[[ -z "${GARAGE_CHART_DIR:-}" ]] || script="GARAGE_CHART_DIR=$(printf '%q' "$GARAGE_CHART_DIR") $script"
-		deployed_chart="$(helm list -n "$NAMESPACE" -o json 2>/dev/null |
-			jq -r '.[] | select(.name == "garage") | .chart')" || deployed_chart=""
-		checkout_chart="garage-$(yq '.version' "$CHART_DIR/Chart.yaml")"
-		[[ $DRY_RUN -eq 0 ]] || echo "(This was a dry run; the command below changes the cluster.)" >&2
-		if [[ -n "$deployed_chart" && "$deployed_chart" != "$checkout_chart" ]]; then
-			echo "The deployed chart ($deployed_chart) also differs from this checkout's ($checkout_chart)," >&2
-			echo "which the run that recreates the StatefulSet refuses. Set the claim templates in" >&2
-			echo "garage-values.yaml back to the live values above, run exactly:" >&2
-			echo "  $script --upgrade-chart" >&2
-			echo "then restore them and run this script again for the recreate command." >&2
-		else
-			echo "Fix, run exactly:" >&2
-			echo "  kubectl -n $NAMESPACE delete statefulset garage --cascade=orphan && $script" >&2
-			echo "Pods and PVCs keep running; existing PVCs keep their size (expand them live)." >&2
-		fi
+		echo "Nothing was changed. Either set the claim templates in garage-values.yaml back to" >&2
+		echo "the live values, or recreate the StatefulSet by hand (compendium GUIDE-1079," >&2
+		echo "\"Recreating the garage StatefulSet\")." >&2
+		echo "Existing PVCs keep their size either way (expand them live)." >&2
 		exit 1
 	fi
 }

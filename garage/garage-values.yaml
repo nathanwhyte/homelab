@@ -71,7 +71,8 @@ persistence:
     # from peers brought it back to 0.74 GiB; more space did not. Longhorn cannot
     # shrink a PVC, so that one stays 20Gi. This value sizes only a newly created
     # PVC, and it must match the live StatefulSet: volumeClaimTemplates are
-    # immutable, so deploy-garage.sh stops on a mismatch (it prints the fix).
+    # immutable, so deploy-garage.sh stops on a mismatch and names the runbook
+    # (compendium GUIDE-1079, "Recreating the garage StatefulSet").
     size: 5Gi
   data:
     # 2026-09-04: longhorn-ssd -> longhorn-garage-data.
