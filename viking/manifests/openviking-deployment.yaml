@@ -450,7 +450,8 @@ spec:
         - name: prompt-overrides
           configMap:
             name: openviking-prompt-overrides
-        # BUG-1260: preferences.yaml only; every other memory schema stays bundled.
+        # BUG-1260 preferences.yaml, plus IMPR-1480's identity.yaml and soul.yaml
+        # (enabled: false); every other memory schema stays bundled.
         - name: memory-templates
           configMap:
             name: openviking-memory-templates
