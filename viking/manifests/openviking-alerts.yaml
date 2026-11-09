@@ -269,6 +269,20 @@ spec:
           annotations:
             summary: "{{ $labels.machine }}/{{ $labels.harness }} pushes client telemetry without the since-delivery gauges"
             description: "{{ $labels.machine }} ({{ $labels.harness }}) is pushing to ov-exporter but not sending session_start_runs_since_inject and recalls_since_delivery, so OpenVikingClientSessionStartFlat and OpenVikingClientRecallDeliveryFlat cannot fire for it. Pull dotfiles on that Mac: bin/ov-telemetry-push.py sends the gauges from STATE_VERSION 7."
+        # ov-exporter drops a pushed field name it does not know and counts it
+        # here, instead of refusing the whole push (which only the Mac's
+        # LaunchAgent error log would show). A count above 0 means the shipper
+        # learned a count before the exporter: that field's data is lost until
+        # CLIENT_FIELDS or CLIENT_GAUGES gains it. The other series keep flowing.
+        - alert: OpenVikingClientUnknownFields
+          expr: >-
+            max by (machine, harness) (openviking_client_unknown_fields) > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.machine }}/{{ $labels.harness }} pushes {{ $value }} field name(s) ov-exporter does not know"
+            description: "ov-exporter dropped {{ $value }} field name(s) from each push by {{ $labels.machine }} ({{ $labels.harness }}), so their counts are not exported. The shipper (dotfiles bin/ov-telemetry-push.py) sends a total or gauge that CLIENT_FIELDS or CLIENT_GAUGES in homelab viking/exporters/ov-exporter.py does not list. Add it there, regenerate the exporter ConfigMap and restart openviking, or fix the shipper's name."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,

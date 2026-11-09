@@ -86,8 +86,11 @@ break the /metrics exposition. Totals are cumulative and replace the previous
 push, so a resend never double-counts. An optional `gauges` object (counts
 since the last delivery, CLIENT_GAUGES) rides beside them and is replaced the
 same way, and stops being exported once its series has gone a day without a
-push (CLIENT_GAUGE_MAX_AGE_S). Both live in memory only, so an exporter
-restart drops them until the next push.
+push (CLIENT_GAUGE_MAX_AGE_S). A field name the exporter does not know is
+dropped and counted (openviking_client_unknown_fields) instead of refusing the
+push, so a shipper that adds a count before the exporter learns it keeps its
+other series. All of it lives in memory only, so an exporter restart drops it
+until the next push.
 """
 
 from __future__ import annotations
@@ -142,8 +145,11 @@ POLL_TIMEOUT_S = 10
 
 # ── Client Delivery Telemetry ────────────────────────────────────────────────
 
-# Pushed total field -> (metric name, help text). Unknown fields are rejected
-# so a shipper typo fails loudly instead of minting a series.
+# Pushed total field -> (metric name, help text). A field name not listed here
+# is dropped and counted in openviking_client_unknown_fields rather than
+# refusing the push: a shipper that learns a new count before this exporter
+# does would otherwise have every push refused, and the refusal shows only in
+# the Mac's LaunchAgent error log. OpenVikingClientUnknownFields alerts on it.
 CLIENT_FIELDS: dict[str, tuple[str, str]] = {
     "session_start_runs": (
         "openviking_client_session_start_runs_total",
@@ -181,7 +187,8 @@ CLIENT_FIELDS: dict[str, tuple[str, str]] = {
 # Pushed gauge field -> (metric name, help text), sent as an optional `gauges`
 # object beside `totals`. The shipper folds them in log order, so they need no
 # PromQL arithmetic across exporter restarts or total rebuilds; the client
-# alerts read them directly. Unknown gauge fields are rejected like totals.
+# alerts read them directly. Unknown gauge fields are dropped and counted like
+# unknown totals.
 CLIENT_GAUGES: dict[str, tuple[str, str]] = {
     "session_start_runs_since_inject": (
         "openviking_client_session_start_runs_since_inject",
@@ -208,7 +215,8 @@ CLIENT_SOCKET_TIMEOUT_S = 10
 
 _client_lock = threading.Lock()
 _client_inflight = threading.BoundedSemaphore(CLIENT_MAX_INFLIGHT)
-# (machine, harness) -> {"totals": {field: int}, "gauges": {field: int}, "received": unix}
+# (machine, harness) -> {"totals": {field: int}, "gauges": {field: int},
+#                        "unknown": int, "received": unix}
 _client_totals: dict[tuple[str, str], dict] = {}
 
 
@@ -243,13 +251,15 @@ def apply_client_push(
     gauges = doc.get("gauges", {})
     if not isinstance(gauges, dict):
         return 400, "gauges must be an object"
+    unknown = 0
     for kind, values, known in (
         ("total", totals, CLIENT_FIELDS),
         ("gauge", gauges, CLIENT_GAUGES),
     ):
         for field, value in values.items():
             if field not in known:
-                return 400, f"unknown {kind} {field!r}"
+                unknown += 1
+                continue
             if (
                 not isinstance(value, int)
                 or isinstance(value, bool)
@@ -261,8 +271,9 @@ def apply_client_push(
         if series not in _client_totals and len(_client_totals) >= CLIENT_MAX_SERIES:
             return 429, "too many client series"
         _client_totals[series] = {
-            "totals": dict(totals),
-            "gauges": dict(gauges),
+            "totals": {k: v for k, v in totals.items() if k in CLIENT_FIELDS},
+            "gauges": {k: v for k, v in gauges.items() if k in CLIENT_GAUGES},
+            "unknown": unknown,
             "received": now,
         }
     return 204, ""
@@ -289,6 +300,17 @@ def format_client_metrics(now: float | None = None) -> list[str]:
             if field in entry.get("gauges", {}):
                 labels = format_labels({"machine": machine, "harness": harness})
                 lines.append(f"{name}{labels} {entry['gauges'][field]}")
+    name = "openviking_client_unknown_fields"
+    lines.append(
+        f"# HELP {name} Field names in the client's last push that this exporter "
+        "does not know, so it dropped them."
+    )
+    lines.append(f"# TYPE {name} gauge")
+    for (machine, harness), entry in snapshot:
+        if now - entry["received"] > CLIENT_GAUGE_MAX_AGE_S:
+            continue
+        labels = format_labels({"machine": machine, "harness": harness})
+        lines.append(f"{name}{labels} {entry.get('unknown', 0)}")
     name = "openviking_client_last_push_unix"
     lines.append(f"# HELP {name} Unix time the exporter last accepted a client push.")
     lines.append(f"# TYPE {name} gauge")
