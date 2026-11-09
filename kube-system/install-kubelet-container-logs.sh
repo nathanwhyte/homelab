@@ -66,7 +66,7 @@ sudo cat "$tmp" | sed 's/^/     /'
 sudo mv -f "$tmp" "$dest"
 trap - EXIT
 
-revert="sudo rm -f $dest && sudo systemctl restart $unit"
+revert="$(printf 'sudo rm -f %q && sudo systemctl restart %q' "$dest" "$unit")"
 fail() {
   echo "$1" >&2
   echo "To revert: $revert" >&2
@@ -119,9 +119,19 @@ for _ in $(seq 1 60); do
 done
 [ "$ready" = 1 ] || fail "node $(hostname) did not report Ready within 5 min"
 
-echo ">> live kubelet log settings:"
-settings="$(sudo k3s kubectl get --raw "/api/v1/nodes/$(hostname)/proxy/configz" |
-  grep -o '"containerLogMax[A-Za-z]*":[^,]*')" || fail "could not read configz; check with: $check"
+# Ready can still be the pre-restart status, and the kubelet's API listener
+# starts separately from healthz, so retry the read within the same deadline.
+echo ">> reading the live kubelet log settings"
+settings=""
+for _ in $(seq 1 60); do
+  if settings="$(sudo k3s kubectl get --raw "/api/v1/nodes/$(hostname)/proxy/configz" 2>/dev/null |
+    grep -o '"containerLogMax[A-Za-z]*":[^,]*')"; then
+    break
+  fi
+  settings=""
+  sleep 5
+done
+[ -n "$settings" ] || fail "could not read configz within 5 min; check with: $check"
 echo "$settings" | sed 's/^/     /'
 echo "$settings" | grep -q '"containerLogMaxSize":"50Mi"' ||
   fail "containerLogMaxSize is not 50Mi on $(hostname)"

@@ -55,6 +55,9 @@ k3s)
   echo "k3s ${*:2}" >>"$STUB_LOG"
   if [ "$3" = get ] && [ "$4" = node ]; then echo "${STUB_READY:-True}"; fi
   if [ "$3" = get ] && [ "$4" = --raw ]; then
+    # STUB_CONFIGZ_FAILS=N: the first N configz reads fail (kubelet starting).
+    n=$(cat "$STUB_LOG.configz" 2>/dev/null || echo 0); echo $((n + 1)) >"$STUB_LOG.configz"
+    if [ "$n" -lt "${STUB_CONFIGZ_FAILS:-0}" ]; then echo "connection refused" >&2; exit 1; fi
     echo "{\\"kubeletconfig\\":{\\"containerLogMaxSize\\":\\"${STUB_SIZE:-50Mi}\\",\\"containerLogMaxFiles\\":5}}"
   fi ;;
 *) "$@" ;;
@@ -69,8 +72,12 @@ exit 7
 }
 
 
-def run(env_extra, prior=None, args=()):
-    """Run the script once; return (proc, installed text or None, stub log, leftover files)."""
+def run(env_extra, prior=None, args=(), data_name="data", revert=False):
+    """Run the script once; return (proc, installed text or None, stub log, leftover files).
+
+    With revert=True, run the "To revert:" command the script printed, under
+    the same stubs, before reading the installed file.
+    """
     with tempfile.TemporaryDirectory(prefix="kcl-") as root:
         root = Path(root)
         bindir = root / "bin"
@@ -82,7 +89,7 @@ def run(env_extra, prior=None, args=()):
         kdir.mkdir()
         shutil.copy(SCRIPT, kdir / "install.sh")
         shutil.copy(CONF, kdir / "kubelet-container-logs.conf")
-        ddir = root / "data" / "agent" / "etc" / "kubelet.conf.d"
+        ddir = root / data_name / "agent" / "etc" / "kubelet.conf.d"
         ddir.mkdir(parents=True)
         dest = ddir / "50-container-logs.conf"
         if prior is not None:
@@ -96,12 +103,25 @@ def run(env_extra, prior=None, args=()):
             **env_extra,
         )
         proc = subprocess.run(
-            ["bash", str(kdir / "install.sh"), "--data-dir", str(root / "data"), *args],
+            [
+                "bash",
+                str(kdir / "install.sh"),
+                "--data-dir",
+                str(root / data_name),
+                *args,
+            ],
             env=env,
             capture_output=True,
             text=True,
             check=False,
         )
+        if revert:
+            lines = [
+                ln for ln in proc.stderr.splitlines() if ln.startswith("To revert: ")
+            ]
+            if lines:
+                cmd = lines[-1].removeprefix("To revert: ")
+                subprocess.run(["bash", "-c", cmd], env=env, check=False)
         installed = dest.read_text() if dest.exists() else None
         leftovers = sorted(p.name for p in ddir.iterdir() if p.name != dest.name)
         return proc, installed, log.read_text(), leftovers
@@ -141,6 +161,20 @@ def main():
             p.returncode != 0 and "To revert" in p.stderr,
             f"exit {p.returncode}",
         )
+
+    p, c, log, left = run({"STUB_SERVER": "1", "STUB_CONFIGZ_FAILS": "2"})
+    check(
+        "configz retried while the kubelet starts",
+        p.returncode == 0 and '"containerLogMaxSize":"50Mi"' in p.stdout,
+        f"exit {p.returncode}",
+    )
+
+    p, c, log, left = run({"STUB_HEALTH": "bad"}, data_name="k3s data", revert=True)
+    check(
+        "printed revert works with spaces in --data-dir",
+        p.returncode != 0 and c is None,
+        f"exit {p.returncode}, drop-in left after revert={c is not None}",
+    )
 
     p, c, log, left = run({"STUB_INSTALL_FAIL": "1"}, prior="PRIOR\n")
     check(
