@@ -225,7 +225,10 @@ spec:
         # dead pod's higher value and could fire a condition already pending
         # at the restart). Until the new pod's first push there is no series,
         # which resets the pending clock. A shipper that predates the gauges
-        # sends none, which leaves no series to alert on.
+        # sends none, which leaves no series to alert on. A Mac that stops
+        # pushing keeps its last value for a day, then the exporter stops
+        # exporting its gauges (CLIENT_GAUGE_MAX_AGE_S), so a retired Mac
+        # cannot hold either rule firing until the next pod restart.
         - alert: OpenVikingClientRecallDeliveryFlat
           expr: >-
             max by (machine, harness) (openviking_client_recalls_since_delivery) >= 11

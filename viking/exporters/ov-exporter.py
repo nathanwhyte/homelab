@@ -85,8 +85,9 @@ slowly it trickles, so nothing a LAN client sends can stall the server or
 break the /metrics exposition. Totals are cumulative and replace the previous
 push, so a resend never double-counts. An optional `gauges` object (counts
 since the last delivery, CLIENT_GAUGES) rides beside them and is replaced the
-same way. Both live in memory only, so an exporter restart drops them until
-the next push.
+same way, and stops being exported once its series has gone a day without a
+push (CLIENT_GAUGE_MAX_AGE_S). Both live in memory only, so an exporter
+restart drops them until the next push.
 """
 
 from __future__ import annotations
@@ -198,6 +199,11 @@ CLIENT_MAX_BODY = 4096
 # valid exposition value at all, which would fail the whole scrape.
 CLIENT_MAX_VALUE = 2**53
 CLIENT_MAX_INFLIGHT = 4  # concurrent POST bodies being read
+# A series that has not pushed for this long stops exporting its gauges, so a
+# retired Mac or harness cannot hold a delivery alert firing until the pod
+# restarts. A day matches the window the counter-based rules used; a Mac asleep
+# overnight keeps its value, and its next push restores the series.
+CLIENT_GAUGE_MAX_AGE_S = 86400
 CLIENT_SOCKET_TIMEOUT_S = 10
 
 _client_lock = threading.Lock()
@@ -262,7 +268,8 @@ def apply_client_push(
     return 204, ""
 
 
-def format_client_metrics() -> list[str]:
+def format_client_metrics(now: float | None = None) -> list[str]:
+    now = time.time() if now is None else now
     lines: list[str] = []
     with _client_lock:
         snapshot = sorted(_client_totals.items())
@@ -277,6 +284,8 @@ def format_client_metrics() -> list[str]:
         lines.append(f"# HELP {name} {help_text}")
         lines.append(f"# TYPE {name} gauge")
         for (machine, harness), entry in snapshot:
+            if now - entry["received"] > CLIENT_GAUGE_MAX_AGE_S:
+                continue
             if field in entry.get("gauges", {}):
                 labels = format_labels({"machine": machine, "harness": harness})
                 lines.append(f"{name}{labels} {entry['gauges'][field]}")
