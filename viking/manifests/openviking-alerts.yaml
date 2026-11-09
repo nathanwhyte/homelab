@@ -200,48 +200,45 @@ spec:
         # stage makes a count go flat with no error, so alert when recall
         # runs that neither skipped nor failed keep coming but deliver nothing.
         #
-        # Both client rules measure a window's activity as the highest total
-        # any pod's series reached minus the lowest, per (machine, harness),
-        # not with increase(). Every pod restart starts a new series (the
-        # exporter holds pushed totals in memory, and the pod label changes),
-        # and a pod that lived for one push has a flat series. Joined per
-        # series, that flat series matched every other pod's activity and
-        # fired for the whole window (2026-11-08/09: 21h of
-        # OpenVikingClientSessionStartFlat with injection working). Summing
-        # per-pod increase() instead adds each short pod's extrapolation, so
-        # ten recalls over two 5-minute pods read 11.1 and fired. The Mac
-        # pushes cumulative totals it keeps on disk, so max minus min across
-        # pods is the exact count, including events between one pod's last
-        # push and the next pod's first; the thresholds are exact (>= 11
-        # fires on 11). A Mac whose saved totals reset reads one window of
-        # spurious activity on every counter at once, which can hide a real
-        # zero for that window but cannot fire either rule.
+        # Both client rules count a window's activity per (machine, harness)
+        # as the sum of every series' rises between 5-minute steps:
+        #   sum by (machine, harness) (sum_over_time(clamp_min(
+        #     last_over_time(x[1h]) - last_over_time(x[1h] offset 5m), 0)[w:5m]))
+        # Within a series the rises telescope to the exact increase with no
+        # extrapolation, and a drop counts 0. last_over_time(x[1h]) rather
+        # than bare x: bare x looks back only 5m, so a scrape gap (or a test
+        # fixture's 10m/30m sampling) longer than that loses the rise across
+        # it; a dead pod's last value held for 1h only adds zero rises.
+        # Three things this replaces:
+        # - a per-series increase() join: every pod restart starts a new series
+        #   (the exporter holds pushed totals in memory, and the pod label
+        #   changes), and a pod that lived for one push leaves a flat series
+        #   that matched every other pod's activity for the whole window
+        #   (2026-11-08/09: 21h of OpenVikingClientSessionStartFlat with
+        #   injection working);
+        # - summed per-pod increase(): each short pod's extrapolation adds up,
+        #   so ten recalls over two 5-minute pods read 11.1 and fired;
+        # - max minus min across pods: ov-telemetry-push.py rebuilds its totals
+        #   from the current logs when its saved state is missing or from an
+        #   older version, which lowers counters by different amounts, so a
+        #   rebuild read as tens of runs with no injects and fired.
+        # Thresholds are exact (>= 11 fires on 11 recalls). The count misses
+        # events between one pod's last push and the next pod's first, and
+        # a new series' rises before its first 5m step (it has no earlier
+        # value to rise from), rises inside a 5m step that also holds a
+        # drop, and activity a lowering rebuild hides. It overcounts only when a rebuild raises a total
+        # (new counting rules), which reads as one jump on that counter.
         - alert: OpenVikingClientRecallDeliveryFlat
           expr: >-
             (
-              (
-                max by (machine, harness) (max_over_time(openviking_client_recalls_total[6h]))
-                - min by (machine, harness) (min_over_time(openviking_client_recalls_total[6h]))
-              )
-              - (
-                max by (machine, harness) (max_over_time(openviking_client_recall_skips_total[6h]))
-                - min by (machine, harness) (min_over_time(openviking_client_recall_skips_total[6h]))
-              )
-              - (
-                max by (machine, harness) (max_over_time(openviking_client_recall_errors_total[6h]))
-                - min by (machine, harness) (min_over_time(openviking_client_recall_errors_total[6h]))
-              )
+              sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recalls_total[1h]) - last_over_time(openviking_client_recalls_total[1h] offset 5m), 0)[6h:5m]))
+              - sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_skips_total[1h]) - last_over_time(openviking_client_recall_skips_total[1h] offset 5m), 0)[6h:5m]))
+              - sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_errors_total[1h]) - last_over_time(openviking_client_recall_errors_total[1h] offset 5m), 0)[6h:5m]))
             ) >= 11
             and on (machine, harness)
             (
-              (
-                max by (machine, harness) (max_over_time(openviking_client_recall_tokens_total[6h]))
-                - min by (machine, harness) (min_over_time(openviking_client_recall_tokens_total[6h]))
-              ) == 0
-              or (
-                max by (machine, harness) (max_over_time(openviking_client_recall_entries_total[6h]))
-                - min by (machine, harness) (min_over_time(openviking_client_recall_entries_total[6h]))
-              ) == 0
+              sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_tokens_total[1h]) - last_over_time(openviking_client_recall_tokens_total[1h] offset 5m), 0)[6h:5m])) == 0
+              or sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_entries_total[1h]) - last_over_time(openviking_client_recall_entries_total[1h] offset 5m), 0)[6h:5m])) == 0
             )
           for: 30m
           labels:
@@ -254,15 +251,9 @@ spec:
         # say nothing about whether a session started.
         - alert: OpenVikingClientSessionStartFlat
           expr: >-
-            (
-              max by (machine, harness) (max_over_time(openviking_client_session_start_runs_total[24h]))
-              - min by (machine, harness) (min_over_time(openviking_client_session_start_runs_total[24h]))
-            ) >= 6
+            sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_session_start_runs_total[1h]) - last_over_time(openviking_client_session_start_runs_total[1h] offset 5m), 0)[24h:5m])) >= 6
             and on (machine, harness)
-            (
-              max by (machine, harness) (max_over_time(openviking_client_session_start_injects_total[24h]))
-              - min by (machine, harness) (min_over_time(openviking_client_session_start_injects_total[24h]))
-            ) == 0
+            sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_session_start_injects_total[1h]) - last_over_time(openviking_client_session_start_injects_total[1h] offset 5m), 0)[24h:5m])) == 0
           for: 30m
           labels:
             severity: warning
