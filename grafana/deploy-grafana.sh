@@ -79,6 +79,17 @@ if [ ! -f "$GRAFANA_DIR/helm/loki-values.yaml" ]; then
 	exit 1
 fi
 
+# Pairs with maxBackoffRetries in helm/k8s-monitoring-values.yaml (BUG-1293).
+# The PodMonitor scrapes the alloy-logs collectors so the alert has its metric.
+# Checked before any cluster change: the k8s-monitoring upgrade below without
+# these two would leave the longer blocking retries with no alert.
+for manifest in alloy-logs-podmonitor.yaml alloy-logs-alerts.yaml; do
+	if [ ! -f "$GRAFANA_DIR/manifests/$manifest" ]; then
+		echo "$manifest file not found!"
+		exit 1
+	fi
+done
+
 # The StorageClass must exist BEFORE the Helm releases: all three observability
 # volumeClaimTemplates request `longhorn-observability`, and a PVC naming a class
 # that does not exist stays Pending indefinitely rather than failing loudly.
@@ -138,15 +149,6 @@ if [ ! -f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" ]; then
 	echo "job-failure-alerts.yaml file not found!"
 	exit 1
 fi
-
-# Pairs with maxBackoffRetries in helm/k8s-monitoring-values.yaml (BUG-1293).
-# The PodMonitor scrapes the alloy-logs collectors so the alert has its metric.
-for manifest in alloy-logs-podmonitor.yaml alloy-logs-alerts.yaml; do
-	if [ ! -f "$GRAFANA_DIR/manifests/$manifest" ]; then
-		echo "$manifest file not found!"
-		exit 1
-	fi
-done
 
 # The grafana namespace no longer runs its own cloudflared connector. Its tunnel
 # was deleted 2026-03-28 in the consolidation into the cluster-wide `homelab`

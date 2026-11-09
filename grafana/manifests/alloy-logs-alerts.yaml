@@ -7,8 +7,10 @@
 # (helm/k8s-monitoring-values.yaml), a batch Loki keeps refusing with a 5xx or
 # 429, or that cannot connect, blocks that collector for up to about 22.5 h.
 #
-# The same counter also rises for a short Loki restart. "for: 30m" keeps those
-# quiet.
+# The retry counter also rises when a retry succeeds, so retries alone do not
+# mean delivery stopped. The rule also requires that the collector sent no
+# entries in the same 10m window: sent_entries rises only on a 2xx
+# (shards.go:442-443). "for: 30m" keeps a short Loki restart quiet.
 #
 # Prometheus is pinned to timmy like Loki, so this cannot fire during a timmy
 # drain. It covers a stuck sender, or a Loki outage, while Prometheus is up.
@@ -25,23 +27,30 @@ spec:
     - name: alloy-logs.rules
       rules:
         - alert: AlloyLogsWriteRetrying
-          # One alert per collector pod. increase() over 10m stays above 0
-          # while the collector retries a batch at least once every 10 min.
-          # At the 5m backoff cap each wait is 256-300 s, so a stuck batch
-          # keeps it above 0.
+          # One alert per collector pod. The retry increase over 10m stays
+          # above 0 while the collector retries a batch at least once every
+          # 10 min (at the 5m backoff cap each wait is 256-300 s). "unless"
+          # drops a pod that also sent entries in that window; a pod whose
+          # sent counter does not exist yet (nothing sent since start) is
+          # kept.
           expr: |
             sum by (namespace, pod) (
               increase(loki_write_batch_retries_total{namespace="grafana", pod=~"k8s-monitoring-alloy-logs-.+"}[10m])
+            ) > 0
+            unless on (namespace, pod)
+            sum by (namespace, pod) (
+              increase(loki_write_sent_entries_total{namespace="grafana", pod=~"k8s-monitoring-alloy-logs-.+"}[10m])
             ) > 0
           for: 30m
           labels:
             severity: warning
           annotations:
-            summary: "alloy-logs collector {{ $labels.pod }} has been retrying Loki pushes for 30m+"
+            summary: "alloy-logs collector {{ $labels.pod }} has been retrying Loki pushes for 30m+ with nothing sent"
             description: >-
-              {{ $labels.pod }} has retried a loki.write batch in every 10m
-              window for over 30 minutes, so its pod and journal logs are not
-              reaching Loki. Alloy logs a retry only at debug level, so check
+              {{ $labels.pod }} has retried a loki.write batch, and sent no
+              entries to Loki, in every 10m window for over 30 minutes. Its
+              share of pod logs and its node's journal are queued behind the
+              retried batch. Alloy logs a retry only at debug level, so check
               whether loki-gateway and loki-0 are up first. If they are, a
               5xx or 429 on every attempt (Loki's own logs) means Loki is
               refusing one batch; restarting the pod frees the sender and
