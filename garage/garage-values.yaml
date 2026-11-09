@@ -224,12 +224,27 @@ affinity:
 # 2026-11-02 (IMPR-1457): the admin API token comes from the garage-admin-token
 # Secret (created by hand, see garage/README.md). GARAGE_ADMIN_TOKEN overrides
 # admin.admin_token in garage.toml, which no longer carries one.
+#
+# 2026-11-09 (BUG-1293): RUST_LOG keeps the image's own filter (garage=info,
+# Dockerfile:4@v2.5.0) and sets one module, garage_api_common::generic_server,
+# to warn. That module logs every API request (admin /health and /metrics
+# already at debug) and every 4xx at info (generic_server.rs:167-170,216);
+# those lines were 94.5%, 98.3% and 99.5% of
+# garage-0/1/2's lines over 6 h on 2026-11-09, about 157k lines/h from
+# garage-2, which rotated its kubelet log file past what a Loki outage could
+# catch up. The module's info lines for server start, drain and exit go too
+# (:117,340,402). 5xx errors stay (warn, :210), and so do the table sync,
+# block resync and LMDB lines that bear on metadata growth. Request counts by
+# endpoint and errors remain in Prometheus (api_s3_request_counter,
+# api_s3_error_counter).
 environment:
   - name: GARAGE_ADMIN_TOKEN
     valueFrom:
       secretKeyRef:
         name: garage-admin-token
         key: admin-token
+  - name: RUST_LOG
+    value: "garage=info,garage_api_common::generic_server=warn"
 
 # Extra volumes
 extraVolumes: {}
