@@ -64,30 +64,39 @@ if ! kubectl get secret alertmanager-slack-bot-token -n "$NAMESPACE" >/dev/null 
 	exit 1
 fi
 
-if [ ! -f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml" ]; then
-	echo "kube-prometheus-stack-values.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/helm/k8s-monitoring-values.yaml" ]; then
-	echo "k8s-monitoring-values.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/helm/loki-values.yaml" ]; then
-	echo "loki-values.yaml file not found!"
-	exit 1
-fi
+# The files this script names under $GRAFANA_DIR, checked before its first
+# cluster change. Files that helm-deploy.py and the sub-scripts read are
+# theirs to check, so this does not promise a missing input can never leave a
+# partial deploy; step order carries the pairing that matters (the alloy-logs
+# PodMonitor and alert go in before the k8s-monitoring upgrade, below). Paths
+# are relative to $GRAFANA_DIR.
+REQUIRED_FILES=(
+	helm/kube-prometheus-stack-values.yaml
+	helm/k8s-monitoring-values.yaml
+	helm/loki-values.yaml
+	manifests/storageclass-longhorn-observability.yaml
+	manifests/pvc.yaml
+	manifests/rbac.yaml
+	manifests/node-power-alerts.yaml
+	manifests/backup-alerts.yaml
+	manifests/job-failure-alerts.yaml
+	manifests/alloy-logs-podmonitor.yaml
+	manifests/alloy-logs-alerts.yaml
+	apply-prometheus-filesystem-trim.sh
+	deploy-backup-alerts.sh
+	../longhorn/deploy-storage-alerts.sh
+)
+for file in "${REQUIRED_FILES[@]}"; do
+	if [ ! -f "$GRAFANA_DIR/$file" ]; then
+		echo "$file file not found!"
+		exit 1
+	fi
+done
 
 # The StorageClass must exist BEFORE the Helm releases: all three observability
 # volumeClaimTemplates request `longhorn-observability`, and a PVC naming a class
 # that does not exist stays Pending indefinitely rather than failing loudly.
 # Applying it here keeps a fresh/rebuilt cluster working without manual steps.
-if [ ! -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml" ]; then
-	echo "storageclass-longhorn-observability.yaml file not found!"
-	exit 1
-fi
-
 echo -e "\nApplying longhorn-observability StorageClass..."
 kubectl apply -f "$GRAFANA_DIR/manifests/storageclass-longhorn-observability.yaml"
 
@@ -96,6 +105,16 @@ python3 "$HELM_DEPLOY" kube-prometheus-stack "$NAMESPACE" \
 	oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
 	--create-namespace \
 	-f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml"
+
+# BUG-1293: the k8s-monitoring values set maxBackoffRetries: 300, so a batch
+# Loki keeps refusing can block a collector for about 22.5 h. Its alert and the
+# PodMonitor that feeds it go in here, after kube-prometheus-stack (which
+# installs their CRDs) and before the k8s-monitoring upgrade, so a failure at
+# any step cannot leave the longer retries live without the alert.
+echo -e "\nApplying alloy-logs PodMonitor and alerts..."
+kubectl apply \
+	-f "$GRAFANA_DIR/manifests/alloy-logs-podmonitor.yaml" \
+	-f "$GRAFANA_DIR/manifests/alloy-logs-alerts.yaml"
 
 # Apply after kube-prometheus-stack so the generated Prometheus PVC exists for
 # the direct recurring-job labels. This is intentionally scoped to Prometheus;
@@ -111,33 +130,6 @@ echo -e "\nDeploying loki..."
 python3 "$HELM_DEPLOY" loki "$NAMESPACE" \
 	grafana/loki \
 	-f "$GRAFANA_DIR/helm/loki-values.yaml"
-
-if [ ! -f "$GRAFANA_DIR/manifests/rbac.yaml" ]; then
-	echo "rbac.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/manifests/pvc.yaml" ]; then
-	echo "pvc.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" ]; then
-	echo "node-power-alerts.yaml file not found!"
-	exit 1
-fi
-
-if [ ! -f "$GRAFANA_DIR/manifests/backup-alerts.yaml" ]; then
-	echo "backup-alerts.yaml file not found!"
-	exit 1
-fi
-
-# Replaces the chart's KubeJobFailed, which the values file disables (BUG-1197).
-# Deploy both together: the values without this file leaves no failed-Job alert.
-if [ ! -f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" ]; then
-	echo "job-failure-alerts.yaml file not found!"
-	exit 1
-fi
 
 # The grafana namespace no longer runs its own cloudflared connector. Its tunnel
 # was deleted 2026-03-28 in the consolidation into the cluster-wide `homelab`

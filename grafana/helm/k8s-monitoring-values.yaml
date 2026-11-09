@@ -13,6 +13,16 @@ destinations:
     type: loki
     # Point to existing Loki gateway service
     url: http://loki-gateway.grafana.svc.cluster.local/loki/api/v1/push
+    # BUG-1293: Loki is pinned to timmy, so a timmy drain leaves it down for
+    # hours. 2026-11-08 had 12.5 h. The chart default of 10 retries drops each
+    # batch 4-8.5 min after its first send, and long-running pods lost 71% of
+    # their lines. With 300 retries a batch is dropped only after about 22.5 h:
+    # each wait at the 5m cap is 256-300 s (dskit backoff, Alloy v1.14.0).
+    # This is finite, not 0 (forever), so a batch Loki keeps refusing with a
+    # 5xx or 429 eventually frees the collector's single sender.
+    # AlloyLogsWriteRetrying (manifests/alloy-logs-alerts.yaml) flags a
+    # collector that keeps retrying.
+    maxBackoffRetries: 300
   - name: prometheus
     type: prometheus
     # kube-prometheus-stack Prometheus remote write receiver (fullnameOverride: prom)
