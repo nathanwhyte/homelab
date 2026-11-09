@@ -311,6 +311,16 @@ spec:
             # only ("would_drop"), "0" turns it off.
             - name: OV_PROFILE_FILTER
               value: "1"
+            # BUG-1284 (same patch): extraction's prefetch reads only the peer's copy of a
+            # singleton memory (profile, identity, soul), not the user-level one, so a peer
+            # profile rewrite stops pulling bullets back from the frozen user-level
+            # profile.md. One stderr line per prefetch, ov-profile-prefetch
+            # {"action": "dropped", …}. The user-level file stays on disk and is still the
+            # session-start fallback for an empty peer profile. Shadow from 2026-10-31
+            # (homelab#296) to this change; "shadow" logs only ("would_drop"), "0" turns
+            # it off.
+            - name: OV_PROFILE_PREFETCH_PEER_ONLY
+              value: "1"
           volumeMounts:
             - name: config-out
               mountPath: /app/.openviking/ov.conf
