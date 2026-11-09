@@ -351,6 +351,136 @@ tests:
         eval_time: 25h
         exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
 
+  # Pod churn: each openviking restart starts new series under a new pod
+  # label, and a pod that lived for one telemetry push leaves a flat series.
+  # Pod a ran 0-15h, pod b lived 15.5-16.5h, pod c runs from 17h. The
+  # 2026-11-08/09 false positive: a per-series join matched pod b's flat
+  # injects against the other pods' runs for the whole 24h window.
+  - name: session starts that inject across a pod restart stay quiet
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "100+1x30 _x30"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "90+1x30 _x30"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code", pod="openviking-b"}'
+        values: "_x31 131x2 _x27"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code", pod="openviking-b"}'
+        values: "_x31 121x2 _x27"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code", pod="openviking-c"}'
+        values: "_x34 132+1x26"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code", pod="openviking-c"}'
+        values: "_x34 122+1x26"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientSessionStartFlat"}) or vector(0)
+        eval_time: 20h
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: session starts with no injection on any pod still fire across a restart
+    interval: 30m
+    input_series:
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "100+1x30 _x30"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "90x30 _x30"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code", pod="openviking-b"}'
+        values: "_x31 131x2 _x27"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code", pod="openviking-b"}'
+        values: "_x31 90x2 _x27"
+      - series: 'openviking_client_session_start_runs_total{machine="pop", harness="claude-code", pod="openviking-c"}'
+        values: "_x34 132+1x26"
+      - series: 'openviking_client_session_start_injects_total{machine="pop", harness="claude-code", pod="openviking-c"}'
+        values: "_x34 90x26"
+    alert_rule_test:
+      - alertname: OpenVikingClientSessionStartFlat
+        eval_time: 20h
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              machine: pop
+              harness: claude-code
+            exp_annotations:
+              summary: "pop/claude-code session-start hook ran but counted no injection in 24h"
+              description: "The session-start hook ran about 6 or more times on pop (claude-code) in 24h (increase() extrapolates, so the count is approximate), but no session-start memory injection was counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
+
+  # The same churn over the 6h recall window: pod a 0-3h, b 3h20m-3h40m,
+  # c from 4h.
+  - name: recalls that deliver across a pod restart stay quiet
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0+5x18 _x24"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x18 _x24"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x18 _x24"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0+800x18 _x24"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0+4x18 _x24"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 95x2 _x20"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 0x2 _x20"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 0x2 _x20"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 15000x2 _x20"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 75x2 _x20"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 100+5x18"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 0x18"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 0x18"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 15000+800x18"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 75+4x18"
+    promql_expr_test:
+      - expr: count(ALERTS{alertname="OpenVikingClientRecallDeliveryFlat"}) or vector(0)
+        eval_time: 6h40m
+        exp_samples: [{ labels: "{}", value: 0 }]
+
+  - name: recalls that deliver nothing on any pod still fire across a restart
+    interval: 10m
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0+5x18 _x24"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x18 _x24"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x18 _x24"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "5000x18 _x24"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "40x18 _x24"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 95x2 _x20"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 0x2 _x20"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 0x2 _x20"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 5000x2 _x20"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x20 40x2 _x20"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 100+5x18"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 0x18"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 0x18"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 5000x18"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x24 40x18"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientRecallDeliveryFlat",alertstate="firing"})
+        eval_time: 6h40m
+        exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+
   - name: recall-delivery threshold boundary, 10 recalls quiet and 11 fire
     # Codex round 6: 10 recalls read just over 10 and fired the old > 10.
     interval: 30s
