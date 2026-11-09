@@ -289,13 +289,14 @@ spec:
             - name: OV_PREF_GATE
               value: "1"
             # IMPR-1479 (same patch): also remove "profile" for such an archive, since
-            # IMPR-1401's second gate traced profile bullets to them. Its own switch so it
-            # can shadow while preferences enforce: "shadow" logs only, with
-            # "profile_action": "would_skip" and the profile URIs that would not have been
-            # written under writes.profile; "1" removes it; "0" turns it off. The line also
-            # lists identity and soul writes (watched only), in case the facts move there.
+            # IMPR-1401's second gate traced profile bullets to them. Its own switch:
+            # "1" removes it ("profile_action": "skipped"), "shadow" logs only
+            # ("would_skip", with the URIs under writes.profile), "0" turns it off.
+            # Enforced 2026-11-08 after a shadow soak showed the wiring right. The line
+            # also lists identity and soul writes, watched only: those agent-persona
+            # types are written with or without this gate (IMPR-1480).
             - name: OV_PROFILE_GATE
-              value: "shadow"
+              value: "1"
             # IMPR-1401 (ov_memory_guard_patch.py): drop activity-log bullets from a peer's
             # profile write (one naming a PR or issue number, an item ID or "Phase N", or
             # opening with a P0-P3 finding label), after the merge. Each removed bullet is
