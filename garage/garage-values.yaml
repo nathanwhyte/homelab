@@ -62,7 +62,7 @@ persistence:
     storageClass: "longhorn-nvme"
     # 1Gi filled up 2026-07-02 (LMDB ENOSPC on 2/3 nodes broke write quorum —
     # found by the k3s-datastore-backup test run). PVCs expanded live to 5Gi.
-    # 5Gi is ~7x a healthy node's metadata (0.74 GiB on meta-garage-2 after its
+    # 5Gi is 5-7x a healthy node's metadata (0.74 GiB on meta-garage-2 after its
     # 2026-11-09 rebuild, ~1 GiB on 0/1). meta-garage-2 alone runs at 20Gi: on
     # 2026-11-08 its LMDB file bloated to 18.6 GiB of freed pages (live data
     # ~0.4 GB) under endless anti-entropy sync, filling 5Gi, 10Gi and 20Gi in
