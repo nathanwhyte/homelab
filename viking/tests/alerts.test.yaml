@@ -328,6 +328,28 @@ tests:
               summary: "workbook/claude-code pushes client telemetry without the since-delivery gauges"
               description: "workbook (claude-code) is pushing to ov-exporter but not sending session_start_runs_since_inject and recalls_since_delivery, so OpenVikingClientSessionStartFlat and OpenVikingClientRecallDeliveryFlat cannot fire for it. Pull dotfiles on that Mac: bin/ov-telemetry-push.py sends the gauges from STATE_VERSION 7."
 
+  - name: a shipper sending field names the exporter does not know fires after 30m, a clean one stays quiet
+    interval: 1m
+    input_series:
+      - series: 'openviking_client_unknown_fields{machine="workbook", harness="codex", pod="openviking-a"}'
+        values: "2x60"
+      - series: 'openviking_client_unknown_fields{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x60"
+    alert_rule_test:
+      - alertname: OpenVikingClientUnknownFields
+        eval_time: 29m
+        exp_alerts: []
+      - alertname: OpenVikingClientUnknownFields
+        eval_time: 31m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              machine: workbook
+              harness: codex
+            exp_annotations:
+              summary: "workbook/codex pushes 2 field name(s) ov-exporter does not know"
+              description: "ov-exporter dropped 2 field name(s) from the last accepted push by workbook (codex), so their counts are not exported. The shipper (dotfiles bin/ov-telemetry-push.py) sends a total or gauge that CLIENT_FIELDS or CLIENT_GAUGES in homelab viking/exporters/ov-exporter.py does not list. Add it there, regenerate the exporter ConfigMap and restart openviking, or fix the shipper's name."
+
   - name: a delivery on the new pod clears a condition pending at the restart
     # Round-4 review: pod a reports 6 from 0m, its target goes away at 26m
     # (Prometheus writes a stale marker), and pod b reports 0 (an injection)

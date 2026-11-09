@@ -531,7 +531,12 @@ class TestClientPush(unittest.TestCase):
         self._push(self._doc(recalls=5), now=T0 + 300)
         self.assertEqual(
             exporter._client_totals[("pop", "claude-code")],
-            {"totals": {"recalls": 5}, "gauges": {}, "received": T0 + 300},
+            {
+                "totals": {"recalls": 5},
+                "gauges": {},
+                "unknown": 0,
+                "received": T0 + 300,
+            },
         )
 
     def test_gauges_are_exported_as_gauges_and_replaced(self):
@@ -599,21 +604,63 @@ class TestClientPush(unittest.TestCase):
             [1, 2],
             self._doc(machine="Pop!"),
             {**self._doc(), "totals": {}},
-            self._doc(bogus=1),
             self._doc(recalls=-1),
+            # An unknown name beside a bad known value still refuses the push.
+            self._doc(bogus=1, recalls=-1),
             self._doc(recalls=1.5),
             self._doc(recalls=True),
             {**self._doc(), "gauges": [1]},
-            {**self._doc(), "gauges": {"bogus": 1}},
             {**self._doc(), "gauges": {"recalls_since_delivery": -1}},
             {**self._doc(), "gauges": {"recalls_since_delivery": 2.0}},
             {**self._doc(), "gauges": {"recalls_since_delivery": False}},
-            {**self._doc(), "gauges": {"recalls": 1}},
         ]
         for doc in bad:
             with self.subTest(doc=doc):
                 self.assertEqual(self._push(doc)[0], 400)
         self.assertEqual(exporter._client_totals, {})
+
+    def test_unknown_field_names_are_dropped_and_counted(self):
+        # A shipper that learns a count before the exporter keeps its other
+        # series, and the unknown names show up as a count, never as series.
+        doc = {
+            **self._doc(recalls=3, bogus_total=7),
+            "gauges": {
+                "recalls_since_delivery": 2,
+                "new_gauge": 1,
+                "recalls": 9,  # a totals name in gauges is unknown there
+            },
+        }
+        self.assertEqual(self._push(doc), (204, ""))
+        text = "\n".join(exporter.format_client_metrics(now=T0))
+        self.assertIn(
+            'openviking_client_recalls_total{machine="pop",harness="claude-code"} 3',
+            text,
+        )
+        self.assertIn(
+            'openviking_client_recalls_since_delivery{machine="pop",harness="claude-code"} 2',
+            text,
+        )
+        self.assertIn(
+            'openviking_client_unknown_fields{machine="pop",harness="claude-code"} 3',
+            text,
+        )
+        self.assertNotIn("bogus", text)
+        self.assertNotIn("new_gauge", text)
+        # The next push without them clears the count.
+        self._push(self._doc(recalls=4), now=T0 + 300)
+        self.assertIn(
+            'openviking_client_unknown_fields{machine="pop",harness="claude-code"} 0',
+            exporter.format_client_metrics(now=T0 + 300),
+        )
+
+    def test_unknown_fields_expire_with_the_gauges(self):
+        self._push(self._doc(recalls=1, bogus=1))
+        age = exporter.CLIENT_GAUGE_MAX_AGE_S
+        series = (
+            'openviking_client_unknown_fields{machine="pop",harness="claude-code"} 1'
+        )
+        self.assertIn(series, exporter.format_client_metrics(now=T0 + age))
+        self.assertNotIn(series, exporter.format_client_metrics(now=T0 + age + 1))
 
     def test_series_cap(self):
         for i in range(exporter.CLIENT_MAX_SERIES):
