@@ -34,6 +34,10 @@
 # EmbeddingGemma 2 (context_test_eg2, 768 dims) was rolled back the same window;
 # see viking/docs/2026-10-08-embedder-embeddinggemma-2-cutover.md. Test generation therefore shares
 # timmy's single VLM slot with prod; keep canary runs short and serial.
+#
+# memory.custom_templates_dir has prod's path, but the test stack mounts its own
+# ov-test-memory-templates ConfigMap there (IMPR-1480: identity and soul turned
+# off), not prod's openviking-memory-templates (BUG-1260's preferences override).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -110,5 +114,8 @@ data:
         "api_base": "http://chat-ollama.llama.svc.cluster.local:11434/v1",
         "max_concurrent": 1,
         "timeout": 600
+      },
+      "memory": {
+        "custom_templates_dir": "/etc/openviking/memory-templates"
       }
     }

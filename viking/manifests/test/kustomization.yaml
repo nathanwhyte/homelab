@@ -42,5 +42,17 @@ configMapGenerator:
       disableNameSuffixHash: true
       labels:
         app: openviking-test
+  # IMPR-1480: memory schema overrides, loaded through ov.conf
+  # memory.custom_templates_dir. Schemas are cached in-process, so a change needs
+  # a rollout restart. Kept after ov-nav-patch: check-nav-patch-files' cases edit
+  # the first generator.
+  - name: ov-test-memory-templates
+    files:
+      - memory-templates/identity.yaml
+      - memory-templates/soul.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app: openviking-test
 # The test bucket openviking-agfs-test exists in Garage (created 2026-09-15) and is
 # readable by the same key as prod's bucket; empty it before a fresh canary.

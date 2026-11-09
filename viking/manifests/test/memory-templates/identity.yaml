@@ -1,0 +1,64 @@
+# IMPR-1480: turns off OpenViking's agent-persona `identity` memory on the test
+# stack. Extraction fills identity.md with activity-log text instead of a persona,
+# and nothing reads the file except the extraction prefetch, which feeds it back.
+# Everything below is the v0.5.1.1 bundled
+# openviking/prompts/templates/memory/identity.yaml (sha256 5ec76d85…), byte for
+# byte except `enabled: false`. Re-diff against the bundled copy when bumping the
+# image. Loaded through ov.conf `memory.custom_templates_dir`, after the bundled
+# templates with replace=True; schemas are cached in-process, so an edit needs a
+# pod restart.
+memory_type: identity
+description: |
+  Agent identity: name, creature type, vibe/temperament, signature emoji, avatar path, and self introduction.
+directory: "viking://user/{{ user_space }}/memories"
+filename_template: "identity.md"
+enabled: false
+operation_mode: "upsert"
+content_template: |
+  # identity.md - Who Am I?
+
+  _Fill this in during your first conversation. Make it yours._
+
+  - **Name:** {{ name }}
+  - **Creature:** {{ creature }}
+  - **Vibe:** {{ vibe }}
+  - **Emoji:** {{ emoji }}
+  - **Avatar:** {{ avatar }}
+
+  ---
+
+  {{ introduction }}
+
+fields:
+  - name: creature
+    type: string
+    description: Creature type (AI, robot, familiar, etc.)
+    merge_op: patch
+    init_value: "AI assistant"
+
+  - name: name
+    type: string
+    description: Agent name
+    merge_op: immutable
+    init_value: ""
+
+  - name: vibe
+    type: string
+    description: Vibe or temperament
+    merge_op: patch
+
+  - name: emoji
+    type: string
+    description: Signature emoji
+    merge_op: patch
+
+  - name: avatar
+    type: string
+    description: Avatar path or URL
+    merge_op: patch
+
+  - name: introduction
+    type: string
+    description: Self introduction
+    merge_op: patch
+    init_value: "The start of figuring out who you are."
