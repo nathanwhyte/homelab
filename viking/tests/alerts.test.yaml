@@ -301,6 +301,33 @@ tests:
         eval_time: 26h
         exp_samples: [{ labels: "{}", value: 0 }]
 
+  - name: a Mac pushing without the gauges fires, one with them or one that stopped stays quiet
+    # last_push tracks the eval clock (seconds since 0) for a live pusher.
+    interval: 1m
+    input_series:
+      - series: 'openviking_client_last_push_unix{machine="workbook", harness="claude-code", pod="openviking-a"}'
+        values: "0+60x60"
+      - series: 'openviking_client_last_push_unix{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "0+60x60"
+      - series: 'openviking_client_session_start_runs_since_inject{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "0x60"
+      - series: 'openviking_client_recalls_since_delivery{machine="pop", harness="claude-code", pod="openviking-a"}'
+        values: "0x60"
+      # Pushed once at 0 and stopped: older than 15m long before for: 30m.
+      - series: 'openviking_client_last_push_unix{machine="old-mac", harness="codex", pod="openviking-a"}'
+        values: "0x60"
+    alert_rule_test:
+      - alertname: OpenVikingClientGaugesMissing
+        eval_time: 40m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              machine: workbook
+              harness: claude-code
+            exp_annotations:
+              summary: "workbook/claude-code pushes client telemetry without the since-delivery gauges"
+              description: "workbook (claude-code) is pushing to ov-exporter but not sending session_start_runs_since_inject and recalls_since_delivery, so OpenVikingClientSessionStartFlat and OpenVikingClientRecallDeliveryFlat cannot fire for it. Pull dotfiles on that Mac: bin/ov-telemetry-push.py sends the gauges from STATE_VERSION 7."
+
   - name: a delivery on the new pod clears a condition pending at the restart
     # Round-4 review: pod a reports 6 from 0m, its target goes away at 26m
     # (Prometheus writes a stale marker), and pod b reports 0 (an injection)

@@ -246,6 +246,26 @@ spec:
           annotations:
             summary: "{{ $labels.machine }}/{{ $labels.harness }}: {{ $value }} session starts since the last counted injection"
             description: "The session-start hook ran {{ $value }} times on {{ $labels.machine }} ({{ $labels.harness }}) since the last session-start memory injection it counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
+        # The two rules above have no series for a Mac whose shipper predates
+        # the gauges, so they cannot fire for it. Alert when a Mac is pushing
+        # (a push in the last 15m, two missed 300 s pushes of slack) without
+        # both gauges, so a Mac that has not pulled dotfiles is visible instead
+        # of silently unmonitored. A Mac that stopped pushing is out of scope.
+        - alert: OpenVikingClientGaugesMissing
+          expr: >-
+            max by (machine, harness) (time() - openviking_client_last_push_unix < 900)
+            unless on (machine, harness)
+            (
+              max by (machine, harness) (openviking_client_session_start_runs_since_inject)
+              and on (machine, harness)
+              max by (machine, harness) (openviking_client_recalls_since_delivery)
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.machine }}/{{ $labels.harness }} pushes client telemetry without the since-delivery gauges"
+            description: "{{ $labels.machine }} ({{ $labels.harness }}) is pushing to ov-exporter but not sending session_start_runs_since_inject and recalls_since_delivery, so OpenVikingClientSessionStartFlat and OpenVikingClientRecallDeliveryFlat cannot fire for it. Pull dotfiles on that Mac: bin/ov-telemetry-push.py sends the gauges from STATE_VERSION 7."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,
