@@ -15,8 +15,7 @@ The decision is made once per archive. ``Session._run_memory_extraction`` (Phase
 commit) receives the archive's full message list before Phase 2 splits it into
 extraction batches (ov_extract_patch caps a batch at 60 messages) or drops the batches a
 resumed archive already finished. Its wrapper checks that full list: when no ``user``
-message has a non-blank text part (the same test the extractor uses to render a line, so
-a tool-result-only ``user`` turn does not count), every ``_extract_user_memories`` call
+message has a typed text part, every ``_extract_user_memories`` call
 for that archive runs with each enforced gated type (``preferences``, ``profile``) removed
 from ``allowed_memory_types``. That one argument is OpenViking's own per-session
 ``memory_policy.memory_types`` seam: the isolation handler then leaves the schema out of
@@ -25,6 +24,15 @@ Every type that is not gated, or whose switch is not ``1``, extracts as before. 
 with typed user text passes through untouched, and so does one whose policy offers no
 gated type with its switch on. A call outside Phase 2 (the manual ``/extract`` endpoint,
 which passes the whole session unbatched) is judged on its own messages.
+
+A text part is typed when it is non-blank (a tool-result-only ``user`` turn does not
+count) and is not agent or harness text that Claude Code delivers as a user message
+(IMPR-1479 row 2): a forwarded side-agent note, bare or inside the mid-turn wrapper, a
+coordinator or cross-session message, a task notification, a system reminder, a skill
+body, a compaction summary, a session marker, local command or ``!`` output, an
+interrupt marker, or a ``Tool loaded.`` result. The wrapper's inner text and a slash
+command's name and arguments still count. The record's ``roles`` counts ``user_text``
+under this test and ``user_agent_text`` for user messages holding only such text.
 
 Each Phase 2 run of a gated archive that makes at least one user-memory extraction call
 writes one stderr line when it finishes. A resumed run whose extraction batches all
@@ -74,6 +82,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import sys
 from collections import Counter
 
@@ -124,27 +133,75 @@ def _action(mode: str) -> str:
     return {"1": "skipped", "0": "off"}.get(mode, "would_skip")
 
 
-def _has_text(message) -> bool:
-    return any(
-        isinstance(text := getattr(part, "text", None), str) and text.strip()
+# Claude Code writes these into a user turn; IMPR-1479 row 2 inventoried them in 486
+# archives. A tagged block is removed and the rest of the part judged; a part that opens
+# with an agent opening is agent text whole. The mid-turn wrapper is unwrapped first,
+# because a forwarded side-agent note also arrives inside it.
+_HARNESS_BLOCKS = re.compile(
+    r"<(?P<tag>system-reminder|task-notification|local-command-stdout"
+    r"|local-command-stderr|local-command-caveat|bash-stdout|bash-stderr"
+    r"|cross-session-message|interrupted-output)\b[^>]*>.*?</(?P=tag)>",
+    re.S,
+)
+_MIDTURN = re.compile(
+    r"^\s*The user sent a new message while you were working:\s*(?P<inner>.*?)"
+    r"(?:\s*This is how Claude Code surfaces messages the user sends mid-turn.*)?$",
+    re.S,
+)
+_AGENT_OPENINGS = re.compile(
+    r"^\s*(?:"
+    r"Here is a note offered by a side agent:"
+    r"|The coordinator sent a message while you were working"
+    r"|Another Claude session sent a message"
+    r"|Base directory for this skill:"
+    r"|This session is being continued from a previous conversation"
+    r"|\[session cc-[0-9a-f-]+ ·"
+    r"|\[Request interrupted by user"
+    r"|Tool loaded\.\s*$"
+    r")"
+)
+
+
+def is_typed_text(text) -> bool:
+    """Whether a user text part holds text the user wrote, not agent or harness text."""
+    if not isinstance(text, str):
+        return False
+    if midturn := _MIDTURN.match(text):
+        text = midturn.group("inner")
+    text = _HARNESS_BLOCKS.sub("", text)
+    return bool(text.strip()) and not _AGENT_OPENINGS.match(text)
+
+
+def _texts(message):
+    return [
+        text
         for part in getattr(message, "parts", None) or []
+        if isinstance(text := getattr(part, "text", None), str) and text.strip()
+    ]
+
+
+def _is_typed(message) -> bool:
+    return getattr(message, "role", None) == "user" and any(
+        map(is_typed_text, _texts(message))
     )
 
 
 def has_typed_user_text(messages) -> bool:
-    return any(
-        getattr(message, "role", None) == "user" and _has_text(message)
-        for message in messages or []
-    )
+    return any(_is_typed(message) for message in messages or [])
 
 
 def role_counts(messages) -> dict:
-    """Messages per role, plus ``user_text``: user messages with a non-blank text part."""
-    counts = Counter(str(getattr(message, "role", None)) for message in messages or [])
-    counts["user_text"] = sum(
+    """Messages per role, plus ``user_text`` (user messages with typed text) and
+    ``user_agent_text`` (user messages whose text is all agent or harness text)."""
+    messages = messages or []
+    counts = Counter(str(getattr(message, "role", None)) for message in messages)
+    counts["user_text"] = sum(map(_is_typed, messages))
+    counts["user_agent_text"] = sum(
         1
-        for message in messages or []
-        if getattr(message, "role", None) == "user" and _has_text(message)
+        for message in messages
+        if getattr(message, "role", None) == "user"
+        and _texts(message)
+        and not _is_typed(message)
     )
     return dict(sorted(counts.items()))
 
