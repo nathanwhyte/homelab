@@ -52,3 +52,56 @@ spec:
           annotations:
             summary: "Garage pod {{ $labels.pod }} was recreated in the last 30m"
             description: "Pod recreation churn (node drains, evictions) can break Garage quorum without tripping restart or ready-replica alerts (ERR-1011)."
+        # Garage's own signals (2026-11-08): garage-2's metadata disk filled twice
+        # while it caught up after a restart, its resync worker failed on LMDB
+        # ENOSPC, and only the generic KubePersistentVolumeFillingUp alert fired.
+        # Backtested over 14 days: GarageResyncQueueStuck fires once (garage-2,
+        # 2026-11-08 23:00Z; to 2026-11-09 16:18Z); GarageTableBehind fires
+        # once at for: 30m (garage-2, 23:56Z) and never at for: 1h (to
+        # 2026-11-09 00:26Z).
+        - alert: GarageMetadataDiskFillingFast
+          # A metadata volume over half full that would fill within 6 h at its
+          # last 30 min's rate. Catches a slow refill like garage-2's corrupt-
+          # freelist growth (BUG-1294) before the generic PVC alert; a fill in
+          # minutes outruns any rate alert. The 50% condition drops the
+          # all-node false positive a `garage meta snapshot` write caused on
+          # 2026-11-03. Backtested over 14 days to 2026-11-09 16:00Z: fires
+          # three times, all garage-2 on 2026-11-08/09; the slow refill at
+          # 00:49Z, 38 min before the volume filled at 01:27Z.
+          expr: |
+            (
+              predict_linear(kubelet_volume_stats_available_bytes{namespace="garage", persistentvolumeclaim=~"meta-garage-.*"}[30m], 6 * 3600) < 0
+            )
+            and
+            (
+              kubelet_volume_stats_used_bytes{namespace="garage", persistentvolumeclaim=~"meta-garage-.*"}
+                / kubelet_volume_stats_capacity_bytes{namespace="garage", persistentvolumeclaim=~"meta-garage-.*"} > 0.5
+            )
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Garage metadata volume {{ $labels.persistentvolumeclaim }} is over half full and on course to fill within 6h"
+            description: "Compare its size with the other meta-garage volumes; one node far above its peers that keeps growing after its resync queue drains is the LMDB runaway-growth case (GUIDE-1079 Mode 4). Growing the volume only buys time."
+        - alert: GarageResyncQueueStuck
+          # for: 1h needs an hour of evaluations above 1000, so a scrape gap or
+          # a short catch-up after a restart does not fire it (a [1h]
+          # min_over_time would fire on the first high sample after a gap).
+          expr: block_resync_queue_length{job="garage"} > 1000
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Garage {{ $labels.instance }} block resync queue above 1000 for 1h"
+            description: "Its resync worker is not keeping up or is failing; check `garage worker info` on that node for consecutive errors (an LMDB ENOSPC means its metadata volume is full)."
+        - alert: GarageTableBehind
+          expr: |
+            table_size{job="garage", table_name="version"}
+              < on(table_name) group_left
+            0.95 * max by (table_name) (table_size{job="garage", table_name="version"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Garage {{ $labels.instance }} version table more than 5% behind its peers for 30m"
+            description: "The node has not caught up on table sync; it holds {{ $value }} items. Check its metadata disk and `garage stats -a`."
