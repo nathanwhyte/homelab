@@ -36,30 +36,44 @@ ensure_chart_ref() {
 
 # A StatefulSet's volumeClaimTemplates are immutable, so a values change to a
 # persistence size or class makes the Helm upgrade fail partway through. Compare
-# the rendered templates with the live StatefulSet first and stop with the fix.
-# The fix deletes only the StatefulSet object: its pods and PVCs keep running,
-# and the next Helm run recreates it and adopts them. This script never runs it.
+# the rendered templates (a local `helm template`) with the live StatefulSet
+# first and stop before any Helm or kubectl change.
+# Recreating the StatefulSet is a manual procedure that depends on the release
+# state and chart version, so the script names the runbook rather than composing
+# a command (three review rounds on homelab#326 found states a composed command
+# got wrong). It never deletes anything itself.
 check_claim_templates() {
-	local live rendered tool
-	for tool in jq yq; do
+	local sts live rendered tool
+	for tool in kubectl jq yq; do
 		command -v "$tool" >/dev/null || {
 			echo "$tool not installed (needed to compare volumeClaimTemplates)." >&2
 			exit 1
 		}
 	done
-	live="$(kubectl -n "$NAMESPACE" get statefulset garage -o json 2>/dev/null |
-		jq -c '[.spec.volumeClaimTemplates[] | {name: .metadata.name, class: .spec.storageClassName, size: .spec.resources.requests.storage}]')" || live=""
+	# --ignore-not-found prints nothing for a missing StatefulSet and still
+	# fails on any other error, so a failed read never passes as a first install.
+	sts="$(kubectl -n "$NAMESPACE" get statefulset garage -o json --ignore-not-found)" || {
+		echo "Could not read the live garage StatefulSet, so its volumeClaimTemplates were not compared." >&2
+		exit 1
+	}
 	# No live StatefulSet: a first install, nothing to compare.
-	[[ -n "$live" ]] || return 0
+	[[ -n "$sts" ]] || return 0
+	live="$(jq -c '[.spec.volumeClaimTemplates[] | {name: .metadata.name, class: .spec.storageClassName, size: .spec.resources.requests.storage}]' <<<"$sts")"
 	rendered="$(helm template garage "$CHART_DIR" -n "$NAMESPACE" -f "$GARAGE_DIR/garage-values.yaml" \
 		--show-only templates/workload.yaml | yq -o=json '.' |
 		jq -c 'select(.kind == "StatefulSet") | [.spec.volumeClaimTemplates[] | {name: .metadata.name, class: .spec.storageClassName, size: .spec.resources.requests.storage}]')"
+	[[ -n "$rendered" ]] || {
+		echo "helm template rendered no garage StatefulSet from templates/workload.yaml." >&2
+		exit 1
+	}
 	if [[ "$rendered" != "$live" ]]; then
 		echo "garage-values.yaml changes the StatefulSet's volumeClaimTemplates, which Kubernetes refuses to update." >&2
 		echo "  live:     $live" >&2
 		echo "  rendered: $rendered" >&2
-		echo "Fix: kubectl -n $NAMESPACE delete statefulset garage --cascade=orphan, then rerun this script." >&2
-		echo "Pods and PVCs keep running; existing PVCs keep their size (expand them live)." >&2
+		echo "Nothing was changed. Either set the claim templates in garage-values.yaml back to" >&2
+		echo "the live values, or recreate the StatefulSet by hand (compendium GUIDE-1079," >&2
+		echo "\"Recreating the garage StatefulSet\")." >&2
+		echo "Existing PVCs keep their size either way (expand them live)." >&2
 		exit 1
 	fi
 }
