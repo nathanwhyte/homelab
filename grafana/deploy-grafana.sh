@@ -64,13 +64,12 @@ if ! kubectl get secret alertmanager-slack-bot-token -n "$NAMESPACE" >/dev/null 
 	exit 1
 fi
 
-# Every file this script passes to kubectl, helm-deploy.py or bash, checked
-# here, before the first cluster change, so a missing one stops the deploy
-# before anything is half-applied. Some files only work as a pair: the
-# k8s-monitoring values set maxBackoffRetries, which needs the alloy-logs
-# PodMonitor and alert (BUG-1293), and disable KubeJobFailed, which
-# job-failure-alerts.yaml replaces (BUG-1197). Add a new input here, not next
-# to the step that uses it. Paths are relative to $GRAFANA_DIR.
+# The files this script names under $GRAFANA_DIR, checked before its first
+# cluster change. Files that helm-deploy.py and the sub-scripts read are
+# theirs to check, so this does not promise a missing input can never leave a
+# partial deploy; step order carries the pairing that matters (the alloy-logs
+# PodMonitor and alert go in before the k8s-monitoring upgrade, below). Paths
+# are relative to $GRAFANA_DIR.
 REQUIRED_FILES=(
 	helm/kube-prometheus-stack-values.yaml
 	helm/k8s-monitoring-values.yaml
@@ -107,6 +106,16 @@ python3 "$HELM_DEPLOY" kube-prometheus-stack "$NAMESPACE" \
 	--create-namespace \
 	-f "$GRAFANA_DIR/helm/kube-prometheus-stack-values.yaml"
 
+# BUG-1293: the k8s-monitoring values set maxBackoffRetries: 300, so a batch
+# Loki keeps refusing can block a collector for about 22.5 h. Its alert and the
+# PodMonitor that feeds it go in here, after kube-prometheus-stack (which
+# installs their CRDs) and before the k8s-monitoring upgrade, so a failure at
+# any step cannot leave the longer retries live without the alert.
+echo -e "\nApplying alloy-logs PodMonitor and alerts..."
+kubectl apply \
+	-f "$GRAFANA_DIR/manifests/alloy-logs-podmonitor.yaml" \
+	-f "$GRAFANA_DIR/manifests/alloy-logs-alerts.yaml"
+
 # Apply after kube-prometheus-stack so the generated Prometheus PVC exists for
 # the direct recurring-job labels. This is intentionally scoped to Prometheus;
 # the Longhorn default recurring-job group applies to every volume.
@@ -142,9 +151,7 @@ kubectl apply \
 	-f "$GRAFANA_DIR/manifests/rbac.yaml" \
 	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" \
 	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml" \
-	-f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" \
-	-f "$GRAFANA_DIR/manifests/alloy-logs-podmonitor.yaml" \
-	-f "$GRAFANA_DIR/manifests/alloy-logs-alerts.yaml"
+	-f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml"
 
 # May also be run independently to avoid touching the Helm releases.
 bash "$GRAFANA_DIR/../longhorn/deploy-storage-alerts.sh"

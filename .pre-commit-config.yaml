@@ -127,9 +127,9 @@ repos:
         language: system
         pass_filenames: false
         files: ^(grafana/((test-)?backup-freshness-exporter\.py|longhorn-backup-daily\.json)|longhorn/(replica-policy\.yaml|scripts/replica-policy\.py))$
-      # BUG-1293: deploy-grafana.sh checks every input before its first cluster
-      # change; the test deletes each file the script names and fails on any
-      # change logged before the exit, or a file missing from REQUIRED_FILES.
+      # BUG-1293: deploy-grafana.sh applies the alloy-logs alert before the
+      # k8s-monitoring upgrade, and checks the files it names before its first
+      # cluster change. The test runs it with stubbed tools for both.
       - id: deploy-grafana-preflight-tests
         name: deploy-grafana.sh preflight tests
         entry: python3 grafana/test-deploy-grafana-preflight.py
