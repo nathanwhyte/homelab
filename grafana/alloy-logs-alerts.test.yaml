@@ -1,0 +1,47 @@
+rule_files:
+  - alloy-logs-alerts.rules.yaml # Replaced with a temporary path by test-alloy-logs-alerts.py.
+evaluation_interval: 1m
+# Times are relative to the test start (t=0). The retry counter rises by 1 per
+# retry; at the 5m backoff cap a stuck batch retries about every 256-300 s.
+tests:
+  # 1. Stuck sender: one retry every 5 minutes for 2 hours. Fires once the
+  #    10m increase has stayed above 0 for 30 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'loki_write_batch_retries_total{namespace="grafana",pod="k8s-monitoring-alloy-logs-w6p5l",host="loki-gateway.grafana.svc.cluster.local",tenant=""}'
+        values: "0+0.2x120"
+    alert_rule_test:
+      - { eval_time: 20m, alertname: AlloyLogsWriteRetrying, exp_alerts: [] }
+      - eval_time: 60m
+        alertname: AlloyLogsWriteRetrying
+        exp_alerts:
+          - exp_labels: { namespace: grafana, pod: k8s-monitoring-alloy-logs-w6p5l, severity: warning }
+            exp_annotations:
+              summary: "alloy-logs collector k8s-monitoring-alloy-logs-w6p5l has been retrying Loki pushes for 30m+"
+              description: "k8s-monitoring-alloy-logs-w6p5l has retried a loki.write batch in every 10m window for over 30 minutes, so its pod and journal logs are not reaching Loki. Alloy logs a retry only at debug level, so check whether loki-gateway and loki-0 are up first. If they are, a 5xx or 429 on every attempt (Loki's own logs) means Loki is refusing one batch; restarting the pod frees the sender and drops what is queued. BUG-1293."
+
+  # 2. Short Loki restart: retries for 10 minutes, then none. Must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'loki_write_batch_retries_total{namespace="grafana",pod="k8s-monitoring-alloy-logs-t5s6s",host="loki-gateway.grafana.svc.cluster.local",tenant=""}'
+        values: "0 1 2 3 4 5 6 7 8 9 10+0x110"
+    alert_rule_test:
+      - { eval_time: 30m, alertname: AlloyLogsWriteRetrying, exp_alerts: [] }
+      - { eval_time: 90m, alertname: AlloyLogsWriteRetrying, exp_alerts: [] }
+
+  # 3. Healthy collector: counter flat. Must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'loki_write_batch_retries_total{namespace="grafana",pod="k8s-monitoring-alloy-logs-5c8hw",host="loki-gateway.grafana.svc.cluster.local",tenant=""}'
+        values: "4+0x120"
+    alert_rule_test:
+      - { eval_time: 90m, alertname: AlloyLogsWriteRetrying, exp_alerts: [] }
+
+  # 4. Another namespace's Alloy (for example a future second deployment) is
+  #    out of scope.
+  - interval: 1m
+    input_series:
+      - series: 'loki_write_batch_retries_total{namespace="mac",pod="alloy-mac",host="x",tenant=""}'
+        values: "0+0.2x120"
+    alert_rule_test:
+      - { eval_time: 90m, alertname: AlloyLogsWriteRetrying, exp_alerts: [] }
