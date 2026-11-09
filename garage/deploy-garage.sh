@@ -58,7 +58,9 @@ check_claim_templates() {
 		echo "garage-values.yaml changes the StatefulSet's volumeClaimTemplates, which Kubernetes refuses to update." >&2
 		echo "  live:     $live" >&2
 		echo "  rendered: $rendered" >&2
-		echo "Fix: kubectl -n $NAMESPACE delete statefulset garage --cascade=orphan, then rerun this script." >&2
+		# Only the plain path recreates the StatefulSet: --upgrade-chart's hold step
+		# reads the live StatefulSet first and fails when it is gone.
+		echo "Fix: kubectl -n $NAMESPACE delete statefulset garage --cascade=orphan, then rerun this script without --upgrade-chart." >&2
 		echo "Pods and PVCs keep running; existing PVCs keep their size (expand them live)." >&2
 		exit 1
 	fi
