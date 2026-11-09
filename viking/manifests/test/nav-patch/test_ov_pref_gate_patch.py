@@ -13,6 +13,7 @@ import importlib.util
 import io
 import json
 import os
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -183,6 +184,12 @@ class _Phase2Applied(unittest.TestCase):
         state = patch.dict(gate._state, {"phase2_applied": True})
         state.start()
         self.addCleanup(state.stop)
+        # The image sets both switches; each test sets the ones it means.
+        switches = patch.dict(os.environ)
+        switches.start()
+        self.addCleanup(switches.stop)
+        for var in gate.SWITCHES.values():
+            os.environ.pop(var, None)
 
 
 class TypedTextTests(unittest.TestCase):
@@ -205,8 +212,109 @@ class TypedTextTests(unittest.TestCase):
     def test_role_counts(self):
         self.assertEqual(
             gate.role_counts(SUBAGENT_ARCHIVE + TYPED_ARCHIVE),
-            {"assistant": 3, "user": 2, "user_text": 1},
+            {"assistant": 3, "user": 2, "user_agent_text": 0, "user_text": 1},
         )
+
+
+SIDE_NOTE = (
+    "Here is a note offered by a side agent:\n\n> Heads up · The daily backup plan …\n\n"
+    "This is how Claude Code surfaces messages the user sends mid-turn — …"
+)
+MIDTURN = "The user sent a new message while you were working:\n{}\n\n" + (
+    "This is how Claude Code surfaces messages the user sends mid-turn — within the "
+    "running turn, often alongside the next tool result. Address the message above."
+)
+AGENT_TEXTS = {
+    "side-agent note": SIDE_NOTE,
+    "wrapped side-agent note": MIDTURN.format(SIDE_NOTE),
+    "coordinator": "The coordinator sent a message while you were working: round 2 …",
+    "cross-session": "Another Claude session sent a message: <cross-session-message>…",
+    "task notification": "<task-notification> <task-id>b9j</task-id> …</task-notification>",
+    "system reminder": '<system-reminder id="d82e"> Another session …</system-reminder>',
+    "skill body": "Base directory for this skill: /Users/noot/.claude/skills/retro\n# Retro",
+    "compaction summary": "This session is being continued from a previous conversation …",
+    "session marker": "[session cc-005f52c6-599b-4f2e · tmux config:3 · run claude-00]",
+    "interrupt": "[Request interrupted by user]",
+    "tool loaded": "Tool loaded.",
+    "command output": "<local-command-stdout>session running</local-command-stdout>",
+    "bang output": "<bash-stdout>(no output)</bash-stdout><bash-stderr></bash-stderr>",
+}
+
+
+class AgentTextTests(unittest.TestCase):
+    """IMPR-1479 row 2: agent and harness text delivered as a user message."""
+
+    def test_each_inventoried_shape_is_not_typed(self):
+        for name, text in AGENT_TEXTS.items():
+            with self.subTest(name):
+                self.assertFalse(gate.is_typed_text(text))
+                self.assertFalse(gate.has_typed_user_text([_msg("user", _text(text))]))
+
+    def test_what_the_user_wrote_still_counts(self):
+        for text in (
+            "keep going",
+            MIDTURN.format("B2"),
+            "<command-message>retro</command-message> <command-name>/retro</command-name>",
+            "<bash-input>chmod 600 key.txt</bash-input>",
+            '<system-reminder id="x">ctx</system-reminder>\nmerge it',
+            "is the side agent's note right?",
+            # Round 1: typed words that quote the wrapper footer stay typed.
+            MIDTURN.format(
+                "This is how Claude Code surfaces messages the user sends mid-turn"
+                " — keep this wording in my profile."
+            ),
+        ):
+            with self.subTest(text):
+                self.assertTrue(gate.is_typed_text(text))
+
+    def test_nested_harness_tags_are_still_harness_text(self):
+        # Round 1: output that quotes its own tag is judged on the whole part.
+        text = "<bash-stdout>example: <bash-stdout>daily</bash-stdout></bash-stdout>"
+        self.assertFalse(gate.is_typed_text(text))
+
+    def test_the_shape_decides_a_mixed_part(self):
+        # Decision A2: whole-part checks only, so the part's shape decides it whatever
+        # it holds. Harness text followed by other text is typed ...
+        text = "<system-reminder>context</system-reminder>\n" + MIDTURN.format(
+            SIDE_NOTE
+        )
+        self.assertTrue(gate.is_typed_text(text))
+        # ... and a part bookended by harness tags is not, even with typed words inside.
+        text = "<system-reminder>a</system-reminder>\nkeep going\n<system-reminder>b</system-reminder>"
+        self.assertFalse(gate.is_typed_text(text))
+
+    def test_long_parts_are_judged_in_linear_time(self):
+        # Round 1: 64k spaces inside the wrapper took 14 s with the regex rule.
+        texts = [
+            MIDTURN.format("x" + " " * 200_000 + "y"),
+            "<system-reminder>" * 50_000,
+            "<bash-stdout>" + " " * 200_000,
+        ]
+        start = time.perf_counter()
+        for text in texts:
+            gate.is_typed_text(text)
+        self.assertLess(time.perf_counter() - start, 0.5)
+
+    def test_replay_of_a_side_note_archive_counts_one_typed_message(self):
+        # The shape of cc-cc3d043d archive_003: a forwarded note, then "keep going".
+        archive = [
+            _msg("user", _text(SIDE_NOTE)),
+            _msg("assistant", _text("Noted; the backup plan stands.")),
+            _msg("user", _text("keep going")),
+            _msg("assistant", _text("Continuing.")),
+        ]
+        self.assertEqual(gate.role_counts(archive)["user_text"], 1)
+        self.assertEqual(gate.role_counts(archive)["user_agent_text"], 1)
+        self.assertTrue(gate.has_typed_user_text(archive))
+        self.assertFalse(gate.has_typed_user_text(archive[:2]))
+
+    def test_an_archive_of_only_agent_text_is_gated(self):
+        messages = [_msg("user", _text(t)) for t in AGENT_TEXTS.values()]
+        messages.append(_msg("assistant", _text("Done.")))
+        with patch.dict(os.environ, {"OV_PREF_GATE": "1", "OV_PROFILE_GATE": "1"}):
+            gate_ = gate.Gate(ARCHIVE, "s", messages, gate.read_modes())
+        self.assertFalse(gate_.typed)
+        self.assertEqual(gate_.roles["user_agent_text"], len(AGENT_TEXTS))
 
 
 class ArchiveTests(_Phase2Applied):
@@ -244,7 +352,12 @@ class ArchiveTests(_Phase2Applied):
                     "extractions": 3,
                     "messages": 6,
                     "profile_action": "would_skip",
-                    "roles": {"assistant": 4, "user": 2, "user_text": 0},
+                    "roles": {
+                        "assistant": 4,
+                        "user": 2,
+                        "user_agent_text": 0,
+                        "user_text": 0,
+                    },
                     "session_id": "cc-35c37c51__subagent-ab4c",
                     "writes": {
                         "identity": [],
