@@ -139,6 +139,15 @@ if [ ! -f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" ]; then
 	exit 1
 fi
 
+# Pairs with maxBackoffRetries in helm/k8s-monitoring-values.yaml (BUG-1293).
+# The PodMonitor scrapes the alloy-logs collectors so the alert has its metric.
+for manifest in alloy-logs-podmonitor.yaml alloy-logs-alerts.yaml; do
+	if [ ! -f "$GRAFANA_DIR/manifests/$manifest" ]; then
+		echo "$manifest file not found!"
+		exit 1
+	fi
+done
+
 # The grafana namespace no longer runs its own cloudflared connector. Its tunnel
 # was deleted 2026-03-28 in the consolidation into the cluster-wide `homelab`
 # tunnel, which has served logs.nathanwhyte.dev ever since; the Deployment and
@@ -159,7 +168,9 @@ kubectl apply \
 	-f "$GRAFANA_DIR/manifests/rbac.yaml" \
 	-f "$GRAFANA_DIR/manifests/node-power-alerts.yaml" \
 	-f "$GRAFANA_DIR/manifests/backup-alerts.yaml" \
-	-f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml"
+	-f "$GRAFANA_DIR/manifests/job-failure-alerts.yaml" \
+	-f "$GRAFANA_DIR/manifests/alloy-logs-podmonitor.yaml" \
+	-f "$GRAFANA_DIR/manifests/alloy-logs-alerts.yaml"
 
 # May also be run independently to avoid touching the Helm releases.
 bash "$GRAFANA_DIR/../longhorn/deploy-storage-alerts.sh"
