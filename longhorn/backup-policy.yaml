@@ -26,12 +26,14 @@
 # on kube-controller-manager's clock, which is America/Chicago on timmy
 # (copyparty's `0 4 * * *` fires at 10:00Z in standard time). 02:00 Chicago
 # leaves 90 minutes before the k3s datastore backup (03:30) and two hours before
-# copyparty's 04:00 snapshot; read the first run's duration from the job pod and
-# move the slot if it overlaps them.
+# copyparty's 04:00 snapshot. The first run (2026-11-09) wrote backups from
+# 08:00Z to 10:18Z, 02:00 to 04:18 Chicago, so it overran both; whether to move
+# the slot waits on how long the incremental runs take.
 #
-# Traffic: the first run is a full backup of every enrolled volume (about
-# 45 GiB on 2026-11-08), and full-backup-interval repeats a full upload every
-# 7th run. concurrency: 1 serializes this job's volumes but caps no bandwidth.
+# Traffic: the first run is a full backup of every enrolled volume. It measured
+# 76.2 GiB across 19 backups on 2026-11-09 (sum of backups.longhorn.io
+# status.size), not the 45 GiB estimated on 2026-11-08. full-backup-interval
+# repeats a full upload every 7th run. concurrency: 1 serializes this job's volumes but caps no bandwidth.
 # copyparty (162 GiB) joins only after its own first full backup runs in an
 # announced window (decision A1, 2026-11-08).
 apiVersion: longhorn.io/v1beta2
