@@ -59,8 +59,12 @@ check_claim_templates() {
 		echo "  live:     $live" >&2
 		echo "  rendered: $rendered" >&2
 		# Only the plain path recreates the StatefulSet: --upgrade-chart's hold step
-		# reads the live StatefulSet first and fails when it is gone.
+		# reads the live StatefulSet first and fails when it is gone, and the plain
+		# path refuses a chart-version change (helm-deploy.py). So a chart upgrade
+		# and a template change go in two runs, the upgrade first.
 		echo "Fix: kubectl -n $NAMESPACE delete statefulset garage --cascade=orphan, then rerun this script without --upgrade-chart." >&2
+		echo "If this run is also a chart-version upgrade, do not delete yet: first run --upgrade-chart with" >&2
+		echo "the claim templates set back to the live values above, then change them and use the fix above." >&2
 		echo "Pods and PVCs keep running; existing PVCs keep their size (expand them live)." >&2
 		exit 1
 	fi
