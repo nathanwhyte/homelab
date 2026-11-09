@@ -272,12 +272,16 @@ class AgentTextTests(unittest.TestCase):
         text = "<bash-stdout>example: <bash-stdout>daily</bash-stdout></bash-stdout>"
         self.assertFalse(gate.is_typed_text(text))
 
-    def test_a_part_mixing_harness_and_other_text_counts_as_typed(self):
-        # Decision A2: whole-part checks only, so a mixed part is typed.
+    def test_the_shape_decides_a_mixed_part(self):
+        # Decision A2: whole-part checks only, so the part's shape decides it whatever
+        # it holds. Harness text followed by other text is typed ...
         text = "<system-reminder>context</system-reminder>\n" + MIDTURN.format(
             SIDE_NOTE
         )
         self.assertTrue(gate.is_typed_text(text))
+        # ... and a part bookended by harness tags is not, even with typed words inside.
+        text = "<system-reminder>a</system-reminder>\nkeep going\n<system-reminder>b</system-reminder>"
+        self.assertFalse(gate.is_typed_text(text))
 
     def test_long_parts_are_judged_in_linear_time(self):
         # Round 1: 64k spaces inside the wrapper took 14 s with the regex rule.

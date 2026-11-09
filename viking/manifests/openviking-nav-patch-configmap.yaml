@@ -4921,8 +4921,10 @@ data:
     coordinator or cross-session message, a task notification, a system reminder, a skill
     body, a compaction summary, a session marker, local command or ``!`` output, an
     interrupt marker, or a ``Tool loaded.`` result. Each is recognised on the whole part by
-    prefix and suffix, never by parsing inside it: a part that mixes such text with anything
-    else counts as typed. The wrapper's inner message, a slash command's name and arguments,
+    prefix and suffix, never by parsing inside it, so the shape decides the whole part
+    whatever it holds: harness text with other text before or after it counts as typed, and
+    a part that opens and closes with harness tags is harness text even with typed words
+    between them. The wrapper's inner message, a slash command's name and arguments,
     and ``!`` command input still count. The record's ``roles`` counts ``user_text``
     under this test and ``user_agent_text`` for user messages holding only such text.
 
@@ -5066,8 +5068,9 @@ data:
         A part is agent text when, stripped, it opens with an agent opening, is
         ``Tool loaded.``, or opens with a harness tag and closes with one. The mid-turn
         wrapper is judged by what follows its header, so a side-agent note inside it is
-        agent text and anything else the user sent is typed. A part that mixes a harness
-        block with other text counts as typed.
+        agent text and anything else the user sent is typed. The shape decides the whole
+        part whatever lies inside: a harness block followed or preceded by other text is
+        typed, and a part bookended by harness tags is not, even with typed words between.
         """
         if not isinstance(text, str):
             return False
