@@ -162,6 +162,23 @@ _HARNESS_TAGS = (
 )
 _HARNESS_OPEN = tuple(f"<{tag}{end}" for tag in _HARNESS_TAGS for end in (">", " "))
 _HARNESS_CLOSE = tuple(f"</{tag}>" for tag in _HARNESS_TAGS)
+# A slash-command marker: the user typed only the command's name unless its
+# <command-args> holds text (decision C2).
+_COMMAND_OPEN = ("<command-name>", "<command-message>")
+_COMMAND_CLOSE = ("</command-name>", "</command-message>", "</command-args>")
+_ARGS_OPEN, _ARGS_CLOSE = "<command-args>", "</command-args>"
+
+
+def _is_bare_command(body: str) -> bool:
+    """A command-marker part with no argument text. Malformed args count as typed."""
+    if not (body.startswith(_COMMAND_OPEN) and body.endswith(_COMMAND_CLOSE)):
+        return False
+    start = body.find(_ARGS_OPEN)
+    if start < 0:
+        return True
+    start += len(_ARGS_OPEN)
+    end = body.find(_ARGS_CLOSE, start)
+    return end >= 0 and not body[start:end].strip()
 
 
 def _is_agent_text(body: str) -> bool:
@@ -169,6 +186,7 @@ def _is_agent_text(body: str) -> bool:
         body.startswith(_AGENT_OPENINGS)
         or body == "Tool loaded."
         or (body.startswith(_HARNESS_OPEN) and body.endswith(_HARNESS_CLOSE))
+        or _is_bare_command(body)
     )
 
 
@@ -176,7 +194,8 @@ def is_typed_text(text) -> bool:
     """Whether a user text part holds text the user wrote, not agent or harness text.
 
     A part is agent text when, stripped, it opens with an agent opening, is
-    ``Tool loaded.``, or opens with a harness tag and closes with one. The mid-turn
+    ``Tool loaded.``, opens with a harness tag and closes with one, or is a
+    slash-command marker whose ``<command-args>`` is missing or blank. The mid-turn
     wrapper is judged by what follows its header, so a side-agent note inside it is
     agent text and anything else the user sent is typed. The shape decides the whole
     part whatever lies inside: a harness block followed or preceded by other text is
