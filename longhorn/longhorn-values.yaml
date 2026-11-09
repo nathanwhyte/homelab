@@ -65,6 +65,12 @@ defaultSettings:
   allowVolumeCreationWithDegradedAvailability: "true"
   # Off: orphans are reviewed and deleted by hand (IMPR-1478 Phase 2).
   orphanResourceAutoDeletion: ""
+  # Recurring jobs (backup-daily) skip a detached volume unless this is true;
+  # with it, Longhorn attaches the volume for the job and detaches it after.
+  # compendium/compendium-sync-state-v2 is attached only while the
+  # compendium-sync CronJob runs (:07, :22, :37, :52), so it was detached at
+  # 02:00 and the first backup-daily run (2026-11-09) skipped it.
+  allowRecurringJobWhileVolumeDetached: "true"
 
 # Default backup target: Cloudflare R2, written nightly by the backup-daily
 # RecurringJob (longhorn/backup-policy.yaml, IMPR-1478) and by manual backups.
