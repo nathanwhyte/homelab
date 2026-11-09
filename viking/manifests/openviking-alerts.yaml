@@ -282,7 +282,7 @@ spec:
             severity: warning
           annotations:
             summary: "{{ $labels.machine }}/{{ $labels.harness }} pushes {{ $value }} field name(s) ov-exporter does not know"
-            description: "ov-exporter dropped {{ $value }} field name(s) from each push by {{ $labels.machine }} ({{ $labels.harness }}), so their counts are not exported. The shipper (dotfiles bin/ov-telemetry-push.py) sends a total or gauge that CLIENT_FIELDS or CLIENT_GAUGES in homelab viking/exporters/ov-exporter.py does not list. Add it there, regenerate the exporter ConfigMap and restart openviking, or fix the shipper's name."
+            description: "ov-exporter dropped {{ $value }} field name(s) from the last accepted push by {{ $labels.machine }} ({{ $labels.harness }}), so their counts are not exported. The shipper (dotfiles bin/ov-telemetry-push.py) sends a total or gauge that CLIENT_FIELDS or CLIENT_GAUGES in homelab viking/exporters/ov-exporter.py does not list. Add it there, regenerate the exporter ConfigMap and restart openviking, or fix the shipper's name."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,

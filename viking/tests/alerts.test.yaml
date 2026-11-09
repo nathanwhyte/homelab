@@ -348,7 +348,7 @@ tests:
               harness: codex
             exp_annotations:
               summary: "workbook/codex pushes 2 field name(s) ov-exporter does not know"
-              description: "ov-exporter dropped 2 field name(s) from each push by workbook (codex), so their counts are not exported. The shipper (dotfiles bin/ov-telemetry-push.py) sends a total or gauge that CLIENT_FIELDS or CLIENT_GAUGES in homelab viking/exporters/ov-exporter.py does not list. Add it there, regenerate the exporter ConfigMap and restart openviking, or fix the shipper's name."
+              description: "ov-exporter dropped 2 field name(s) from the last accepted push by workbook (codex), so their counts are not exported. The shipper (dotfiles bin/ov-telemetry-push.py) sends a total or gauge that CLIENT_FIELDS or CLIENT_GAUGES in homelab viking/exporters/ov-exporter.py does not list. Add it there, regenerate the exporter ConfigMap and restart openviking, or fix the shipper's name."
 
   - name: a delivery on the new pod clears a condition pending at the restart
     # Round-4 review: pod a reports 6 from 0m, its target goes away at 26m
