@@ -531,8 +531,61 @@ class TestClientPush(unittest.TestCase):
         self._push(self._doc(recalls=5), now=T0 + 300)
         self.assertEqual(
             exporter._client_totals[("pop", "claude-code")],
-            {"totals": {"recalls": 5}, "received": T0 + 300},
+            {"totals": {"recalls": 5}, "gauges": {}, "received": T0 + 300},
         )
+
+    def test_gauges_are_exported_as_gauges_and_replaced(self):
+        doc = {**self._doc(), "gauges": {"session_start_runs_since_inject": 4}}
+        self.assertEqual(self._push(doc), (204, ""))
+        # Pass now: T0 is a fixed date, and gauges expire a day after a push.
+        text = "\n".join(exporter.format_client_metrics(now=T0))
+        self.assertIn(
+            "# TYPE openviking_client_session_start_runs_since_inject gauge", text
+        )
+        self.assertIn(
+            'openviking_client_session_start_runs_since_inject{machine="pop",harness="claude-code"} 4',
+            text,
+        )
+        # A gauge the push left out is not exported, never as a stale value.
+        self.assertNotIn("openviking_client_recalls_since_delivery{", text)
+        doc["gauges"] = {
+            "session_start_runs_since_inject": 0,
+            "recalls_since_delivery": 2,
+        }
+        self._push(doc, now=T0 + 300)
+        text = "\n".join(exporter.format_client_metrics(now=T0 + 300))
+        self.assertIn(
+            'openviking_client_session_start_runs_since_inject{machine="pop",harness="claude-code"} 0',
+            text,
+        )
+        self.assertIn(
+            'openviking_client_recalls_since_delivery{machine="pop",harness="claude-code"} 2',
+            text,
+        )
+
+    def test_gauges_expire_a_day_after_the_last_push(self):
+        # A retired Mac must not hold a delivery alert firing until a restart.
+        doc = {**self._doc(), "gauges": {"session_start_runs_since_inject": 7}}
+        self._push(doc)
+        series = 'openviking_client_session_start_runs_since_inject{machine="pop",harness="claude-code"} 7'
+        age = exporter.CLIENT_GAUGE_MAX_AGE_S
+        self.assertIn(series, exporter.format_client_metrics(now=T0 + age))
+        expired = exporter.format_client_metrics(now=T0 + age + 1)
+        self.assertNotIn(series, expired)
+        # Counters and last_push stay, for dashboards and GaugesMissing.
+        self.assertIn(
+            f'openviking_client_last_push_unix{{machine="pop",harness="claude-code"}} {T0}',
+            expired,
+        )
+        self._push(doc, now=T0 + age + 1)
+        self.assertIn(series, exporter.format_client_metrics(now=T0 + age + 1))
+
+    def test_a_push_without_gauges_exports_none(self):
+        # An older shipper sends no gauges: the alerts see no series, not a 0.
+        self._push(self._doc())
+        text = exporter.format_metrics()
+        self.assertNotIn("openviking_client_recalls_since_delivery{", text)
+        self.assertNotIn("openviking_client_session_start_runs_since_inject{", text)
 
     def test_rejects_wrong_or_missing_key(self):
         self.assertEqual(self._push(self._doc(), auth="Bearer nope")[0], 401)
@@ -550,6 +603,12 @@ class TestClientPush(unittest.TestCase):
             self._doc(recalls=-1),
             self._doc(recalls=1.5),
             self._doc(recalls=True),
+            {**self._doc(), "gauges": [1]},
+            {**self._doc(), "gauges": {"bogus": 1}},
+            {**self._doc(), "gauges": {"recalls_since_delivery": -1}},
+            {**self._doc(), "gauges": {"recalls_since_delivery": 2.0}},
+            {**self._doc(), "gauges": {"recalls_since_delivery": False}},
+            {**self._doc(), "gauges": {"recalls": 1}},
         ]
         for doc in bad:
             with self.subTest(doc=doc):

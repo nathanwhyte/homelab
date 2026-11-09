@@ -83,8 +83,11 @@ read, bodies are capped at 4 KiB and values at 2**53, at most 4 bodies are
 read at once, and every connection is closed 10 s after it opens however
 slowly it trickles, so nothing a LAN client sends can stall the server or
 break the /metrics exposition. Totals are cumulative and replace the previous
-push, so a resend never double-counts. They live in memory only, so an
-exporter restart drops them until the next push.
+push, so a resend never double-counts. An optional `gauges` object (counts
+since the last delivery, CLIENT_GAUGES) rides beside them and is replaced the
+same way, and stops being exported once its series has gone a day without a
+push (CLIENT_GAUGE_MAX_AGE_S). Both live in memory only, so an exporter
+restart drops them until the next push.
 """
 
 from __future__ import annotations
@@ -175,6 +178,20 @@ CLIENT_FIELDS: dict[str, tuple[str, str]] = {
         "Auto-recall runs that failed (server unreachable, uncaught error) and injected nothing.",
     ),
 }
+# Pushed gauge field -> (metric name, help text), sent as an optional `gauges`
+# object beside `totals`. The shipper folds them in log order, so they need no
+# PromQL arithmetic across exporter restarts or total rebuilds; the client
+# alerts read them directly. Unknown gauge fields are rejected like totals.
+CLIENT_GAUGES: dict[str, tuple[str, str]] = {
+    "session_start_runs_since_inject": (
+        "openviking_client_session_start_runs_since_inject",
+        "Session-start hook runs since the client's last session-start injection.",
+    ),
+    "recalls_since_delivery": (
+        "openviking_client_recalls_since_delivery",
+        "Auto-recall runs that neither skipped, failed nor delivered, since the last one that delivered tokens and entries.",
+    ),
+}
 CLIENT_LABEL_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # always fullmatch
 CLIENT_MAX_SERIES = 16  # (machine, harness) pairs; bounds cardinality
 CLIENT_MAX_BODY = 4096
@@ -182,11 +199,16 @@ CLIENT_MAX_BODY = 4096
 # valid exposition value at all, which would fail the whole scrape.
 CLIENT_MAX_VALUE = 2**53
 CLIENT_MAX_INFLIGHT = 4  # concurrent POST bodies being read
+# A series that has not pushed for this long stops exporting its gauges, so a
+# retired Mac or harness cannot hold a delivery alert firing until the pod
+# restarts. A day matches the window the counter-based rules used; a Mac asleep
+# overnight keeps its value, and its next push restores the series.
+CLIENT_GAUGE_MAX_AGE_S = 86400
 CLIENT_SOCKET_TIMEOUT_S = 10
 
 _client_lock = threading.Lock()
 _client_inflight = threading.BoundedSemaphore(CLIENT_MAX_INFLIGHT)
-# (machine, harness) -> {"totals": {field: int}, "received": unix}
+# (machine, harness) -> {"totals": {field: int}, "gauges": {field: int}, "received": unix}
 _client_totals: dict[tuple[str, str], dict] = {}
 
 
@@ -218,24 +240,36 @@ def apply_client_push(
             return 400, f"{name} must match {CLIENT_LABEL_RE.pattern}"
     if not isinstance(totals, dict) or not totals:
         return 400, "totals must be a non-empty object"
-    for field, value in totals.items():
-        if field not in CLIENT_FIELDS:
-            return 400, f"unknown total {field!r}"
-        if (
-            not isinstance(value, int)
-            or isinstance(value, bool)
-            or not 0 <= value <= CLIENT_MAX_VALUE
-        ):
-            return 400, f"total {field!r} must be an integer in 0..2**53"
+    gauges = doc.get("gauges", {})
+    if not isinstance(gauges, dict):
+        return 400, "gauges must be an object"
+    for kind, values, known in (
+        ("total", totals, CLIENT_FIELDS),
+        ("gauge", gauges, CLIENT_GAUGES),
+    ):
+        for field, value in values.items():
+            if field not in known:
+                return 400, f"unknown {kind} {field!r}"
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 0 <= value <= CLIENT_MAX_VALUE
+            ):
+                return 400, f"{kind} {field!r} must be an integer in 0..2**53"
     series = (machine, harness)
     with _client_lock:
         if series not in _client_totals and len(_client_totals) >= CLIENT_MAX_SERIES:
             return 429, "too many client series"
-        _client_totals[series] = {"totals": dict(totals), "received": now}
+        _client_totals[series] = {
+            "totals": dict(totals),
+            "gauges": dict(gauges),
+            "received": now,
+        }
     return 204, ""
 
 
-def format_client_metrics() -> list[str]:
+def format_client_metrics(now: float | None = None) -> list[str]:
+    now = time.time() if now is None else now
     lines: list[str] = []
     with _client_lock:
         snapshot = sorted(_client_totals.items())
@@ -246,6 +280,15 @@ def format_client_metrics() -> list[str]:
             if field in entry["totals"]:
                 labels = format_labels({"machine": machine, "harness": harness})
                 lines.append(f"{name}{labels} {entry['totals'][field]}")
+    for field, (name, help_text) in CLIENT_GAUGES.items():
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} gauge")
+        for (machine, harness), entry in snapshot:
+            if now - entry["received"] > CLIENT_GAUGE_MAX_AGE_S:
+                continue
+            if field in entry.get("gauges", {}):
+                labels = format_labels({"machine": machine, "harness": harness})
+                lines.append(f"{name}{labels} {entry['gauges'][field]}")
     name = "openviking_client_last_push_unix"
     lines.append(f"# HELP {name} Unix time the exporter last accepted a client push.")
     lines.append(f"# TYPE {name} gauge")
