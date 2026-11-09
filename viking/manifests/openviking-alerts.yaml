@@ -200,66 +200,45 @@ spec:
         # stage makes a count go flat with no error, so alert when recall
         # runs that neither skipped nor failed keep coming but deliver nothing.
         #
-        # Both client rules count a window's activity per (machine, harness)
-        # as the sum of every series' rises between 5-minute steps:
-        #   sum by (machine, harness) (sum_over_time(clamp_min(
-        #     last_over_time(x[1h]) - last_over_time(x[1h] offset 5m), 0)[w:5m]))
-        # Within a series the rises telescope to the exact increase with no
-        # extrapolation, and a drop counts 0. last_over_time(x[1h]) rather
-        # than bare x: bare x looks back only 5m, so a scrape gap (or a test
-        # fixture's 10m/30m sampling) longer than that loses the rise across
-        # it; a dead pod's last value held for 1h only adds zero rises.
-        # Three things this replaces:
-        # - a per-series increase() join: every pod restart starts a new series
-        #   (the exporter holds pushed totals in memory, and the pod label
-        #   changes), and a pod that lived for one push leaves a flat series
-        #   that matched every other pod's activity for the whole window
-        #   (2026-11-08/09: 21h of OpenVikingClientSessionStartFlat with
-        #   injection working);
-        # - summed per-pod increase(): each short pod's extrapolation adds up,
-        #   so ten recalls over two 5-minute pods read 11.1 and fired;
-        # - max minus min across pods: ov-telemetry-push.py rebuilds its totals
-        #   from the current logs when its saved state is missing or from an
-        #   older version, which lowers counters by different amounts, so a
-        #   rebuild read as tens of runs with no injects and fired.
-        # Thresholds are exact (>= 11 fires on 11 recalls). The count misses
-        # events between one pod's last push and the next pod's first, and
-        # a new series' rises before its first 5m step (it has no earlier
-        # value to rise from), rises inside a 5m step that also holds a
-        # drop, and activity a lowering rebuild hides. It overcounts only when a rebuild raises a total
-        # (new counting rules), which reads as one jump on that counter.
+        # Both rules read a gauge the shipper folds from the hook log in
+        # order: session-start runs since the last injection, and recall runs
+        # that neither skipped, failed nor delivered since the last one that
+        # delivered tokens and entries. A rebuild of its state refolds the
+        # same lines, so it reproduces them. Deriving these from the
+        # cumulative totals in PromQL failed every way it was tried (homelab
+        # PR fixing the 2026-11-08/09 false positive, three review rounds):
+        # a per-series join matched a flat series left by a pod that lived
+        # for one push; summing per-pod increase() added each short pod's
+        # extrapolation; max minus min, and summed per-step rises, misread
+        # a rebuild that lowered the totals, a delivery first seen on a new
+        # pod, and activity at the subquery's step edges.
+        #
+        # Every pod restart starts new series under a new pod label (the
+        # exporter holds pushes in memory). max by (machine, harness) over
+        # last_over_time([10m]) takes whichever pod's value is fresh; a dead
+        # pod's last value is held 10m (two pushes), short of for: 30m, so a
+        # delivery reported to the new pod clears it in time. A shipper that
+        # predates the gauges sends none, which leaves no series to alert on.
         - alert: OpenVikingClientRecallDeliveryFlat
           expr: >-
-            (
-              sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recalls_total[1h]) - last_over_time(openviking_client_recalls_total[1h] offset 5m), 0)[6h:5m]))
-              - sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_skips_total[1h]) - last_over_time(openviking_client_recall_skips_total[1h] offset 5m), 0)[6h:5m]))
-              - sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_errors_total[1h]) - last_over_time(openviking_client_recall_errors_total[1h] offset 5m), 0)[6h:5m]))
-            ) >= 11
-            and on (machine, harness)
-            (
-              sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_tokens_total[1h]) - last_over_time(openviking_client_recall_tokens_total[1h] offset 5m), 0)[6h:5m])) == 0
-              or sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_recall_entries_total[1h]) - last_over_time(openviking_client_recall_entries_total[1h] offset 5m), 0)[6h:5m])) == 0
-            )
+            max by (machine, harness) (last_over_time(openviking_client_recalls_since_delivery[10m])) >= 11
           for: 30m
           labels:
             severity: warning
           annotations:
-            summary: "{{ $labels.machine }}/{{ $labels.harness }} recalls ran but delivered no counted memory for 6h"
-            description: "Auto-recall runs that neither skipped nor failed kept arriving from {{ $labels.machine }} ({{ $labels.harness }}), but recall tokens or entries did not move. The likely cause is a memory-plugin update renaming the hook-log stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Compare the stages in ~/.openviking/logs/*-hooks.log on that Mac with the table and update it."
-        # Gated on session-start hook runs, not recalls: a long-lived session
-        # recalls for days without a new session start, and failed recalls
-        # say nothing about whether a session started.
+            summary: "{{ $labels.machine }}/{{ $labels.harness }}: {{ $value }} recalls in a row delivered no counted memory"
+            description: "{{ $value }} auto-recall runs from {{ $labels.machine }} ({{ $labels.harness }}) neither skipped, failed nor delivered tokens and entries since the last one that did. The likely cause is a memory-plugin update renaming the hook-log stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Compare the stages in ~/.openviking/logs/*-hooks.log on that Mac with the table and update it."
+        # Counts session-start hook runs, not recalls: a long-lived session
+        # recalls for days without a new session start.
         - alert: OpenVikingClientSessionStartFlat
           expr: >-
-            sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_session_start_runs_total[1h]) - last_over_time(openviking_client_session_start_runs_total[1h] offset 5m), 0)[24h:5m])) >= 6
-            and on (machine, harness)
-            sum by (machine, harness) (sum_over_time(clamp_min(last_over_time(openviking_client_session_start_injects_total[1h]) - last_over_time(openviking_client_session_start_injects_total[1h] offset 5m), 0)[24h:5m])) == 0
+            max by (machine, harness) (last_over_time(openviking_client_session_start_runs_since_inject[10m])) >= 6
           for: 30m
           labels:
             severity: warning
           annotations:
-            summary: "{{ $labels.machine }}/{{ $labels.harness }} session-start hook ran but counted no injection in 24h"
-            description: "The session-start hook ran 6 or more times on {{ $labels.machine }} ({{ $labels.harness }}) in 24h, but no session-start memory injection was counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
+            summary: "{{ $labels.machine }}/{{ $labels.harness }}: {{ $value }} session starts since the last counted injection"
+            description: "The session-start hook ran {{ $value }} times on {{ $labels.machine }} ({{ $labels.harness }}) since the last session-start memory injection it counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
         # OpenVikingLocksAccumulating (openviking_lock_path_ovlock_count > 20)
         # was retired 2026-09-21: it counted .path.ovlock files on the PVC with
         # find, and under agfs.backend: s3 the locks live in the Garage bucket,

@@ -531,8 +531,43 @@ class TestClientPush(unittest.TestCase):
         self._push(self._doc(recalls=5), now=T0 + 300)
         self.assertEqual(
             exporter._client_totals[("pop", "claude-code")],
-            {"totals": {"recalls": 5}, "received": T0 + 300},
+            {"totals": {"recalls": 5}, "gauges": {}, "received": T0 + 300},
         )
+
+    def test_gauges_are_exported_as_gauges_and_replaced(self):
+        doc = {**self._doc(), "gauges": {"session_start_runs_since_inject": 4}}
+        self.assertEqual(self._push(doc), (204, ""))
+        text = exporter.format_metrics()
+        self.assertIn(
+            "# TYPE openviking_client_session_start_runs_since_inject gauge", text
+        )
+        self.assertIn(
+            'openviking_client_session_start_runs_since_inject{machine="pop",harness="claude-code"} 4',
+            text,
+        )
+        # A gauge the push left out is not exported, never as a stale value.
+        self.assertNotIn("openviking_client_recalls_since_delivery{", text)
+        doc["gauges"] = {
+            "session_start_runs_since_inject": 0,
+            "recalls_since_delivery": 2,
+        }
+        self._push(doc, now=T0 + 300)
+        text = exporter.format_metrics()
+        self.assertIn(
+            'openviking_client_session_start_runs_since_inject{machine="pop",harness="claude-code"} 0',
+            text,
+        )
+        self.assertIn(
+            'openviking_client_recalls_since_delivery{machine="pop",harness="claude-code"} 2',
+            text,
+        )
+
+    def test_a_push_without_gauges_exports_none(self):
+        # An older shipper sends no gauges: the alerts see no series, not a 0.
+        self._push(self._doc())
+        text = exporter.format_metrics()
+        self.assertNotIn("openviking_client_recalls_since_delivery{", text)
+        self.assertNotIn("openviking_client_session_start_runs_since_inject{", text)
 
     def test_rejects_wrong_or_missing_key(self):
         self.assertEqual(self._push(self._doc(), auth="Bearer nope")[0], 401)
@@ -550,6 +585,12 @@ class TestClientPush(unittest.TestCase):
             self._doc(recalls=-1),
             self._doc(recalls=1.5),
             self._doc(recalls=True),
+            {**self._doc(), "gauges": [1]},
+            {**self._doc(), "gauges": {"bogus": 1}},
+            {**self._doc(), "gauges": {"recalls_since_delivery": -1}},
+            {**self._doc(), "gauges": {"recalls_since_delivery": 2.0}},
+            {**self._doc(), "gauges": {"recalls_since_delivery": False}},
+            {**self._doc(), "gauges": {"recalls": 1}},
         ]
         for doc in bad:
             with self.subTest(doc=doc):
