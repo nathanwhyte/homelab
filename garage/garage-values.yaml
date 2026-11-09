@@ -62,7 +62,12 @@ persistence:
     storageClass: "longhorn-nvme"
     # 1Gi filled up 2026-07-02 (LMDB ENOSPC on 2/3 nodes broke write quorum —
     # found by the k3s-datastore-backup test run). PVCs expanded live to 5Gi.
-    size: 5Gi
+    # 20Gi since 2026-11-08: meta-garage-2's LMDB file filled 5Gi, then 10Gi,
+    # while the node caught up after a restart, and was expanded live to 20Gi.
+    # This value sizes only a newly created PVC; meta-garage-0/1 stay at 5Gi
+    # until expanded live. The StatefulSet's volumeClaimTemplates are immutable,
+    # so deploy-garage.sh stops until the StatefulSet is recreated (it prints how).
+    size: 20Gi
   data:
     # 2026-09-04: longhorn-ssd -> longhorn-garage-data.
     #

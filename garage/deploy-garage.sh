@@ -34,6 +34,36 @@ ensure_chart_ref() {
 	fi
 }
 
+# A StatefulSet's volumeClaimTemplates are immutable, so a values change to a
+# persistence size or class makes the Helm upgrade fail partway through. Compare
+# the rendered templates with the live StatefulSet first and stop with the fix.
+# The fix deletes only the StatefulSet object: its pods and PVCs keep running,
+# and the next Helm run recreates it and adopts them. This script never runs it.
+check_claim_templates() {
+	local live rendered tool
+	for tool in jq yq; do
+		command -v "$tool" >/dev/null || {
+			echo "$tool not installed (needed to compare volumeClaimTemplates)." >&2
+			exit 1
+		}
+	done
+	live="$(kubectl -n "$NAMESPACE" get statefulset garage -o json 2>/dev/null |
+		jq -c '[.spec.volumeClaimTemplates[] | {name: .metadata.name, class: .spec.storageClassName, size: .spec.resources.requests.storage}]')" || live=""
+	# No live StatefulSet: a first install, nothing to compare.
+	[[ -n "$live" ]] || return 0
+	rendered="$(helm template garage "$CHART_DIR" -n "$NAMESPACE" -f "$GARAGE_DIR/garage-values.yaml" \
+		--show-only templates/workload.yaml | yq -o=json '.' |
+		jq -c 'select(.kind == "StatefulSet") | [.spec.volumeClaimTemplates[] | {name: .metadata.name, class: .spec.storageClassName, size: .spec.resources.requests.storage}]')"
+	if [[ "$rendered" != "$live" ]]; then
+		echo "garage-values.yaml changes the StatefulSet's volumeClaimTemplates, which Kubernetes refuses to update." >&2
+		echo "  live:     $live" >&2
+		echo "  rendered: $rendered" >&2
+		echo "Fix: kubectl -n $NAMESPACE delete statefulset garage --cascade=orphan, then rerun this script." >&2
+		echo "Pods and PVCs keep running; existing PVCs keep their size (expand them live)." >&2
+		exit 1
+	fi
+}
+
 DRY_RUN=0
 UPGRADE=0
 for arg in "$@"; do
@@ -61,6 +91,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
 		echo "Helm chart not found at $CHART_DIR" >&2
 		exit 1
 	}
+	check_claim_templates
 	python3 "$HELM_DEPLOY" garage "$NAMESPACE" "$CHART_DIR" --dry-run ${HELM_FLAGS[@]+"${HELM_FLAGS[@]}"} -f "$GARAGE_DIR/garage-values.yaml"
 	exit 0
 fi
@@ -93,6 +124,8 @@ if [ ! -f "$GARAGE_DIR/garage-values.yaml" ]; then
 	echo "garage-values.yaml file not found!"
 	exit 1
 fi
+
+check_claim_templates
 
 # A chart upgrade changes only the Helm release and the StatefulSet partition:
 # it runs before the StorageClass apply below, which a release that already
