@@ -55,9 +55,10 @@ spec:
         # Garage's own signals (2026-11-08): garage-2's metadata disk filled twice
         # while it caught up after a restart, its resync worker failed on LMDB
         # ENOSPC, and only the generic KubePersistentVolumeFillingUp alert fired.
-        # Backtested over 14 days to 2026-11-09 00:26Z: GarageResyncQueueStuck
-        # fires once (garage-2, 23:01Z); GarageTableBehind fires once at
-        # for: 30m (garage-2, 23:56Z) and never at for: 1h.
+        # Backtested over 14 days: GarageResyncQueueStuck fires once (garage-2,
+        # 2026-11-08 23:00Z; to 2026-11-09 16:18Z); GarageTableBehind fires
+        # once at for: 30m (garage-2, 23:56Z) and never at for: 1h (to
+        # 2026-11-09 00:26Z).
         - alert: GarageMetadataDiskFillingFast
           # A metadata volume over half full that would fill within 6 h at its
           # last 30 min's rate. Catches a slow refill like garage-2's corrupt-
@@ -83,8 +84,11 @@ spec:
             summary: "Garage metadata volume {{ $labels.persistentvolumeclaim }} is over half full and on course to fill within 6h"
             description: "Compare its size with the other meta-garage volumes; one node far above its peers that keeps growing after its resync queue drains is the LMDB runaway-growth case (GUIDE-1079 Mode 4). Growing the volume only buys time."
         - alert: GarageResyncQueueStuck
-          # min_over_time: the queue never dropped below 1000 in the last hour.
-          expr: min_over_time(block_resync_queue_length{job="garage"}[1h]) > 1000
+          # for: 1h needs an hour of evaluations above 1000, so a scrape gap or
+          # a short catch-up after a restart does not fire it (a [1h]
+          # min_over_time would fire on the first high sample after a gap).
+          expr: block_resync_queue_length{job="garage"} > 1000
+          for: 1h
           labels:
             severity: warning
           annotations:
