@@ -4920,12 +4920,14 @@ data:
     (IMPR-1479 row 2): a forwarded side-agent note, bare or inside the mid-turn wrapper, a
     coordinator or cross-session message, a task notification, a system reminder, a skill
     body, a compaction summary, a session marker, local command or ``!`` output, an
-    interrupt marker, or a ``Tool loaded.`` result. Each is recognised on the whole part by
-    prefix and suffix, never by parsing inside it, so the shape decides the whole part
-    whatever it holds: harness text with other text before or after it counts as typed, and
-    a part that opens and closes with harness tags is harness text even with typed words
-    between them. The wrapper's inner message, a slash command's name and arguments,
-    and ``!`` command input still count. The record's ``roles`` counts ``user_text``
+    interrupt marker, a ``Tool loaded.`` result, or a slash-command marker with no argument
+    text (decision C2). Each is recognised on the whole part by prefix and suffix, so the
+    shape decides the whole part whatever it holds: harness text with other text before or
+    after it counts as typed, and a part that opens and closes with harness tags is harness
+    text even with typed words between them. The one look inside a part is a command
+    marker's ``<command-args>`` span, found with two linear searches. The wrapper's inner
+    message, a slash command's arguments, and ``!`` command input still count; a bare
+    command name does not. The record's ``roles`` counts ``user_text``
     under this test and ``user_agent_text`` for user messages holding only such text.
 
     Each Phase 2 run of a gated archive that makes at least one user-memory extraction call
@@ -5027,8 +5029,9 @@ data:
 
 
     # What Claude Code writes into a user turn; IMPR-1479 row 2 inventoried it in 486
-    # archives. Every check is on the whole part, by plain prefix and suffix comparison, so
-    # the cost is linear and no text inside a part changes the verdict (decision A2).
+    # archives. Every check is on the whole part, by plain prefix and suffix comparison
+    # (decision A2), except a command marker's args span (decision C2, two str.find calls);
+    # the cost stays linear, and only that span's text can change a part's verdict.
     _MIDTURN_HEAD = "The user sent a new message while you were working:"
     _AGENT_OPENINGS = (
         "Here is a note offered by a side agent:",
