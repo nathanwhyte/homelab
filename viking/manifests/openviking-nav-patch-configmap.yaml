@@ -4920,8 +4920,10 @@ data:
     (IMPR-1479 row 2): a forwarded side-agent note, bare or inside the mid-turn wrapper, a
     coordinator or cross-session message, a task notification, a system reminder, a skill
     body, a compaction summary, a session marker, local command or ``!`` output, an
-    interrupt marker, or a ``Tool loaded.`` result. The wrapper's inner text and a slash
-    command's name and arguments still count. The record's ``roles`` counts ``user_text``
+    interrupt marker, or a ``Tool loaded.`` result. Each is recognised on the whole part by
+    prefix and suffix, never by parsing inside it: a part that mixes such text with anything
+    else counts as typed. The wrapper's inner message, a slash command's name and arguments,
+    and ``!`` command input still count. The record's ``roles`` counts ``user_text``
     under this test and ``user_agent_text`` for user messages holding only such text.
 
     Each Phase 2 run of a gated archive that makes at least one user-memory extraction call
@@ -4972,7 +4974,6 @@ data:
     import json
     import logging
     import os
-    import re
     import sys
     from collections import Counter
 
@@ -5023,43 +5024,57 @@ data:
         return {"1": "skipped", "0": "off"}.get(mode, "would_skip")
 
 
-    # Claude Code writes these into a user turn; IMPR-1479 row 2 inventoried them in 486
-    # archives. A tagged block is removed and the rest of the part judged; a part that opens
-    # with an agent opening is agent text whole. The mid-turn wrapper is unwrapped first,
-    # because a forwarded side-agent note also arrives inside it.
-    _HARNESS_BLOCKS = re.compile(
-        r"<(?P<tag>system-reminder|task-notification|local-command-stdout"
-        r"|local-command-stderr|local-command-caveat|bash-stdout|bash-stderr"
-        r"|cross-session-message|interrupted-output)\b[^>]*>.*?</(?P=tag)>",
-        re.S,
+    # What Claude Code writes into a user turn; IMPR-1479 row 2 inventoried it in 486
+    # archives. Every check is on the whole part, by plain prefix and suffix comparison, so
+    # the cost is linear and no text inside a part changes the verdict (decision A2).
+    _MIDTURN_HEAD = "The user sent a new message while you were working:"
+    _AGENT_OPENINGS = (
+        "Here is a note offered by a side agent:",
+        "The coordinator sent a message while you were working",
+        "Another Claude session sent a message",
+        "Base directory for this skill:",
+        "This session is being continued from a previous conversation",
+        "[session cc-",
+        "[Request interrupted by user",
     )
-    _MIDTURN = re.compile(
-        r"^\s*The user sent a new message while you were working:\s*(?P<inner>.*?)"
-        r"(?:\s*This is how Claude Code surfaces messages the user sends mid-turn.*)?$",
-        re.S,
+    _HARNESS_TAGS = (
+        "system-reminder",
+        "task-notification",
+        "local-command-stdout",
+        "local-command-stderr",
+        "local-command-caveat",
+        "bash-stdout",
+        "bash-stderr",
+        "cross-session-message",
+        "interrupted-output",
     )
-    _AGENT_OPENINGS = re.compile(
-        r"^\s*(?:"
-        r"Here is a note offered by a side agent:"
-        r"|The coordinator sent a message while you were working"
-        r"|Another Claude session sent a message"
-        r"|Base directory for this skill:"
-        r"|This session is being continued from a previous conversation"
-        r"|\[session cc-[0-9a-f-]+ ·"
-        r"|\[Request interrupted by user"
-        r"|Tool loaded\.\s*$"
-        r")"
-    )
+    _HARNESS_OPEN = tuple(f"<{tag}{end}" for tag in _HARNESS_TAGS for end in (">", " "))
+    _HARNESS_CLOSE = tuple(f"</{tag}>" for tag in _HARNESS_TAGS)
+
+
+    def _is_agent_text(body: str) -> bool:
+        return (
+            body.startswith(_AGENT_OPENINGS)
+            or body == "Tool loaded."
+            or (body.startswith(_HARNESS_OPEN) and body.endswith(_HARNESS_CLOSE))
+        )
 
 
     def is_typed_text(text) -> bool:
-        """Whether a user text part holds text the user wrote, not agent or harness text."""
+        """Whether a user text part holds text the user wrote, not agent or harness text.
+
+        A part is agent text when, stripped, it opens with an agent opening, is
+        ``Tool loaded.``, or opens with a harness tag and closes with one. The mid-turn
+        wrapper is judged by what follows its header, so a side-agent note inside it is
+        agent text and anything else the user sent is typed. A part that mixes a harness
+        block with other text counts as typed.
+        """
         if not isinstance(text, str):
             return False
-        if midturn := _MIDTURN.match(text):
-            text = midturn.group("inner")
-        text = _HARNESS_BLOCKS.sub("", text)
-        return bool(text.strip()) and not _AGENT_OPENINGS.match(text)
+        body = text.strip()
+        if body.startswith(_MIDTURN_HEAD):
+            body = body[len(_MIDTURN_HEAD) :].lstrip()
+        return bool(body) and not _is_agent_text(body)
 
 
     def _texts(message):

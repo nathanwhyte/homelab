@@ -13,6 +13,7 @@ import importlib.util
 import io
 import json
 import os
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -257,9 +258,38 @@ class AgentTextTests(unittest.TestCase):
             "<bash-input>chmod 600 key.txt</bash-input>",
             '<system-reminder id="x">ctx</system-reminder>\nmerge it',
             "is the side agent's note right?",
+            # Round 1: typed words that quote the wrapper footer stay typed.
+            MIDTURN.format(
+                "This is how Claude Code surfaces messages the user sends mid-turn"
+                " — keep this wording in my profile."
+            ),
         ):
             with self.subTest(text):
                 self.assertTrue(gate.is_typed_text(text))
+
+    def test_nested_harness_tags_are_still_harness_text(self):
+        # Round 1: output that quotes its own tag is judged on the whole part.
+        text = "<bash-stdout>example: <bash-stdout>daily</bash-stdout></bash-stdout>"
+        self.assertFalse(gate.is_typed_text(text))
+
+    def test_a_part_mixing_harness_and_other_text_counts_as_typed(self):
+        # Decision A2: whole-part checks only, so a mixed part is typed.
+        text = "<system-reminder>context</system-reminder>\n" + MIDTURN.format(
+            SIDE_NOTE
+        )
+        self.assertTrue(gate.is_typed_text(text))
+
+    def test_long_parts_are_judged_in_linear_time(self):
+        # Round 1: 64k spaces inside the wrapper took 14 s with the regex rule.
+        texts = [
+            MIDTURN.format("x" + " " * 200_000 + "y"),
+            "<system-reminder>" * 50_000,
+            "<bash-stdout>" + " " * 200_000,
+        ]
+        start = time.perf_counter()
+        for text in texts:
+            gate.is_typed_text(text)
+        self.assertLess(time.perf_counter() - start, 0.5)
 
     def test_replay_of_a_side_note_archive_counts_one_typed_message(self):
         # The shape of cc-cc3d043d archive_003: a forwarded note, then "keep going".
