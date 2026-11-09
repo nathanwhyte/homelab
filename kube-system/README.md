@@ -9,6 +9,8 @@ Cluster-level k3s pieces that are not owned by an application namespace.
 | `k3s-backup-s3-credentials.secret.yaml.example` | Template for the backup job's credentials |
 | `k3s-datastore-restore-drill-2026-09-05.md` | Restore drill record |
 | `pin-k3s-node-ip.sh` | Host script: pin a node's `node-ip` to its LAN IPv4 address (BUG-1152) |
+| `kubelet-container-logs.conf` | Kubelet drop-in: `containerLogMaxSize: 50Mi` (BUG-1293) |
+| `install-kubelet-container-logs.sh` | Host script: install that drop-in on a node and restart k3s (BUG-1293) |
 
 ## Pinning `node-ip` (BUG-1152)
 
@@ -55,3 +57,50 @@ kubectl get node <node> -o jsonpath='{.metadata.annotations.k3s\.io/internal-ip}
 
 manu registers no IPv6 address today (it has no IPv6 default route, see
 BUG-1101), so pinning there is for uniformity rather than a fix.
+
+## Container log size (BUG-1293)
+
+Alloy reads pod logs through the kubelet log API, which serves only a
+container's current log file. When Loki is down, the collectors stop reading,
+and once Loki returns they resume from whatever the current file still holds.
+Lines in files rotated during the outage are lost. The current file's size
+therefore bounds how long an outage a pod's lines survive. At the kubelet
+default of `10Mi`, the busiest writer outside Loki lasts about 6.5 h, and a
+timmy drain has taken 12.5 h.
+
+`kubelet-container-logs.conf` raises `containerLogMaxSize` to `50Mi` and keeps
+`containerLogMaxFiles` at 5. It is a kubelet config drop-in rather than a
+`kubelet-arg` in `config.yaml`. k3s starts the kubelet with
+`--config-dir=/var/lib/rancher/k3s/agent/etc/kubelet.conf.d` and rewrites only
+`00-k3s-defaults.conf` there, so a `50-` file survives restarts. The kubelet
+reads it only at startup, so each node's k3s unit must restart. Containers keep
+running through the restart, and existing containers get the new limit at the
+kubelet's next check.
+
+Run the script **on each node**, agents first and the server last:
+
+```bash
+# on wemby, then manu (agents)
+./kube-system/install-kubelet-container-logs.sh --dry-run
+./kube-system/install-kubelet-container-logs.sh
+
+# on timmy (server) last
+./kube-system/install-kubelet-container-logs.sh
+```
+
+Re-running when the installed file already matches reports
+`already installed` and does not restart k3s. Verify each node from a
+workstation:
+
+```bash
+kubectl get --raw /api/v1/nodes/<node>/proxy/configz | grep -o '"containerLogMax[A-Za-z]*":[^,]*'
+```
+
+Disk: a container that fills its file keeps up to two uncompressed files (the
+current one and the newest rotated) plus three gzipped ones, about 100Mi plus
+the compressed files. Most containers write far less; on 2026-11-09 only 2 of
+161 used 40 MiB or more. wemby has the least room (43 GiB free on its root
+filesystem, which holds `/var/log/pods`).
+
+To revert, delete `50-container-logs.conf` from the drop-in directory and
+restart the unit.
