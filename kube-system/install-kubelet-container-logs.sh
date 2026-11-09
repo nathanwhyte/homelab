@@ -54,32 +54,75 @@ if [ "$dry_run" = 1 ]; then
 fi
 
 # --- install ----------------------------------------------------------------
-sudo install -m 0600 -o root -g root "$src" "$dest"
-echo ">> installed $dest:"
-sudo cat "$dest" | sed 's/^/     /'
+# Stage under a name the kubelet ignores (it reads only *.conf), check it, then
+# rename it into place: a failure before the rename leaves the node's drop-ins
+# as they were.
+tmp="$(sudo mktemp "$conf_dir/.50-container-logs.XXXXXX")"
+trap 'sudo rm -f "$tmp"' EXIT
+sudo install -m 0600 -o root -g root "$src" "$tmp"
+sudo cmp -s "$src" "$tmp" || { echo "staged copy $tmp does not match $src" >&2; exit 1; }
+echo ">> installing as $dest:"
+sudo cat "$tmp" | sed 's/^/     /'
+sudo mv -f "$tmp" "$dest"
+trap - EXIT
+
+revert="sudo rm -f $dest && sudo systemctl restart $unit"
+fail() {
+  echo "$1" >&2
+  echo "To revert: $revert" >&2
+  exit 1
+}
 
 # --- restart and verify -----------------------------------------------------
 echo ">> restarting $unit (the API is briefly unavailable if this is the server)"
-sudo systemctl restart "$unit"
+sudo systemctl restart "$unit" || fail "systemctl restart $unit failed"
 
 for _ in $(seq 1 60); do
   if systemctl is-active --quiet "$unit"; then break; fi
   sleep 2
 done
-systemctl is-active --quiet "$unit" || { echo "$unit did not come back active" >&2; exit 1; }
+systemctl is-active --quiet "$unit" || fail "$unit did not come back active"
 
-echo ">> waiting for the node object to report Ready"
+# The kubelet's local health endpoint answers on every node, agents included
+# (k3s binds healthz to 127.0.0.1, pkg/daemons/agent/agent.go:166,183); a
+# kubelet that rejected the drop-in never serves it.
+echo ">> waiting for the kubelet's healthz"
+healthy=0
 for _ in $(seq 1 60); do
-  if sudo k3s kubectl get node "$(hostname)" \
-    -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null | grep -q True; then
+  if [ "$(curl -fsS --max-time 3 http://127.0.0.1:10248/healthz 2>/dev/null || true)" = ok ]; then
+    healthy=1
     break
   fi
   sleep 5
 done
+[ "$healthy" = 1 ] || fail "the kubelet did not report healthy within 5 min (journalctl -u $unit)"
+
+# Only the server has an admin kubeconfig; on an agent, check from a workstation.
+check="kubectl get --raw /api/v1/nodes/$(hostname)/proxy/configz | grep -o '\"containerLogMax[A-Za-z]*\":[^,]*'"
+if ! sudo test -f /etc/rancher/k3s/k3s.yaml; then
+  echo ">> healthy. No kubeconfig on this agent; check Ready and the setting from a workstation:"
+  echo "     kubectl get node $(hostname)"
+  echo "     $check"
+  echo ">> expect containerLogMaxSize \"50Mi\" and containerLogMaxFiles 5"
+  exit 0
+fi
+
+echo ">> waiting for the node object to report Ready"
+ready=0
+for _ in $(seq 1 60); do
+  if sudo k3s kubectl get node "$(hostname)" \
+    -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null | grep -q True; then
+    ready=1
+    break
+  fi
+  sleep 5
+done
+[ "$ready" = 1 ] || fail "node $(hostname) did not report Ready within 5 min"
 
 echo ">> live kubelet log settings:"
-sudo k3s kubectl get --raw "/api/v1/nodes/$(hostname)/proxy/configz" 2>/dev/null |
-  grep -o '"containerLogMax[A-Za-z]*":[^,]*' | sed 's/^/     /' ||
-  echo "     (no kubeconfig on an agent — check from a workstation:" \
-    "kubectl get --raw /api/v1/nodes/$(hostname)/proxy/configz | grep -o '\"containerLogMax[A-Za-z]*\":[^,]*')"
-echo ">> expect containerLogMaxSize \"50Mi\" and containerLogMaxFiles 5"
+settings="$(sudo k3s kubectl get --raw "/api/v1/nodes/$(hostname)/proxy/configz" |
+  grep -o '"containerLogMax[A-Za-z]*":[^,]*')" || fail "could not read configz; check with: $check"
+echo "$settings" | sed 's/^/     /'
+echo "$settings" | grep -q '"containerLogMaxSize":"50Mi"' ||
+  fail "containerLogMaxSize is not 50Mi on $(hostname)"
+echo ">> done: containerLogMaxSize is 50Mi"

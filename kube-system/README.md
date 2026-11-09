@@ -88,8 +88,13 @@ Run the script **on each node**, agents first and the server last:
 ./kube-system/install-kubelet-container-logs.sh
 ```
 
-Re-running when the installed file already matches reports
-`already installed` and does not restart k3s. Verify each node from a
+The script stages the file and renames it into place, so a failure before the
+restart leaves the node's drop-ins as they were. After the restart it waits for
+the kubelet's local `healthz` on every node, then on timmy (the only node with
+an admin kubeconfig) for `Ready` and a live `containerLogMaxSize` of `50Mi`. Any
+failure exits non-zero with the revert command; stop the rollout there.
+Re-running when the installed file already matches reports `already installed`
+and does not restart k3s. On the agents, check `Ready` and the setting from a
 workstation:
 
 ```bash

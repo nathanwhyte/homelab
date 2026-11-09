@@ -136,6 +136,14 @@ repos:
         language: system
         pass_filenames: false
         files: ^grafana/(deploy-grafana\.sh|test-deploy-grafana-preflight\.py)$
+      # BUG-1293: the host script that installs the kubelet container-log
+      # drop-in and restarts k3s. Stub tools only.
+      - id: install-kubelet-container-logs-tests
+        name: install-kubelet-container-logs.sh scenario tests
+        entry: python3 kube-system/test-install-kubelet-container-logs.py
+        language: system
+        pass_filenames: false
+        files: ^kube-system/(install-kubelet-container-logs\.sh|kubelet-container-logs\.conf|test-install-kubelet-container-logs\.py)$
       # IMPR-1331: the Haiku-share reading script. Stdlib only, fakes only.
       - id: ov-haiku-reading-tests
         name: ov-haiku-reading tests
