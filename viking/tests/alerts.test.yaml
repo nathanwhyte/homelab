@@ -401,7 +401,7 @@ tests:
               harness: claude-code
             exp_annotations:
               summary: "pop/claude-code session-start hook ran but counted no injection in 24h"
-              description: "The session-start hook ran about 6 or more times on pop (claude-code) in 24h (increase() extrapolates, so the count is approximate), but no session-start memory injection was counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
+              description: "The session-start hook ran 6 or more times on pop (claude-code) in 24h, but no session-start memory injection was counted. Either injection is off, or a memory-plugin update renamed the session-start stage ov-telemetry-push.py counts (DELIVERY_EVENTS in dotfiles bin/ov-telemetry-push.py). Check that Mac's ~/.openviking/logs/*-hooks.log."
 
   # The same churn over the 6h recall window: pod a 0-3h, b 3h20m-3h40m,
   # c from 4h.
@@ -479,6 +479,54 @@ tests:
     promql_expr_test:
       - expr: count by (machine) (ALERTS{alertname="OpenVikingClientRecallDeliveryFlat",alertstate="firing"})
         eval_time: 6h40m
+        exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
+
+  - name: recall-delivery boundary holds across short pods at production cadence
+    # Codex review of the pod-churn fix: two 5-minute pods at 30s scrapes,
+    # five recalls each, read 5.56 apiece under increase(), so a summed
+    # increase() fired on ten recalls. Pod a 0-4.5m, b 5-9.5m, c from 10m;
+    # workbook makes 10 recalls (quiet), pop makes 11 (fires).
+    interval: 30s
+    input_series:
+      - series: 'openviking_client_recalls_total{machine="workbook", harness="codex", pod="openviking-a"}'
+        values: "100x4 105x4 _x91"
+      - series: 'openviking_client_recalls_total{machine="workbook", harness="codex", pod="openviking-b"}'
+        values: "_x10 105x4 110x4 _x81"
+      - series: 'openviking_client_recalls_total{machine="workbook", harness="codex", pod="openviking-c"}'
+        values: "_x20 110x80"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "100x4 105x4 _x91"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-b"}'
+        values: "_x10 105x4 111x4 _x81"
+      - series: 'openviking_client_recalls_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x20 111x80"
+      - series: 'openviking_client_recall_skips_total{machine="workbook", harness="codex", pod="openviking-a"}'
+        values: "0x9 _x91"
+      - series: 'openviking_client_recall_skips_total{machine="workbook", harness="codex", pod="openviking-c"}'
+        values: "_x20 0x80"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x9 _x91"
+      - series: 'openviking_client_recall_skips_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x20 0x80"
+      - series: 'openviking_client_recall_errors_total{machine="workbook", harness="codex", pod="openviking-a"}'
+        values: "0x9 _x91"
+      - series: 'openviking_client_recall_errors_total{machine="workbook", harness="codex", pod="openviking-c"}'
+        values: "_x20 0x80"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-a"}'
+        values: "0x9 _x91"
+      - series: 'openviking_client_recall_errors_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x20 0x80"
+      - series: 'openviking_client_recall_tokens_total{machine="workbook", harness="codex", pod="openviking-c"}'
+        values: "_x20 5000x80"
+      - series: 'openviking_client_recall_tokens_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x20 5000x80"
+      - series: 'openviking_client_recall_entries_total{machine="workbook", harness="codex", pod="openviking-c"}'
+        values: "_x20 40x80"
+      - series: 'openviking_client_recall_entries_total{machine="pop", harness="codex", pod="openviking-c"}'
+        values: "_x20 40x80"
+    promql_expr_test:
+      - expr: count by (machine) (ALERTS{alertname="OpenVikingClientRecallDeliveryFlat",alertstate="firing"})
+        eval_time: 50m
         exp_samples: [{ labels: '{machine="pop"}', value: 1 }]
 
   - name: recall-delivery threshold boundary, 10 recalls quiet and 11 fire
