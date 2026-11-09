@@ -254,7 +254,6 @@ class AgentTextTests(unittest.TestCase):
         for text in (
             "keep going",
             MIDTURN.format("B2"),
-            "<command-message>retro</command-message> <command-name>/retro</command-name>",
             "<bash-input>chmod 600 key.txt</bash-input>",
             '<system-reminder id="x">ctx</system-reminder>\nmerge it',
             "is the side agent's note right?",
@@ -289,11 +288,62 @@ class AgentTextTests(unittest.TestCase):
             MIDTURN.format("x" + " " * 200_000 + "y"),
             "<system-reminder>" * 50_000,
             "<bash-stdout>" + " " * 200_000,
+            "<command-name>" + "<command-args>" * 50_000 + "</command-args>",
         ]
         start = time.perf_counter()
         for text in texts:
             gate.is_typed_text(text)
         self.assertLess(time.perf_counter() - start, 0.5)
+
+    def test_a_bare_command_marker_is_not_typed(self):
+        # Decision C2: the three shapes recent archives hold. Only argument text counts.
+        for text in (
+            "<command-message>claim-check</command-message>\n<command-name>/claim-check</command-name>",
+            "<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n"
+            "            <command-args></command-args>",
+            "<command-message>retro</command-message> <command-name>/retro</command-name>"
+            " <command-args>  \n </command-args>",
+        ):
+            with self.subTest(text):
+                self.assertFalse(gate.is_typed_text(text))
+                self.assertFalse(gate.has_typed_user_text([_msg("user", _text(text))]))
+
+    def test_command_arguments_are_typed(self):
+        for text in (
+            "<command-message>research-codebase</command-message>\n"
+            "<command-name>/research-codebase</command-name>\n<command-args>P2 and P3</command-args>",
+            "<command-name>/claim-check</command-name><command-args>the plan</command-args>"
+            "<command-message>claim-check</command-message>",
+            # Malformed args (no close tag) count as typed rather than guess.
+            "<command-name>/x</command-name><command-args>half</command-name>",
+            # Typed text around a marker makes the part typed (A2's mixed-part rule).
+            "<command-name>/clear</command-name>\nthen redo the plan",
+            "do this first <command-name>/clear</command-name>",
+        ):
+            with self.subTest(text):
+                self.assertTrue(gate.is_typed_text(text))
+
+    def test_replay_of_a_command_marker_archive_is_untyped(self):
+        # The shape of cc-db6c5c37 archive_004: a bare /claim-check, then harness text.
+        archive = [
+            _msg(
+                "user",
+                _text(
+                    "<command-message>claim-check</command-message>\n"
+                    "<command-name>/claim-check</command-name>"
+                ),
+            ),
+            _msg(
+                "user",
+                _text(
+                    "Base directory for this skill: /Users/noot/.claude/skills/claim-check"
+                ),
+            ),
+            _msg("assistant", _text("Claims table follows.")),
+        ]
+        self.assertFalse(gate.has_typed_user_text(archive))
+        self.assertEqual(gate.role_counts(archive)["user_text"], 0)
+        self.assertEqual(gate.role_counts(archive)["user_agent_text"], 2)
 
     def test_replay_of_a_side_note_archive_counts_one_typed_message(self):
         # The shape of cc-cc3d043d archive_003: a forwarded note, then "keep going".
