@@ -32,10 +32,21 @@
 #
 # Traffic: the first run is a full backup of every enrolled volume. It measured
 # 76.2 GiB across 19 backups on 2026-11-09 (sum of backups.longhorn.io
-# status.size), not the 45 GiB estimated on 2026-11-08. full-backup-interval
-# repeats a full upload every 7th run. concurrency: 1 serializes this job's volumes but caps no bandwidth.
-# copyparty (162 GiB) joins only after its own first full backup runs in an
-# announced window (decision A1, 2026-11-08).
+# status.size), not the 45 GiB estimated on 2026-11-08. Every later run is
+# incremental: Longhorn stores a volume as 2 MB checksum-addressed blocks and
+# uploads only the changed ones. full-backup-interval is "0" (2026-11-10), so it
+# never re-uploads every block. The cost is that a block corrupted in R2 is
+# never rewritten; the restore drill is the check for that.
+# concurrency: 1 serializes this job's volumes but caps no bandwidth.
+#
+# Retention: retain 1 (2026-11-10) keeps only the latest backup per volume in
+# R2. That backup is complete for a restore, but there is no older point to roll
+# back to: a deletion or corruption is copied over the only R2 copy at the next
+# run. copyparty's own 7 daily snapshots stay on its disk.
+# copyparty (162 GiB) joins by its own PVC label, not the group, after its
+# one-off first full backup `impr1478-copyparty-first` (decision A1), which ran
+# 2026-11-10 20:45Z to 2026-11-11 02:57Z and uploaded 63.7 GiB
+# (status.newlyUploadDataSize) with Garage healthy throughout.
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:
@@ -45,9 +56,9 @@ spec:
   cron: "0 2 * * *"
   task: backup
   groups: [default]
-  retain: 7
+  retain: 1
   concurrency: 1
   labels:
     policy: daily
   parameters:
-    full-backup-interval: "7"
+    full-backup-interval: "0"

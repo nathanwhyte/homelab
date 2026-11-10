@@ -1,6 +1,7 @@
 [
   "coach/postgres-data",
   "compendium/compendium-sync-state-v2",
+  "copyparty/copyparty-files",
   "equal-risk/pgdata-postgres-0",
   "garage/data-garage-0",
   "garage/data-garage-1",

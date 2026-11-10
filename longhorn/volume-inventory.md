@@ -7,19 +7,20 @@ it with the cluster; this page adds the size, current placement and the reason a
 detached volume is kept. Read live 2026-11-08, Longhorn 1.12.1.
 
 Backup posture: **daily** is the `backup-daily` RecurringJob
-([`backup-policy.yaml`](backup-policy.yaml), 02:00 America/Chicago, retain 7),
+([`backup-policy.yaml`](backup-policy.yaml), 02:00 America/Chicago, retain 1, incremental only),
 **manual** is out of every RecurringJob and backed up by hand on request,
 **none** is never backed up by Longhorn. Exempt volumes carry
 `recurring-job-group.longhorn.io/manual` on their PVC.
 
-**Each morning expect 20 Completed backups**, one per `daily` row (21 once
-copyparty joins). The job pod's `Found N volumes` line should read the same.
+**Each morning expect 21 Completed backups**, one per `daily` row, copyparty
+included since its one-off first full backup on 2026-11-10. The job pod's
+`Found N volumes` line should read the same.
 
 A volume with no writes since its last backup still gets a new snapshot and a
 new Completed backup; Longhorn 1.12.1 does not skip it. On the 2026-11-10 run,
 `llama/cloud-llm-counter-data` uploaded 0 MiB (`status.newlyUploadDataSize`) and
 `harbor/data-harbor-trivy-0` under 0.1 MiB, each as a new Completed backup on a
-new snapshot, and the job pod logged no skip. So the morning count is 20 whether
+new snapshot, and the job pod logged no skip. So the morning count is 21 whether
 or not a volume changed, and `lastBackupAt` moves every run.
 
 ## Attached
@@ -28,7 +29,7 @@ or not a volume changed, and `lastBackupAt` moves every run.
 | --- | --- | --- | --- | --- | --- |
 | `coach/postgres-data` | longhorn-db | 2 | manu, wemby | <1 GiB | daily |
 | `compendium/compendium-sync-state-v2` | longhorn-compendium-sync | 2 | manu, timmy | <1 GiB | daily |
-| `copyparty/copyparty-files` | longhorn-hdd-2x | 2 → 1 | manu, wemby | 162 GiB | manual → daily after its one-off first backup |
+| `copyparty/copyparty-files` | longhorn-hdd-2x | 1 | (set on apply) | 162 GiB | daily (one-off first backup `impr1478-copyparty-first`, 2026-11-10) |
 | `equal-risk/pgdata-postgres-0` | longhorn-db | 3 | manu, timmy, wemby | <1 GiB | daily |
 | `garage/data-garage-0` | longhorn-garage-data | 1 | wemby (moved local to garage-0 at 21:50Z by best-effort locality) | 4 GiB | daily |
 | `garage/data-garage-1` | longhorn-garage-data | 1 | timmy | 4 GiB | daily |
