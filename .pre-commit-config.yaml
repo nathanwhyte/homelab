@@ -415,11 +415,8 @@ repos:
     hooks:
       - id: yamllint
         # Use the repo's tuned config. Same viking/snapshots exclusion as check-yaml.
-        # --no-warnings so the 10 pre-existing warnings (comments-indentation,
-        # comments missing starting space) don't block commits; only errors do.
-        # 13 errors remain — 9 auto-fixed by end-of-file-fixer, 4 are real
-        # issues in gpu/amd/amdgpu-fan.yml, harbor/harbor-values.yaml,
-        # longhorn/ui.yaml.
+        # --no-warnings so warnings don't block commits; only errors do. The
+        # repo has been at 0 errors and 0 warnings since 2026-06-30 (.yamllint.yml).
         args:
           - --config-file=.yamllint.yml
           - --no-warnings
