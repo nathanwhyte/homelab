@@ -39,7 +39,7 @@
 #
 # memory.custom_templates_dir has prod's path, but the test stack mounts its own
 # ov-test-memory-templates ConfigMap there (IMPR-1480: identity and soul turned
-# off), not prod's openviking-memory-templates (BUG-1260's preferences override).
+# off; IMPR-1401 W3: profile turned off), not prod's openviking-memory-templates (BUG-1260's preferences override).
 apiVersion: v1
 kind: ConfigMap
 metadata:
