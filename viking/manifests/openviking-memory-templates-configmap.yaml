@@ -214,7 +214,8 @@ data:
   # (OV_PROFILE_FILTER) and the profile gate (OV_PROFILE_GATE) in place, extraction
   # still filled each peer's profile.md with status lines, decision records and
   # measured machine facts (IMPR-1401 second gate re-reads 3-5). Turning the type off
-  # stops the rewrites and the extraction prefetch read; each peer's profile.md is
+  # stops extraction's rewrites and its prefetch read (deleting a resource a memory
+  # links to still rewrites that memory, whatever its type); each peer's profile.md is
   # then a hand-written trait list that session start keeps injecting, and the
   # profile gate and filter have nothing left to act on. Re-diff against the bundled
   # copy when bumping the image.
