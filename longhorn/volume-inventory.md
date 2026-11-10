@@ -15,6 +15,13 @@ Backup posture: **daily** is the `backup-daily` RecurringJob
 **Each morning expect 20 Completed backups**, one per `daily` row (21 once
 copyparty joins). The job pod's `Found N volumes` line should read the same.
 
+A volume with no writes since its last backup still gets a new snapshot and a
+new Completed backup; Longhorn 1.12.1 does not skip it. On the 2026-11-10 run,
+`llama/cloud-llm-counter-data` uploaded 0 MiB (`status.newlyUploadDataSize`) and
+`harbor/data-harbor-trivy-0` under 0.1 MiB, each as a new Completed backup on a
+new snapshot, and the job pod logged no skip. So the morning count is 20 whether
+or not a volume changed, and `lastBackupAt` moves every run.
+
 ## Attached
 
 | Namespace/PVC | Class | Replicas | Nodes | Used | Backup |
