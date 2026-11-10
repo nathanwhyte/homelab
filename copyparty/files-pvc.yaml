@@ -15,6 +15,15 @@
 # recurring-job.longhorn.io/<job>=enabled` / `Found 0 volumes`) which is
 # exactly what copyparty-files-snap-daily logged on all 91 of its prior
 # daily runs before this label existed.
+#
+# recurring-job-group.longhorn.io/manual (IMPR-1478, 2026-11-08): marks this
+# volume backup-exempt until its first 162 GiB full backup runs as a one-off in
+# an announced window (decision A1). The snap-daily job label above already
+# keeps it out of the implicit `default` group, so backup-daily skips it either
+# way; `replica-policy.py --check` requires this label on every `backup: manual`
+# row. It was set live by hand first and is here so the manifest matches live.
+# Enrollment swaps it for recurring-job.longhorn.io/backup-daily: enabled
+# (longhorn/replica-policy.yaml, copyparty row).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -25,6 +34,7 @@ metadata:
     app.kubernetes.io/component: storage
     recurring-job.longhorn.io/source: enabled
     recurring-job.longhorn.io/copyparty-files-snap-daily: enabled
+    recurring-job-group.longhorn.io/manual: enabled
 spec:
   accessModes:
     - ReadWriteOnce
