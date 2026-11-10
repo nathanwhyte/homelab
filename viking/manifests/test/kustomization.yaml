@@ -50,6 +50,7 @@ configMapGenerator:
     files:
       - memory-templates/identity.yaml
       - memory-templates/soul.yaml
+      - memory-templates/profile.yaml
     options:
       disableNameSuffixHash: true
       labels:
