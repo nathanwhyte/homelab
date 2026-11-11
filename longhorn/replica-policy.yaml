@@ -116,17 +116,18 @@ volumes:
     backup: daily
     reason: Garage metadata (small); Garage replicates it as well
   - pvc: copyparty/copyparty-files
-    # Staged (decision A1, 2026-11-08): its first full backup (162 GiB) runs as
-    # a one-off in an announced quiet window, apart from backup-daily's first
-    # night. Then this row becomes `backup: daily` (PVC label
-    # recurring-job.longhorn.io/backup-daily=enabled in files-pvc.yaml, manual
-    # group label removed), and replicas drops to 1 under the large-volume rule.
-    # Until then the second replica is its only off-node copy.
-    replicas: 2
+    # Decisions A1 and C1 (2026-11-08): its first full backup ran as the
+    # one-off Backup `impr1478-copyparty-first` (2026-11-10), so it is now
+    # `backup: daily` (PVC label recurring-job.longhorn.io/backup-daily in
+    # files-pvc.yaml) and drops to 1 replica under the large-volume rule, with
+    # R2 as its off-node copy. The kept replica is wemby's, local to the pinned
+    # pod (decision K2, 2026-11-11; best-effort locality made Longhorn drop
+    # manu's).
+    replicas: 1
     disk_selector: [hdd]
     node_selector: [ethernet]
-    backup: manual
-    reason: user files (162 GiB); daily snapshots by its own job; R2 enrollment staged
+    backup: daily
+    reason: user files (162 GiB); daily snapshots by its own job; R2 is the off-node copy
   - pvc: harbor/data-harbor-redis-0
     replicas: 2
     disk_selector: [hdd]
