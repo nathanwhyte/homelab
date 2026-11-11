@@ -29,7 +29,7 @@ or not a volume changed, and `lastBackupAt` moves every run.
 | --- | --- | --- | --- | --- | --- |
 | `coach/postgres-data` | longhorn-db | 2 | manu, wemby | <1 GiB | daily |
 | `compendium/compendium-sync-state-v2` | longhorn-compendium-sync | 2 | manu, timmy | <1 GiB | daily |
-| `copyparty/copyparty-files` | longhorn-hdd-2x | 1 | (set on apply) | 162 GiB | daily (one-off first backup `impr1478-copyparty-first`, 2026-11-10) |
+| `copyparty/copyparty-files` | longhorn-hdd-2x | 1 | wemby (manu's dropped 2026-11-11, decision K2) | 162 GiB | daily (one-off first backup `impr1478-copyparty-first`, 2026-11-10) |
 | `equal-risk/pgdata-postgres-0` | longhorn-db | 3 | manu, timmy, wemby | <1 GiB | daily |
 | `garage/data-garage-0` | longhorn-garage-data | 1 | wemby (moved local to garage-0 at 21:50Z by best-effort locality) | 4 GiB | daily |
 | `garage/data-garage-1` | longhorn-garage-data | 1 | timmy | 4 GiB | daily |

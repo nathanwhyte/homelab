@@ -120,7 +120,9 @@ volumes:
     # one-off Backup `impr1478-copyparty-first` (2026-11-10), so it is now
     # `backup: daily` (PVC label recurring-job.longhorn.io/backup-daily in
     # files-pvc.yaml) and drops to 1 replica under the large-volume rule, with
-    # R2 as its off-node copy.
+    # R2 as its off-node copy. The kept replica is wemby's, local to the pinned
+    # pod (decision K2, 2026-11-11; best-effort locality made Longhorn drop
+    # manu's).
     replicas: 1
     disk_selector: [hdd]
     node_selector: [ethernet]
